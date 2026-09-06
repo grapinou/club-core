@@ -5,14 +5,16 @@ INSERT INTO persons (
     birth_date,
     phone_number,
     email,
-    address
+    address,
+    notes
 ) VALUES (
     $1,
     $2,
     $3,
     $4,
     $5,
-    $6
+    $6,
+    $7
 )
 RETURNING *;
 
@@ -35,7 +37,9 @@ SET
     birth_date = $4,
     phone_number = $5,
     email = $6,
-    address = $7
+    address = $7,
+    -- Existing callers preserve notes unless explicitly requested (NULL clears them).
+    notes = CASE WHEN sqlc.arg(update_notes)::boolean THEN sqlc.narg(notes)::text ELSE notes END
 WHERE id = $1
 RETURNING *;
 

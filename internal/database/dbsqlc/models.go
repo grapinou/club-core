@@ -49,6 +49,16 @@ type Person struct {
 	Address     pgtype.Text
 	CreatedAt   pgtype.Timestamptz
 	ArchivedAt  pgtype.Timestamptz
+	Notes       pgtype.Text
+}
+
+type PersonGuardian struct {
+	ID               int32
+	ChildPersonID    int32
+	GuardianPersonID int32
+	RelationshipType string
+	IsPrimaryContact bool
+	CreatedAt        pgtype.Timestamptz
 }
 
 type Role struct {
@@ -72,6 +82,7 @@ type TrialRegistration struct {
 	TrialDate  pgtype.Date
 	Status     string
 	CreatedAt  pgtype.Timestamptz
+	Notes      pgtype.Text
 }
 
 type User struct {

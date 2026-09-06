@@ -29,16 +29,18 @@ INSERT INTO persons (
     birth_date,
     phone_number,
     email,
-    address
+    address,
+    notes
 ) VALUES (
     $1,
     $2,
     $3,
     $4,
     $5,
-    $6
+    $6,
+    $7
 )
-RETURNING id, first_name, last_name, birth_date, phone_number, email, address, created_at, archived_at
+RETURNING id, first_name, last_name, birth_date, phone_number, email, address, created_at, archived_at, notes
 `
 
 type CreatePersonParams struct {
@@ -48,6 +50,7 @@ type CreatePersonParams struct {
 	PhoneNumber pgtype.Text
 	Email       pgtype.Text
 	Address     pgtype.Text
+	Notes       pgtype.Text
 }
 
 func (q *Queries) CreatePerson(ctx context.Context, arg CreatePersonParams) (Person, error) {
@@ -58,6 +61,7 @@ func (q *Queries) CreatePerson(ctx context.Context, arg CreatePersonParams) (Per
 		arg.PhoneNumber,
 		arg.Email,
 		arg.Address,
+		arg.Notes,
 	)
 	var i Person
 	err := row.Scan(
@@ -70,12 +74,13 @@ func (q *Queries) CreatePerson(ctx context.Context, arg CreatePersonParams) (Per
 		&i.Address,
 		&i.CreatedAt,
 		&i.ArchivedAt,
+		&i.Notes,
 	)
 	return i, err
 }
 
 const getPersonByID = `-- name: GetPersonByID :one
-SELECT id, first_name, last_name, birth_date, phone_number, email, address, created_at, archived_at
+SELECT id, first_name, last_name, birth_date, phone_number, email, address, created_at, archived_at, notes
 FROM persons
 WHERE id = $1
 `
@@ -93,12 +98,13 @@ func (q *Queries) GetPersonByID(ctx context.Context, id int32) (Person, error) {
 		&i.Address,
 		&i.CreatedAt,
 		&i.ArchivedAt,
+		&i.Notes,
 	)
 	return i, err
 }
 
 const listArchivedPersons = `-- name: ListArchivedPersons :many
-SELECT id, first_name, last_name, birth_date, phone_number, email, address, created_at, archived_at
+SELECT id, first_name, last_name, birth_date, phone_number, email, address, created_at, archived_at, notes
 FROM persons
 WHERE archived_at IS NOT NULL
 ORDER BY last_name, first_name
@@ -123,6 +129,7 @@ func (q *Queries) ListArchivedPersons(ctx context.Context) ([]Person, error) {
 			&i.Address,
 			&i.CreatedAt,
 			&i.ArchivedAt,
+			&i.Notes,
 		); err != nil {
 			return nil, err
 		}
@@ -135,7 +142,7 @@ func (q *Queries) ListArchivedPersons(ctx context.Context) ([]Person, error) {
 }
 
 const listPersons = `-- name: ListPersons :many
-SELECT id, first_name, last_name, birth_date, phone_number, email, address, created_at, archived_at
+SELECT id, first_name, last_name, birth_date, phone_number, email, address, created_at, archived_at, notes
 FROM persons
 WHERE archived_at IS NULL
 ORDER BY last_name, first_name
@@ -160,6 +167,7 @@ func (q *Queries) ListPersons(ctx context.Context) ([]Person, error) {
 			&i.Address,
 			&i.CreatedAt,
 			&i.ArchivedAt,
+			&i.Notes,
 		); err != nil {
 			return nil, err
 		}
@@ -190,9 +198,11 @@ SET
     birth_date = $4,
     phone_number = $5,
     email = $6,
-    address = $7
+    address = $7,
+    -- Existing callers preserve notes unless explicitly requested (NULL clears them).
+    notes = CASE WHEN $8::boolean THEN $9::text ELSE notes END
 WHERE id = $1
-RETURNING id, first_name, last_name, birth_date, phone_number, email, address, created_at, archived_at
+RETURNING id, first_name, last_name, birth_date, phone_number, email, address, created_at, archived_at, notes
 `
 
 type UpdatePersonParams struct {
@@ -203,6 +213,8 @@ type UpdatePersonParams struct {
 	PhoneNumber pgtype.Text
 	Email       pgtype.Text
 	Address     pgtype.Text
+	UpdateNotes bool
+	Notes       pgtype.Text
 }
 
 func (q *Queries) UpdatePerson(ctx context.Context, arg UpdatePersonParams) (Person, error) {
@@ -214,6 +226,8 @@ func (q *Queries) UpdatePerson(ctx context.Context, arg UpdatePersonParams) (Per
 		arg.PhoneNumber,
 		arg.Email,
 		arg.Address,
+		arg.UpdateNotes,
+		arg.Notes,
 	)
 	var i Person
 	err := row.Scan(
@@ -226,6 +240,7 @@ func (q *Queries) UpdatePerson(ctx context.Context, arg UpdatePersonParams) (Per
 		&i.Address,
 		&i.CreatedAt,
 		&i.ArchivedAt,
+		&i.Notes,
 	)
 	return i, err
 }
