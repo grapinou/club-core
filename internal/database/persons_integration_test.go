@@ -2,7 +2,6 @@ package database
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -13,17 +12,7 @@ import (
 func TestPersonsIntegration(t *testing.T) {
 	ctx := context.Background()
 
-	databaseURL := os.Getenv("DATABASE_URL")
-
-	if databaseURL == "" {
-		t.Fatal("DATABASE_URL doit être définie pour le test d'intégration")
-	}
-
-	db, err := New(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("connexion à PostgreSQL impossible : %v", err)
-	}
-	defer db.Close()
+	db := newTestDatabase(t)
 
 	tx, err := db.Begin(ctx)
 	if err != nil {
