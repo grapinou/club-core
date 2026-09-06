@@ -15,6 +15,33 @@ type Activity struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type Group struct {
+	ID          int32
+	ActivityID  int32
+	Name        string
+	Description pgtype.Text
+	IsActive    bool
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
+type GroupSlot struct {
+	ID       int32
+	GroupID  int32
+	SeasonID int32
+	// ISO weekday: 1 = Monday, 7 = Sunday
+	Weekday   int16
+	StartTime pgtype.Time
+	EndTime   pgtype.Time
+	Location  pgtype.Text
+	ValidFrom pgtype.Date
+	// Inclusive last date of validity
+	ValidUntil pgtype.Date
+	IsActive   bool
+	CreatedAt  pgtype.Timestamptz
+	UpdatedAt  pgtype.Timestamptz
+}
+
 type Membership struct {
 	ID               int32
 	PersonID         int32
@@ -30,6 +57,16 @@ type Membership struct {
 type MembershipActivity struct {
 	MembershipID int32
 	ActivityID   int32
+}
+
+type MembershipGroup struct {
+	ID           int32
+	MembershipID int32
+	GroupID      int32
+	JoinedAt     pgtype.Date
+	// First date no longer assigned; current interval is [joined_at, left_at)
+	LeftAt    pgtype.Date
+	CreatedAt pgtype.Timestamptz
 }
 
 type MembershipType struct {
