@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/grapinou/club-manager/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 

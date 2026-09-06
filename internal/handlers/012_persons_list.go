@@ -3,9 +3,9 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/grapinou/club-manager/internal/config"
-	"github.com/grapinou/club-manager/internal/database"
-	"github.com/grapinou/club-manager/internal/views"
+	"github.com/grapinou/club-core/internal/config"
+	"github.com/grapinou/club-core/internal/database"
+	"github.com/grapinou/club-core/internal/views"
 )
 
 func PersonsListHandler(cfg config.Config, queries database.PersonQueries) http.HandlerFunc {

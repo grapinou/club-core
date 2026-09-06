@@ -3,7 +3,7 @@ package handlers
 import (
 	"context"
 
-	"github.com/grapinou/club-manager/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/database/dbsqlc"
 )
 
 // recordingPersonQueries enregistre les paramètres reçus par une requête,

@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/grapinou/club-manager/internal/database"
-	"github.com/grapinou/club-manager/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/database"
+	"github.com/grapinou/club-core/internal/database/dbsqlc"
 )
 
 func PostUpdatePersonHandler(queries database.PersonQueries) http.HandlerFunc {

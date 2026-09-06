@@ -3,9 +3,9 @@ package router
 import (
 	"net/http"
 
-	"github.com/grapinou/club-manager/internal/config"
-	"github.com/grapinou/club-manager/internal/database"
-	"github.com/grapinou/club-manager/internal/handlers"
+	"github.com/grapinou/club-core/internal/config"
+	"github.com/grapinou/club-core/internal/database"
+	"github.com/grapinou/club-core/internal/handlers"
 )
 
 func New(cfg config.Config, queries database.Queries) *http.ServeMux {

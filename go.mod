@@ -1,4 +1,4 @@
-module github.com/grapinou/club-manager
+module github.com/grapinou/club-core
 
 go 1.26.5
 

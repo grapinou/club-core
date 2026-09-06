@@ -3,7 +3,7 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/grapinou/club-manager/internal/database"
+	"github.com/grapinou/club-core/internal/database"
 )
 
 func PostRestorePersonHandler(queries database.PersonQueries) http.HandlerFunc {

@@ -3,7 +3,7 @@ package database
 import (
 	"context"
 
-	"github.com/grapinou/club-manager/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/database/dbsqlc"
 )
 
 type PersonQueries interface {

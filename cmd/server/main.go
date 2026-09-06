@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/grapinou/club-manager/internal/config"
-	"github.com/grapinou/club-manager/internal/database"
-	"github.com/grapinou/club-manager/internal/database/dbsqlc"
-	"github.com/grapinou/club-manager/internal/router"
+	"github.com/grapinou/club-core/internal/config"
+	"github.com/grapinou/club-core/internal/database"
+	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/router"
 )
 
 const configPath = "config/config.json"

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/grapinou/club-manager/internal/config"
+	"github.com/grapinou/club-core/internal/config"
 )
 
 func testRoute(

@@ -3,7 +3,7 @@ package router
 import (
 	"context"
 
-	"github.com/grapinou/club-manager/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/database/dbsqlc"
 )
 
 type FakeQueries struct {

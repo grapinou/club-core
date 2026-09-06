@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/grapinou/club-manager/internal/config"
+	"github.com/grapinou/club-core/internal/config"
 )
 
 func TestMethodNotAllowed(t *testing.T) {
