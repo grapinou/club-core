@@ -1,0 +1,34 @@
+# Build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Coverage
+*.out
+coverage.out
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Obsidian doc
+
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/cache/
+.trash/
+
+# État local de l'interface Obsidian
+docs/.obsidian/workspace*.json
+docs/.obsidian/graph.json
+
+# review diff
+review.diff

@@ -1,0 +1,88 @@
+{{ define "content" }}
+
+<h1>Ajouter une personne :</h1>
+
+<form action="/persons" method="post">
+
+    <div class="mb-3">
+        <label for="firstName" class="form-label">
+            Prénom
+        </label>
+        <input
+            type="text"
+            class="form-control"
+            id="firstName"
+            name="FirstName"
+            required
+        >
+    </div>
+
+    <div class="mb-3">
+        <label for="lastName" class="form-label">
+            Nom
+        </label>
+        <input
+            type="text"
+            class="form-control"
+            id="lastName"
+            name="LastName"
+            required
+        >
+    </div>
+
+    <div class="mb-3">
+        <label for="birthdate" class="form-label">
+            Date de naissance
+        </label>
+        <input
+            type="date"
+            class="form-control"
+            id="birthdate"
+            name="Birthdate"
+            required
+        >
+    </div>
+
+    <div class="mb-3">
+        <label for="phoneNumber" class="form-label">
+            Numéro de téléphone
+        </label>
+        <input
+            type="tel"
+            class="form-control"
+            id="phoneNumber"
+            name="PhoneNumber"
+        >
+    </div>
+
+    <div class="mb-3">
+        <label for="email" class="form-label">
+            Email
+        </label>
+        <input
+            type="email"
+            class="form-control"
+            id="email"
+            name="Email"
+        >
+    </div>
+
+    <div class="mb-3">
+        <label for="address" class="form-label">
+            Adresse
+        </label>
+        <input
+            type="text"
+            class="form-control"
+            id="address"
+            name="Address"
+        >
+    </div>
+
+    <button type="submit" class="btn btn-primary">
+        Ajouter
+    </button>
+
+</form>
+
+{{ end }}

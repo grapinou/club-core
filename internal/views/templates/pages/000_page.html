@@ -1,0 +1,17 @@
+{{ define "content" }}
+
+<h1>{{ .Heading }}</h1>
+
+<p>
+    {{ .Description }}
+</p>
+
+{{ if .Image }}
+<img
+    src="{{ .Image }}"
+    alt="{{ .ImageAlt }}"
+    class="img-fluid mb-4"
+>
+{{ end }}
+
+{{ end }}

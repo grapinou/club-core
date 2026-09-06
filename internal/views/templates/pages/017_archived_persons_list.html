@@ -1,0 +1,47 @@
+{{ define "content" }}
+
+<h1>Personnes archivées</h1>
+
+<a href="/persons" class="btn btn-secondary mb-3">
+    Retour aux personnes
+</a>
+
+<table class="table">
+    <thead>
+        <tr>
+            <th>Prénom</th>
+            <th>Nom</th>
+            <th>Date de naissance</th>
+            <th>Email</th>
+            <th>Action</th>
+        </tr>
+    </thead>
+
+    <tbody>
+        {{ range .Persons }}
+        <tr>
+            <td>{{ .FirstName }}</td>
+            <td>{{ .LastName }}</td>
+            <td>{{ .BirthDate }}</td>
+            <td>{{ .Email }}</td>
+
+            <td>
+                <form
+                    action="/persons/{{ .ID }}/restore"
+                    method="post"
+                    class="d-inline"
+                >
+                    <button
+                        type="submit"
+                        class="btn btn-success btn-sm"
+                    >
+                        Restaurer
+                    </button>
+                </form>
+            </td>
+        </tr>
+    {{ end }}
+    </tbody>
+</table>
+
+{{ end }}

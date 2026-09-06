@@ -1,0 +1,40 @@
+{
+    "site_name": "TCR Club Manager",
+
+    "home": {
+        "title": "Accueil",
+        "heading": "Bienvenue !",
+        "description": "La Team Cat Ride (TCR) vous accueille sur son site."
+    },
+
+    "club": {
+        "title": "Le Club",
+        "heading": "Team Cat Ride",
+        "description": "TCR est là pour t'accompagner et te faire progresser en vélo.",
+        "image": "/static/images/club.jpeg",
+        "image_alt": "L'ensemble des accompagnateurs"
+    },
+    "contact": {
+        "title": "Contact",
+        "heading": "Contacter TCR",
+        "description": "Il est possible de nous contacter par email ou par téléphone.",
+        "email_address": "teamcatride@miaoumail.com",
+        "phone_number": "00-01-02-03-04"
+    },
+    "rules": {
+        "title": "Règlement",
+        "heading": "Règlement intérieur",
+        "description": "Chaque cat rider doit être poli et à l'heure."
+    },
+    "where": {
+        "title": "Où",
+        "heading": "Où nous trouver ?",
+        "description": "Nous sommes au 9 rue Chat Botté, à Catville"
+    },
+
+    "when": {
+        "title": "Quand",
+        "heading": "Quand nous trouver ?",
+        "description": "Nous sommes disponibles tous les soirs de 20h à 22h. Pour davantage d'informations, nous contacter."
+    }
+}

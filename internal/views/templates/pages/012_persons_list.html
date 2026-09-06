@@ -1,0 +1,70 @@
+{{ define "content" }}
+
+<h1>Liste des personnes rentrées en contact avec {{ .SiteName}} </h1>
+
+
+<a
+    href="/persons/new"
+    class="btn btn-success mb-3"
+>
+    Ajouter une personne
+</a>
+
+<a
+    href="/persons/archived"
+    class="btn btn-secondary mb-3"
+>
+    Personnes archivées
+</a>
+
+<table class="table">
+    <thead>
+        <tr>
+            <th>Prénom</th>
+            <th>Nom</th>
+            <th>Date de naissance</th>
+            <th>Numéro de téléphone</th>
+            <th>Email</th>
+            <th>Adresse</th>
+            <th>Créé le</th>
+            <th>Action</th>
+        </tr>
+    </thead>
+
+    <tbody>
+        {{ range .Persons }}
+        <tr>
+            <td>{{ .FirstName }}</td>
+            <td>{{ .LastName }}</td>
+            <td>{{ .BirthDate }}</td>
+            <td>{{ .PhoneNumber}}</td>
+            <td>{{ .Email }}</td>
+            <td>{{ .Address }}</td>
+            <td>{{ .CreatedAt}}</td>
+            <td> 
+                <a
+                     href="/persons/{{ .ID }}/edit"
+                     class="btn btn-primary btn-sm"
+                 >
+                    Modifier
+                </a>
+            
+                 <form
+                        action="/persons/{{ .ID }}/archive"
+                        method="post"
+                        class="d-inline"
+                        >
+                        <button
+                        type="submit"
+                        class="btn btn-danger btn-sm"
+                        >
+                          Archiver
+                    </button>
+                </form>
+            </td>
+        </tr>
+        {{ end }}
+    </tbody>
+</table>
+
+{{ end }}

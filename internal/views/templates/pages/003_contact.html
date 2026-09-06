@@ -1,0 +1,30 @@
+{{ define "content" }}
+
+<h1>{{ .Heading }}</h1>
+
+<p class="lead">
+{{ .Description }}
+</p>
+
+<div class="mt-4">
+
+    <p class="mb-2">
+        <strong>Email :</strong>
+
+        <a href="mailto:{{ .EmailAddress }}">
+            {{ .EmailAddress }}
+        </a>
+    </p>
+
+    <p class="mb-0">
+        <strong>Téléphone :</strong>
+
+        <a href="tel:{{ .PhoneNumber }}">
+            {{ .PhoneNumber }}
+        </a>
+    </p>
+
+</div>
+
+
+{{ end }}

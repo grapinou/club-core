@@ -1,0 +1,95 @@
+{{ define "content" }}
+
+<h1>Modifier une personne :</h1>
+
+<form action="/persons/{{ .Person.ID }}/edit" method="post">
+
+    <div class="mb-3">
+        <label for="firstName" class="form-label">
+            Prénom
+        </label>
+        <input
+            type="text"
+            class="form-control"
+            id="firstName"
+            name="FirstName"
+            value="{{ .Person.FirstName }}"
+            required
+        >
+    </div>
+
+    <div class="mb-3">
+        <label for="lastName" class="form-label">
+            Nom
+        </label>
+        <input
+            type="text"
+            class="form-control"
+            id="lastName"
+            name="LastName"
+            value="{{ .Person.LastName }}"
+            required
+        >
+    </div>
+
+    <div class="mb-3">
+        <label for="birthdate" class="form-label">
+            Date de naissance
+        </label>
+        <input
+            type="date"
+            class="form-control"
+            id="birthdate"
+            name="Birthdate"
+            value="{{ .Person.BirthDate }}"
+            required
+        >
+    </div>
+
+    <div class="mb-3">
+        <label for="phoneNumber" class="form-label">
+            Numéro de téléphone
+        </label>
+        <input
+            type="tel"
+            class="form-control"
+            id="phoneNumber"
+            name="PhoneNumber"
+            value="{{ .Person.PhoneNumber }}"
+        >
+    </div>
+
+    <div class="mb-3">
+        <label for="email" class="form-label">
+            Email
+        </label>
+        <input
+            type="email"
+            class="form-control"
+            id="email"
+            name="Email"
+            value="{{ .Person.Email }}"
+        >
+    </div>
+
+    <div class="mb-3">
+        <label for="address" class="form-label">
+            Adresse
+        </label>
+        <input
+            type="text"
+            class="form-control"
+            id="address"
+            name="Address"
+            value="{{ .Person.Address }}"
+        >
+    </div>
+
+    <button type="submit" class="btn btn-primary">
+        Modifier
+    </button>
+
+</form>
+
+
+{{ end }}
