@@ -113,13 +113,15 @@ type Season struct {
 }
 
 type TrialRegistration struct {
-	ID         int32
-	PersonID   int32
-	ActivityID int32
-	TrialDate  pgtype.Date
-	Status     string
-	CreatedAt  pgtype.Timestamptz
-	Notes      pgtype.Text
+	ID          int32
+	PersonID    int32
+	ActivityID  int32
+	TrialDate   pgtype.Date
+	Status      string
+	CreatedAt   pgtype.Timestamptz
+	Notes       pgtype.Text
+	GroupID     pgtype.Int4
+	GroupSlotID pgtype.Int4
 }
 
 type User struct {
