@@ -15,6 +15,16 @@ type Activity struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type ConsentDefinition struct {
+	ID          int32
+	Code        string
+	Version     int32
+	Title       string
+	Description string
+	IsActive    bool
+	CreatedAt   pgtype.Timestamptz
+}
+
 type Group struct {
 	ID          int32
 	ActivityID  int32
@@ -59,6 +69,15 @@ type MembershipActivity struct {
 	ActivityID   int32
 }
 
+type MembershipConsent struct {
+	ID                  int32
+	MembershipID        int32
+	ConsentDefinitionID int32
+	Decision            string
+	GivenByPersonID     int32
+	RecordedAt          pgtype.Timestamptz
+}
+
 type MembershipGroup struct {
 	ID           int32
 	MembershipID int32
@@ -87,6 +106,16 @@ type Person struct {
 	CreatedAt   pgtype.Timestamptz
 	ArchivedAt  pgtype.Timestamptz
 	Notes       pgtype.Text
+}
+
+type PersonEmergencyContact struct {
+	ID                int32
+	PersonID          int32
+	ContactPersonID   int32
+	RelationshipLabel pgtype.Text
+	Priority          int32
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
 }
 
 type PersonGuardian struct {
