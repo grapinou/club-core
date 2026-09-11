@@ -20,10 +20,11 @@ import (
 )
 
 type Application struct {
-	Handler     http.Handler
-	Accounts    *accounts.Service
-	Submissions *identityresolution.Submitter
-	Reviews     *identityresolution.ReviewService
+	Handler       http.Handler
+	Accounts      *accounts.Service
+	Submissions   *identityresolution.Submitter
+	Reviews       *identityresolution.ReviewService
+	Verifications *identityresolution.EmailService
 }
 
 func New(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool) (*Application, error) {
@@ -41,6 +42,10 @@ func New(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool) (*Applicat
 // NewWithMailer allows a local fake in integration tests.
 func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, sender mailer.Mailer) (*Application, error) {
 	a, err := activation.New(db, runtime.ActivationValidity)
+	if err != nil {
+		return nil, err
+	}
+	verification, err := identityresolution.NewEmailService(db, runtime.RegistrationVerificationTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -63,11 +68,14 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, 
 	accountService := accounts.New(db, m, a, sender, runtime.SMTP.From, runtime.BaseURL, permissions)
 	handlers.NewMembershipHandler(cfg.SiteName, runtime.Location, m, accountService, queries, permissions).Register(mux, access, csrf)
 	handlers.NewRegistrationHandler(cfg.SiteName, runtime.Location, reviews).Register(mux, access, csrf)
-	handlers.NewAuthHandler(cfg.SiteName, a, login, sessions, runtime.SecureCookies).Register(mux)
+	authHandler := handlers.NewAuthHandler(cfg.SiteName, a, login, sessions, runtime.SecureCookies)
+	authHandler.Register(mux)
+	authHandler.RegisterRegistrationVerification(mux, verification)
 	return &Application{
-		Handler:     sessions.Middleware(login, access.Navigation(mux)),
-		Accounts:    accountService,
-		Submissions: identityresolution.NewSubmitter(db),
-		Reviews:     reviews,
+		Handler:       sessions.Middleware(login, access.Navigation(mux)),
+		Accounts:      accountService,
+		Submissions:   identityresolution.NewEmailSubmitter(db, verification, sender, runtime.SMTP.From, runtime.BaseURL),
+		Reviews:       reviews,
+		Verifications: verification,
 	}, nil
 }

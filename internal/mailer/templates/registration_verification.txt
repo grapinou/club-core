@@ -1,0 +1,13 @@
+Bonjour,
+
+Une demande d'inscription a été effectuée avec une identité déjà connue du club.
+
+Si vous êtes à l'origine de cette demande, utilisez les informations suivantes :
+
+Référence : {{.Reference}}
+Code : {{.Code}}
+
+Rendez-vous sur :
+{{.URL}}
+
+Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer ce message.

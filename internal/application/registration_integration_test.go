@@ -50,7 +50,7 @@ func TestRegistrationSubmissionDetectionAndPrivacy(t *testing.T) {
 	empty := f.submit(noMatch)
 	d, err := f.app.Reviews.GetDetails(t.Context(), f.approver, empty)
 	f.must(err)
-	if d.Submission.Status != "received" || len(d.Candidates) != 0 {
+	if d.Submission.Status != "awaiting_identity_review" || len(d.Candidates) != 0 {
 		t.Fatal("unexpected candidates")
 	}
 	one := f.submit(registrationInput())

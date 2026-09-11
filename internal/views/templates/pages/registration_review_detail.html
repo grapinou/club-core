@@ -3,7 +3,8 @@
 <h1>Vérification d'identité</h1>
 {{if .Notice}}<p class="alert alert-info" role="status">{{.Notice}}</p>{{end}}
 <p><strong>{{.Status}}</strong> — Soumission du {{.CreatedAt}}</p>
-{{if .Resolved}}<section class="alert alert-success"><h2>Résolution enregistrée</h2><p>{{.ResolutionType}} : Person n° {{.ResolvedPersonID}}. Résolue le {{.ResolvedAt}} par {{.Resolver}}.</p><p>Cette décision est définitive dans cette interface.</p></section>{{end}}
+{{if .Resolved}}<section class="alert alert-success"><h2>Résolution enregistrée</h2><p>{{.ResolutionType}} : Person n° {{.ResolvedPersonID}}. Résolue le {{.ResolvedAt}} {{if .EmailVerified}}— Mode : Vérification d’un email connu. Intervention administrative : Aucune.{{else}}par {{.Resolver}}.{{end}}</p><p>Cette décision est définitive dans cette interface.</p></section>{{end}}
+{{if .AwaitingEmail}}<p class="alert alert-info">Une preuve par email est en cours. Aucune intervention immédiate n’est nécessaire. Une décision administrative ci-dessous remplacera cette vérification.</p>{{end}}
 <section><h2>Données déclarées</h2><dl>{{range .Fields}}<dt>{{.Label}}</dt><dd class="text-break" style="white-space: pre-wrap">{{.Declared}}</dd>{{end}}</dl></section>
 <section><h2>Candidats possibles</h2>
 <p>Un rapprochement, même fort, ne prouve pas l'identité. Vérifiez les éléments avant de décider. Les raisons sont conservées au moment de la soumission ; les fiches ci-dessous reflètent leurs données actuelles.</p>

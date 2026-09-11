@@ -5,11 +5,14 @@ package identityresolution
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/mailer"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -29,8 +32,20 @@ type SubmissionInput = dbsqlc.CreateRegistrationSubmissionParams
 type Acceptance struct {
 	Status string `json:"status"`
 }
-type Submitter struct{ db *pgxpool.Pool }
+type Submitter struct {
+	db            *pgxpool.Pool
+	email         *EmailService
+	sender        mailer.Mailer
+	from, baseURL string
+}
 
+// NewEmailSubmitter is the application entrypoint for future public submissions.
+func NewEmailSubmitter(db *pgxpool.Pool, email *EmailService, sender mailer.Mailer, from, baseURL string) *Submitter {
+	return &Submitter{db: db, email: email, sender: sender, from: from, baseURL: baseURL}
+}
+
+// NewSubmitter stages only; it is retained for internal workflows and tests.
+// Public callers must use Application.Submissions, which orchestrates delivery.
 func NewSubmitter(db *pgxpool.Pool) *Submitter { return &Submitter{db: db} }
 
 func validInput(in SubmissionInput) bool {
@@ -53,25 +68,49 @@ func (s *Submitter) CreateSubmission(ctx context.Context, in SubmissionInput) (A
 	if !validInput(in) {
 		return Acceptance{}, ErrInvalidSubmission
 	}
-	if err := s.create(ctx, in); err != nil {
+	id, err := s.create(ctx, in)
+	if err != nil {
 		return Acceptance{}, ErrUnavailable
+	}
+	if s.email != nil {
+		delivery, prepareErr := s.email.PrepareEmailVerification(ctx, id)
+		// After persistence, public acceptance must not disclose eligibility or SMTP.
+		if prepareErr != nil {
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			if err := s.email.ReviewAfterPreparationFailure(cleanup, id); err != nil {
+				slog.Error("Registration review fallback failed; check database availability")
+			}
+			cancel()
+		} else {
+			message, sendErr := mailer.RegistrationMessage(s.from, delivery.RecipientEmail, strings.TrimRight(s.baseURL, "/")+"/registration/verify", delivery.PublicReference, delivery.PlaintextCode)
+			if sendErr == nil {
+				sendErr = s.sender.Send(ctx, message)
+			}
+			if sendErr != nil {
+				cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+				if err := s.email.FailDelivery(cleanup, delivery); err != nil {
+					slog.Error("Registration email compensation failed; check database availability")
+				}
+				cancel()
+			}
+		}
 	}
 	return Acceptance{Status: "submission accepted"}, nil
 }
-func (s *Submitter) create(ctx context.Context, in SubmissionInput) error {
+func (s *Submitter) create(ctx context.Context, in SubmissionInput) (int32, error) {
 	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback(ctx)
 	q := dbsqlc.New(tx)
 	sub, err := q.CreateRegistrationSubmission(ctx, in)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	persons, err := q.ListIdentityMatchingPersons(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	found := false
 	for _, p := range persons {
@@ -81,16 +120,19 @@ func (s *Submitter) create(ctx context.Context, in SubmissionInput) error {
 		}
 		evidence.SubmissionID = sub.ID
 		if err = q.CreateRegistrationCandidate(ctx, evidence); err != nil {
-			return err
+			return 0, err
 		}
 		found = true
 	}
 	if found {
 		if err = q.MarkRegistrationForReview(ctx, sub.ID); err != nil {
-			return err
+			return 0, err
 		}
 	}
-	return tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return sub.ID, nil
 }
 func normalizedName(s string) string {
 	return norm.NFC.String(strings.ToLower(strings.Join(strings.Fields(s), " ")))
@@ -180,10 +222,16 @@ func (s *ReviewService) List(ctx context.Context, actor int32) ([]dbsqlc.ListReg
 	if err := s.require(ctx, actor); err != nil {
 		return nil, err
 	}
+	if err := ExpirePendingVerifications(ctx, s.db); err != nil {
+		return nil, err
+	}
 	return dbsqlc.New(s.db).ListRegistrationReviews(ctx)
 }
 func (s *ReviewService) CountOpen(ctx context.Context, actor int32) (int64, error) {
 	if err := s.require(ctx, actor); err != nil {
+		return 0, err
+	}
+	if err := ExpirePendingVerifications(ctx, s.db); err != nil {
 		return 0, err
 	}
 	return dbsqlc.New(s.db).CountOpenRegistrationReviews(ctx)
@@ -196,6 +244,9 @@ type Details struct {
 
 func (s *ReviewService) GetDetails(ctx context.Context, actor, id int32) (Details, error) {
 	if err := s.require(ctx, actor); err != nil {
+		return Details{}, err
+	}
+	if err := ExpirePendingVerifications(ctx, s.db); err != nil {
 		return Details{}, err
 	}
 	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
@@ -241,7 +292,7 @@ func (s *ReviewService) resolve(ctx context.Context, actor, id int32, person *in
 	if err != nil {
 		return err
 	}
-	if sub.Status != "received" && sub.Status != "awaiting_identity_review" {
+	if !openStatus(sub.Status) {
 		return ErrClosed
 	}
 	var target int32
@@ -261,6 +312,9 @@ func (s *ReviewService) resolve(ctx context.Context, actor, id int32, person *in
 			return createErr
 		}
 		target = p.ID
+	}
+	if err = invalidateProofs(ctx, tx, id); err != nil {
+		return err
 	}
 	_, err = q.ResolveRegistrationSubmission(ctx, dbsqlc.ResolveRegistrationSubmissionParams{ID: id, ResolvedPersonID: pgtype.Int4{Int32: target, Valid: true}, ResolutionType: pgtype.Text{String: kind, Valid: true}, ResolvedByUserID: pgtype.Int4{Int32: actor, Valid: true}})
 	if err != nil {

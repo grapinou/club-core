@@ -12,13 +12,16 @@ import (
 	"github.com/grapinou/club-core/internal/mailer"
 )
 
+const DefaultRegistrationVerificationTTL = time.Hour
+
 type Runtime struct {
-	BaseURL            string
-	EmailTransport     string
-	SMTP               mailer.SMTPConfig
-	ActivationValidity time.Duration
-	Location           *time.Location
-	SecureCookies      bool
+	RegistrationVerificationTTL time.Duration
+	BaseURL                     string
+	EmailTransport              string
+	SMTP                        mailer.SMTPConfig
+	ActivationValidity          time.Duration
+	Location                    *time.Location
+	SecureCookies               bool
 }
 
 func LoadRuntime() (Runtime, error) { return loadRuntime(os.Getenv) }
@@ -50,6 +53,13 @@ func loadRuntime(env func(string) string) (Runtime, error) {
 		c.ActivationValidity, err = time.ParseDuration(raw)
 		if err != nil || c.ActivationValidity <= 0 {
 			return c, errors.New("invalid ACTIVATION_CODE_TTL")
+		}
+	}
+	c.RegistrationVerificationTTL = DefaultRegistrationVerificationTTL
+	if raw := env("REGISTRATION_VERIFICATION_TTL"); raw != "" {
+		c.RegistrationVerificationTTL, err = time.ParseDuration(raw)
+		if err != nil || c.RegistrationVerificationTTL <= 0 {
+			return c, errors.New("invalid REGISTRATION_VERIFICATION_TTL")
 		}
 	}
 	timezone := env("APP_TIMEZONE")

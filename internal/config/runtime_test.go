@@ -23,7 +23,7 @@ func TestRuntime(t *testing.T) {
 		{"APP_BASE_URL", "https://club.example.test:99999"}, {"SMTP_PORT", "0"}, {"SMTP_PORT", "invalid"},
 		{"SMTP_FROM", "bad\r\nheader"}, {"SMTP_HOST", ""}, {"SMTP_USERNAME", ""},
 		{"SMTP_STARTTLS", "false"}, {"SMTP_STARTTLS", "invalid"}, {"EMAIL_TRANSPORT", "log"},
-		{"ACTIVATION_CODE_TTL", "0s"}, {"APP_TIMEZONE", "unknown"},
+		{"REGISTRATION_VERIFICATION_TTL", "0s"}, {"REGISTRATION_VERIFICATION_TTL", "-1h"}, {"REGISTRATION_VERIFICATION_TTL", "bad"}, {"ACTIVATION_CODE_TTL", "0s"}, {"APP_TIMEZONE", "unknown"},
 	} {
 		t.Run(tc.key+tc.value, func(t *testing.T) {
 			values := map[string]string{}
@@ -37,7 +37,7 @@ func TestRuntime(t *testing.T) {
 		})
 	}
 	cfg, err = load(map[string]string{})
-	if err != nil || cfg.EmailTransport != "disabled" || cfg.SecureCookies {
+	if err != nil || cfg.EmailTransport != "disabled" || cfg.SecureCookies || cfg.RegistrationVerificationTTL != DefaultRegistrationVerificationTTL {
 		t.Fatal("development defaults")
 	}
 	cfg, err = load(map[string]string{"EMAIL_TRANSPORT": "smtp", "SMTP_HOST": "127.0.0.1", "SMTP_PORT": "1025", "SMTP_FROM": "club@example.test", "SMTP_STARTTLS": "false"})

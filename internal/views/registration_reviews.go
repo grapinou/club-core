@@ -37,6 +37,7 @@ type RegistrationDetailView struct {
 	SiteName, Title, Status, CreatedAt, Notice string
 	ID                                         int32
 	Open, Resolved                             bool
+	EmailVerified, AwaitingEmail               bool
 	Fields                                     []RegistrationFieldView
 	Candidates                                 []RegistrationCandidateView
 	ResolvedPersonID                           int32
@@ -60,6 +61,8 @@ func registrationStatus(s string) string {
 		return "Reçue — aucun candidat détecté"
 	case "awaiting_identity_review":
 		return "À vérifier"
+	case "awaiting_email_verification":
+		return "Vérification email en cours"
 	case "resolved":
 		return "Résolue"
 	case "cancelled":
@@ -89,7 +92,7 @@ func RegistrationDetail(d identityresolution.Details, loc *time.Location) Regist
 	s := d.Submission
 	values := []string{s.FirstName, s.LastName, date(s.BirthDate), s.Email.String, s.PhoneNumber.String, s.Address.String}
 	labels := []string{"Prénom", "Nom", "Date de naissance", "Email", "Téléphone", "Adresse"}
-	v := RegistrationDetailView{ID: s.ID, Status: registrationStatus(s.Status), CreatedAt: timestamp(s.CreatedAt, loc), Open: s.Status == "received" || s.Status == "awaiting_identity_review", Resolved: s.Status == "resolved", ResolvedPersonID: s.ResolvedPersonID.Int32, ResolvedAt: timestamp(s.ResolvedAt, loc), Resolver: textOrDash(s.ResolverUsername.String)}
+	v := RegistrationDetailView{ID: s.ID, Status: registrationStatus(s.Status), CreatedAt: timestamp(s.CreatedAt, loc), Open: s.Status == "received" || s.Status == "awaiting_identity_review" || s.Status == "awaiting_email_verification", EmailVerified: s.EmailVerified && !s.ResolvedByUserID.Valid, AwaitingEmail: s.Status == "awaiting_email_verification", Resolved: s.Status == "resolved", ResolvedPersonID: s.ResolvedPersonID.Int32, ResolvedAt: timestamp(s.ResolvedAt, loc), Resolver: textOrDash(s.ResolverUsername.String)}
 	v.ResolutionType = "Person existante"
 	if s.ResolutionType.String == "new_person" {
 		v.ResolutionType = "Nouvelle Person"

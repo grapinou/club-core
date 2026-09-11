@@ -137,6 +137,19 @@ type PersonGuardian struct {
 	CreatedAt        pgtype.Timestamptz
 }
 
+type RegistrationEmailVerification struct {
+	ID              int64
+	SubmissionID    int32
+	PersonID        int32
+	PublicReference string
+	CodeHash        []byte
+	RecipientHash   []byte
+	ExpiresAt       pgtype.Timestamptz
+	UsedAt          pgtype.Timestamptz
+	InvalidatedAt   pgtype.Timestamptz
+	CreatedAt       pgtype.Timestamptz
+}
+
 type RegistrationSubmission struct {
 	ID               int32
 	Status           string

@@ -83,7 +83,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	t.Cleanup(pool.Close)
 	f := &fixture{t: t, db: pool, mail: &fakeMailer{}}
-	runtime := config.Runtime{BaseURL: "https://club.example.test", SecureCookies: true, ActivationValidity: time.Hour, Location: time.UTC, SMTP: mailer.SMTPConfig{From: "club@example.test"}}
+	runtime := config.Runtime{RegistrationVerificationTTL: config.DefaultRegistrationVerificationTTL, BaseURL: "https://club.example.test", SecureCookies: true, ActivationValidity: time.Hour, Location: time.UTC, SMTP: mailer.SMTPConfig{From: "club@example.test"}}
 	f.app, err = NewWithMailer(config.Config{SiteName: "Club Core"}, runtime, pool, f.mail)
 	f.must(err)
 	f.memberships, err = memberships.New(pool, time.Hour, time.UTC)

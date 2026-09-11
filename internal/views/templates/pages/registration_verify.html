@@ -1,0 +1,11 @@
+{{define "content"}}
+<h1>Vérifier votre demande</h1>
+{{if .Message}}<p class="alert alert-info" role="status">{{.Message}}</p>{{end}}
+<p>Saisissez la référence et le code reçus par email.</p>
+<form method="post" action="/registration/verify" class="col-md-6">
+<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+<div class="mb-3"><label for="reference" class="form-label">Référence</label><input class="form-control" id="reference" name="reference" required maxlength="64" autocomplete="off" spellcheck="false"></div>
+<div class="mb-3"><label for="code" class="form-label">Code de vérification</label><input class="form-control" id="code" name="code" required maxlength="20" inputmode="numeric" autocomplete="one-time-code"></div>
+<button type="submit" class="btn btn-primary">Vérifier</button>
+</form>
+{{end}}
