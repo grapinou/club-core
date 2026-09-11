@@ -16,7 +16,7 @@ func TestUnknownRoute(t *testing.T) {
 
 	queries := &FakeQueries{}
 
-	mux := New(cfg, queries)
+	mux := newTestRouter(cfg, queries)
 
 	request := httptest.NewRequest(
 		http.MethodGet,

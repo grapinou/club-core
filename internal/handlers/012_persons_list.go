@@ -49,7 +49,7 @@ func PersonsListHandler(cfg config.Config, queries database.PersonQueries) http.
 			})
 		}
 
-		data := views.PersonsData{
+		data := views.PersonsData{SecurityData: pageSecurity(r),
 			SiteName: cfg.SiteName,
 			Title:    "Personnes - " + cfg.SiteName,
 			Persons:  personData,

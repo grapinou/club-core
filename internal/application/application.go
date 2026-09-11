@@ -8,12 +8,14 @@ import (
 	"github.com/grapinou/club-core/internal/accounts"
 	"github.com/grapinou/club-core/internal/activation"
 	"github.com/grapinou/club-core/internal/auth"
+	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/config"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/handlers"
 	"github.com/grapinou/club-core/internal/mailer"
 	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/grapinou/club-core/internal/router"
+	"github.com/grapinou/club-core/internal/websecurity"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -50,10 +52,12 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, 
 		return nil, err
 	}
 	sessions := auth.NewSessions(runtime.SecureCookies)
-	mux := router.New(cfg, queries)
+	permissions := authorization.New(queries)
+	access := handlers.NewAccess(cfg.SiteName, permissions)
+	mux := router.New(cfg, queries, access, websecurity.NewCSRF(runtime.SecureCookies))
 	handlers.NewAuthHandler(cfg.SiteName, a, login, sessions, runtime.SecureCookies).Register(mux)
 	return &Application{
-		Handler:  sessions.Middleware(login, mux),
-		Accounts: accounts.New(db, m, a, sender, runtime.SMTP.From, runtime.BaseURL),
+		Handler:  sessions.Middleware(login, access.Navigation(mux)),
+		Accounts: accounts.New(db, m, a, sender, runtime.SMTP.From, runtime.BaseURL, permissions),
 	}, nil
 }

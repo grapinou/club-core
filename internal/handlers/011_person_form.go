@@ -11,7 +11,7 @@ func PersonFormHandler(cfg config.Config) http.HandlerFunc {
 
 	return func(w http.ResponseWriter, r *http.Request) {
 
-		data := views.PersonFormData{
+		data := views.PersonFormData{SecurityData: pageSecurity(r),
 			SiteName: cfg.SiteName,
 			Title:    "Ajouter une personne - " + cfg.SiteName,
 		}

@@ -54,7 +54,7 @@ func ArchivedPersonsListHandler(cfg config.Config, queries database.PersonQuerie
 			})
 		}
 
-		data := views.PersonsData{
+		data := views.PersonsData{SecurityData: pageSecurity(r),
 			SiteName: cfg.SiteName,
 			Title:    "Personnes archivées - " + cfg.SiteName,
 			Persons:  personData,

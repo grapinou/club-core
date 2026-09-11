@@ -91,6 +91,7 @@ func newFixture(t *testing.T) *fixture {
 	f.person = f.id("INSERT INTO persons(first_name,last_name,birth_date,email) VALUES ('Rémi','Dupont','1990-01-01','remi@example.test') RETURNING id")
 	admin := f.id("INSERT INTO persons(first_name,last_name) VALUES ('Admin','Club') RETURNING id")
 	f.approver = f.id("INSERT INTO users(person_id,username,password_hash,activated_at) VALUES ($1,'admin','preserved',now()) RETURNING id", admin)
+	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='president'", f.approver)
 	f.season = f.id("INSERT INTO seasons(name,starts_at,ends_at) VALUES ('2026','2026-09-01','2027-08-31') RETURNING id")
 	f.kind = f.id("INSERT INTO membership_types(name) VALUES ('Standard') RETURNING id")
 	f.activity = f.id("INSERT INTO activities(name) VALUES ('Practice') RETURNING id")
@@ -287,18 +288,18 @@ func TestApprovalFailureAndResend(t *testing.T) {
 			t.Fatal("recipient not resolved again")
 		}
 	}
-	resend, err := f.app.Accounts.ResendActivation(t.Context(), a.UserID)
+	resend, err := f.app.Accounts.ResendActivation(t.Context(), f.approver, a.UserID)
 	f.must(err)
 	if resend.DeliveryStatus != accounts.Sent || len(f.mail.messages) != 2 {
 		t.Fatal("resend")
 	}
 	f.mail.check = nil
 	f.exec("UPDATE users SET is_active=false WHERE id=$1", a.UserID)
-	if _, err = f.app.Accounts.ResendActivation(t.Context(), a.UserID); !errors.Is(err, accounts.ErrDisabled) {
+	if _, err = f.app.Accounts.ResendActivation(t.Context(), f.approver, a.UserID); !errors.Is(err, accounts.ErrDisabled) {
 		t.Fatal("disabled accepted")
 	}
 	f.exec("UPDATE users SET is_active=true,activated_at=now(),password_hash='preserved' WHERE id=$1", a.UserID)
-	if _, err = f.app.Accounts.ResendActivation(t.Context(), a.UserID); !errors.Is(err, accounts.ErrAlreadyActivated) {
+	if _, err = f.app.Accounts.ResendActivation(t.Context(), f.approver, a.UserID); !errors.Is(err, accounts.ErrAlreadyActivated) {
 		t.Fatal("activated accepted")
 	}
 	if len(f.mail.messages) != 2 {
@@ -312,14 +313,14 @@ func TestNoEmailAndCommitFailure(t *testing.T) {
 	if a.DeliveryStatus != accounts.NoChannel || a.Membership.Status != "active" || len(f.mail.messages) != 0 {
 		t.Fatal("no channel approval")
 	}
-	result, err := f.app.Accounts.ResendActivation(t.Context(), a.UserID)
+	result, err := f.app.Accounts.ResendActivation(t.Context(), f.approver, a.UserID)
 	f.must(err)
 	if result.DeliveryStatus != accounts.NoChannel || len(f.mail.messages) != 0 {
 		t.Fatal("no channel resend")
 	}
 	guardian := f.id("INSERT INTO persons(first_name,last_name,email) VALUES ('Parent','Dupont','parent@example.test') RETURNING id")
 	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type,is_primary_contact) VALUES ($1,$2,'guardian',true)", f.person, guardian)
-	result, err = f.app.Accounts.ResendActivation(t.Context(), a.UserID)
+	result, err = f.app.Accounts.ResendActivation(t.Context(), f.approver, a.UserID)
 	f.must(err)
 	if result.DeliveryStatus != accounts.Sent || f.mail.messages[0].To != "parent@example.test" {
 		t.Fatal("guardian fallback")
@@ -327,7 +328,7 @@ func TestNoEmailAndCommitFailure(t *testing.T) {
 	f.exec("UPDATE persons SET email=NULL WHERE id=$1", guardian)
 	other := f.id("INSERT INTO persons(first_name,last_name,email) VALUES ('Other','Guardian','other@example.test') RETURNING id")
 	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES ($1,$2,'guardian')", f.person, other)
-	result, err = f.app.Accounts.ResendActivation(t.Context(), a.UserID)
+	result, err = f.app.Accounts.ResendActivation(t.Context(), f.approver, a.UserID)
 	f.must(err)
 	if result.DeliveryStatus != accounts.Sent || f.mail.messages[1].To != "other@example.test" {
 		t.Fatal("other guardian fallback")
@@ -352,7 +353,7 @@ func TestActivationHTTPGenericFailures(t *testing.T) {
 	cases := []string{"confirmation", "short password", "wrong", "expired", "invalidated", "used", "unknown username"}
 	for i, state := range cases {
 		t.Run(state, func(t *testing.T) {
-			_, err := f.app.Accounts.ResendActivation(t.Context(), a.UserID)
+			_, err := f.app.Accounts.ResendActivation(t.Context(), f.approver, a.UserID)
 			f.must(err)
 			code := codeFrom(t, f.mail.messages[len(f.mail.messages)-1])
 			b := newBrowser(f.app.Handler)

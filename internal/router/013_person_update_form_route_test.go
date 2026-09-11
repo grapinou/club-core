@@ -29,7 +29,7 @@ func TestUpdatePersonFormRoute(t *testing.T) {
 		},
 	}
 
-	mux := New(cfg, queries)
+	mux := newTestRouter(cfg, queries)
 
 	request := httptest.NewRequest(
 		http.MethodGet,
@@ -41,19 +41,19 @@ func TestUpdatePersonFormRoute(t *testing.T) {
 
 	mux.ServeHTTP(response, request)
 
-	if response.Code != http.StatusOK {
+	if response.Code != http.StatusSeeOther {
 		t.Errorf(
 			"statut obtenu : %d, statut attendu : %d",
 			response.Code,
-			http.StatusOK,
+			http.StatusSeeOther,
 		)
 	}
 
-	if queries.GetPersonByIDReceived != 42 {
+	if queries.GetPersonByIDReceived != 0 {
 		t.Errorf(
 			"id reçu : %d, id attendu : %d",
 			queries.GetPersonByIDReceived,
-			42,
+			0,
 		)
 	}
 }

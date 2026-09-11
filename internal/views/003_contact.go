@@ -11,6 +11,7 @@ import (
 var contactFiles embed.FS
 
 type ContactData struct {
+	SecurityData
 	SiteName     string
 	Title        string
 	Heading      string

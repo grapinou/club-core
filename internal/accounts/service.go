@@ -1,5 +1,5 @@
 // Package accounts orchestrates committed business operations and email delivery.
-// Authorization belongs to the future administrative caller; these are not public routes.
+// Administrative capabilities are checked here, outside the membership domain.
 package accounts
 
 import (
@@ -7,6 +7,7 @@ import (
 	"errors"
 
 	"github.com/grapinou/club-core/internal/activation"
+	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/mailer"
 	"github.com/grapinou/club-core/internal/memberships"
@@ -51,7 +52,11 @@ type ResendResult struct {
 	UserID         int32
 	DeliveryStatus DeliveryStatus
 }
+type PermissionChecker interface {
+	HasPermission(context.Context, int32, authorization.Permission) (bool, error)
+}
 type Service struct {
+	permissions         PermissionChecker
 	db                  *pgxpool.Pool
 	memberships         *memberships.Service
 	activation          *activation.Service
@@ -59,8 +64,8 @@ type Service struct {
 	from, activationURL string
 }
 
-func New(db *pgxpool.Pool, m *memberships.Service, a *activation.Service, sender mailer.Mailer, from, baseURL string) *Service {
-	return &Service{db: db, memberships: m, activation: a, mailer: sender, from: from, activationURL: baseURL + "/activate"}
+func New(db *pgxpool.Pool, m *memberships.Service, a *activation.Service, sender mailer.Mailer, from, baseURL string, permissions PermissionChecker) *Service {
+	return &Service{permissions: permissions, db: db, memberships: m, activation: a, mailer: sender, from: from, activationURL: baseURL + "/activate"}
 }
 func (s *Service) deliver(ctx context.Context, d *activation.Delivery) (DeliveryStatus, error) {
 	if d == nil {
@@ -79,6 +84,9 @@ func (s *Service) deliver(ctx context.Context, d *activation.Delivery) (Delivery
 	return Sent, nil
 }
 func (s *Service) ApproveMembership(ctx context.Context, id, approver int32, note *string) (ApprovalResult, error) {
+	if err := s.require(ctx, approver, authorization.MembershipsApprove); err != nil {
+		return ApprovalResult{}, err
+	}
 	a, err := s.memberships.ApproveMembership(ctx, id, approver, note)
 	if err != nil {
 		return ApprovalResult{}, err
@@ -91,8 +99,11 @@ func (s *Service) ApproveMembership(ctx context.Context, id, approver int32, not
 	}
 	return result, nil
 }
-func (s *Service) ResendActivation(ctx context.Context, userID int32) (ResendResult, error) {
+func (s *Service) ResendActivation(ctx context.Context, actorID, userID int32) (ResendResult, error) {
 	result := ResendResult{UserID: userID}
+	if err := s.require(ctx, actorID, authorization.ActivationResend); err != nil {
+		return result, err
+	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return result, err
@@ -121,4 +132,23 @@ func (s *Service) ResendActivation(ctx context.Context, userID int32) (ResendRes
 		return result, &DeliveryError{cause: err}
 	}
 	return result, nil
+}
+
+// actorID must come from the authenticated caller, never a browser form field.
+func (s *Service) require(ctx context.Context, actorID int32, permission authorization.Permission) error {
+	user, err := dbsqlc.New(s.db).GetUserByID(ctx, actorID)
+	if err != nil {
+		return authorization.ErrForbidden
+	}
+	if !user.IsActive || !user.ActivatedAt.Valid || !user.PasswordHash.Valid {
+		return authorization.ErrForbidden
+	}
+	allowed, err := s.permissions.HasPermission(ctx, actorID, permission)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return authorization.ErrForbidden
+	}
+	return nil
 }

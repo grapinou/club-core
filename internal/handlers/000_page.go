@@ -11,7 +11,7 @@ func pageHandler(siteName string, page config.PageConfig) http.HandlerFunc {
 
 	return func(w http.ResponseWriter, r *http.Request) {
 
-		data := views.PageData{
+		data := views.PageData{SecurityData: pageSecurity(r),
 			SiteName:    siteName,
 			Title:       page.Title + " - " + siteName,
 			Heading:     page.Heading,

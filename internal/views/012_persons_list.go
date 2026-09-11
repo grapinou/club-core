@@ -22,6 +22,7 @@ type PersonData struct {
 }
 
 type PersonsData struct {
+	SecurityData
 	SiteName string
 	Title    string
 	Persons  []PersonData

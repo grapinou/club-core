@@ -11,7 +11,7 @@ func ContactHandler(cfg config.Config) http.HandlerFunc {
 
 	return func(w http.ResponseWriter, r *http.Request) {
 
-		data := views.ContactData{
+		data := views.ContactData{SecurityData: pageSecurity(r),
 			SiteName:     cfg.SiteName,
 			Title:        cfg.Contact.Title + " - " + cfg.SiteName,
 			Heading:      cfg.Contact.Heading,

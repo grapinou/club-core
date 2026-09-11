@@ -11,6 +11,7 @@ import (
 var personFormFiles embed.FS
 
 type PersonFormData struct {
+	SecurityData
 	SiteName string
 	Title    string
 }

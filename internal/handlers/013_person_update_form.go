@@ -53,7 +53,7 @@ func UpdatePersonFormHandler(cfg config.Config, queries database.PersonQueries) 
 			Address:     address,
 		}
 
-		data := views.PersonUpdateFormPageData{
+		data := views.PersonUpdateFormPageData{SecurityData: pageSecurity(r),
 			SiteName: cfg.SiteName,
 			Title:    "Modifier une personne - " + cfg.SiteName,
 			Person:   person,

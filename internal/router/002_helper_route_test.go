@@ -54,7 +54,7 @@ func testRoute(
 
 	queries := &FakeQueries{}
 
-	mux := New(cfg, queries)
+	mux := newTestRouter(cfg, queries)
 
 	request := httptest.NewRequest(http.MethodGet, route, nil)
 	response := httptest.NewRecorder()
