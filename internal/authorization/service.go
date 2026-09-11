@@ -12,19 +12,20 @@ import (
 type Permission string
 
 const (
-	PersonsRead        Permission = "persons.read"
-	PersonsWrite       Permission = "persons.write"
-	MembershipsRead    Permission = "memberships.read"
-	MembershipsApprove Permission = "memberships.approve"
-	ActivationResend   Permission = "activation.resend"
-	RolesRead          Permission = "roles.read"
-	RolesManage        Permission = "roles.manage"
+	PersonsRead         Permission = "persons.read"
+	PersonsWrite        Permission = "persons.write"
+	MembershipsRead     Permission = "memberships.read"
+	MembershipsApprove  Permission = "memberships.approve"
+	ActivationResend    Permission = "activation.resend"
+	RegistrationsReview Permission = "registrations.review"
+	RolesRead           Permission = "roles.read"
+	RolesManage         Permission = "roles.manage"
 )
 
 var ErrForbidden = errors.New("permission denied")
 var policy = map[string][]Permission{
-	"president": {PersonsRead, PersonsWrite, MembershipsRead, MembershipsApprove, ActivationResend, RolesRead, RolesManage},
-	"secretary": {PersonsRead, PersonsWrite, MembershipsRead, MembershipsApprove, ActivationResend},
+	"president": {PersonsRead, PersonsWrite, MembershipsRead, MembershipsApprove, ActivationResend, RegistrationsReview, RolesRead, RolesManage},
+	"secretary": {PersonsRead, PersonsWrite, MembershipsRead, MembershipsApprove, ActivationResend, RegistrationsReview},
 	"treasurer": {},
 	"coach":     {},
 }

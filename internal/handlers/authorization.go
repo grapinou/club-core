@@ -15,6 +15,9 @@ type PermissionChecker interface {
 	HasPermission(context.Context, int32, authorization.Permission) (bool, error)
 }
 type Access struct {
+	counter interface {
+		CountOpen(context.Context, int32) (int64, error)
+	}
 	checker  PermissionChecker
 	siteName string
 }
@@ -22,6 +25,12 @@ type Access struct {
 func NewAccess(siteName string, checker PermissionChecker) *Access {
 	return &Access{checker: checker, siteName: siteName}
 }
+func (a *Access) SetRegistrationCounter(counter interface {
+	CountOpen(context.Context, int32) (int64, error)
+}) {
+	a.counter = counter
+}
+
 func RequireAuthenticated(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -58,6 +67,11 @@ func (a *Access) RequirePermission(permission authorization.Permission, next htt
 
 type navigationKey struct{}
 type membershipNavigationKey struct{}
+type registrationNavigationKey struct{}
+type registrationNavigation struct {
+	allowed bool
+	count   int64
+}
 
 func (a *Access) Navigation(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -71,6 +85,14 @@ func (a *Access) Navigation(next http.Handler) http.Handler {
 			if membershipErr == nil {
 				r = r.WithContext(context.WithValue(r.Context(), membershipNavigationKey{}, membershipRead))
 			}
+			review, reviewErr := a.checker.HasPermission(r.Context(), id, authorization.RegistrationsReview)
+			if reviewErr == nil && review {
+				var count int64
+				if a.counter != nil {
+					count, _ = a.counter.CountOpen(r.Context(), id)
+				}
+				r = r.WithContext(context.WithValue(r.Context(), registrationNavigationKey{}, registrationNavigation{true, count}))
+			}
 			w.Header().Set("Cache-Control", "no-store")
 		}
 		next.ServeHTTP(w, r)
@@ -79,5 +101,6 @@ func (a *Access) Navigation(next http.Handler) http.Handler {
 func pageSecurity(r *http.Request) views.SecurityData {
 	canRead, _ := r.Context().Value(navigationKey{}).(bool)
 	canReadMemberships, _ := r.Context().Value(membershipNavigationKey{}).(bool)
-	return views.SecurityData{CanReadMemberships: canReadMemberships, CanReadPersons: canRead, CSRFToken: websecurity.Token(r.Context())}
+	review, _ := r.Context().Value(registrationNavigationKey{}).(registrationNavigation)
+	return views.SecurityData{CanReviewRegistrations: review.allowed, RegistrationReviewCount: review.count, CanReadMemberships: canReadMemberships, CanReadPersons: canRead, CSRFToken: websecurity.Token(r.Context())}
 }

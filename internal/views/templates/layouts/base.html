@@ -70,6 +70,7 @@
                 <a class="nav-link" href="/rules">Règlement</a>
                 {{if .CanReadPersons}}<a class="nav-link" href="/persons">Personnes</a>{{end}}
                 {{if .CanReadMemberships}}<a class="nav-link" href="/memberships">Adhésions</a>{{end}}
+                {{if .CanReviewRegistrations}}<a class="nav-link" href="/registration-reviews">Vérifications ({{.RegistrationReviewCount}})</a>{{end}}
                 <a class="nav-link" href="/login">Connexion</a>
             </div>
         </div>

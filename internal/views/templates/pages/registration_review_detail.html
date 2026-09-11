@@ -1,0 +1,22 @@
+{{define "content"}}
+<a href="/registration-reviews">Retour aux vérifications</a>
+<h1>Vérification d'identité</h1>
+{{if .Notice}}<p class="alert alert-info" role="status">{{.Notice}}</p>{{end}}
+<p><strong>{{.Status}}</strong> — Soumission du {{.CreatedAt}}</p>
+{{if .Resolved}}<section class="alert alert-success"><h2>Résolution enregistrée</h2><p>{{.ResolutionType}} : Person n° {{.ResolvedPersonID}}. Résolue le {{.ResolvedAt}} par {{.Resolver}}.</p><p>Cette décision est définitive dans cette interface.</p></section>{{end}}
+<section><h2>Données déclarées</h2><dl>{{range .Fields}}<dt>{{.Label}}</dt><dd class="text-break" style="white-space: pre-wrap">{{.Declared}}</dd>{{end}}</dl></section>
+<section><h2>Candidats possibles</h2>
+<p>Un rapprochement, même fort, ne prouve pas l'identité. Vérifiez les éléments avant de décider. Les raisons sont conservées au moment de la soumission ; les fiches ci-dessous reflètent leurs données actuelles.</p>
+<p>Le rattachement ne modifie ni les coordonnées ni le nom de la Person existante. Aucune adhésion ou activation de compte n'est créée ici.</p>
+{{range .Candidates}}
+<article class="card mb-3"><div class="card-body"><h3>{{.Name}}</h3>
+<p>{{.Confidence}} — Détecté le {{.DetectedAt}}</p><p>{{.Account}}{{if .Archived}} — Person archivée{{end}}</p>
+<p>Raisons du rapprochement :</p><ul>{{range .Reasons}}<li>{{.}}</li>{{end}}</ul>
+<div class="table-responsive"><table class="table"><thead><tr><th>Champ</th><th>Déclaré</th><th>Fiche existante</th><th>Comparaison</th></tr></thead><tbody>
+{{range .Fields}}<tr {{if .Different}}class="table-warning"{{end}}><th>{{.Label}}</th><td class="text-break">{{.Declared}}</td><td class="text-break">{{.Existing}}</td><td>{{if .Different}}Différent{{else}}Identique{{end}}</td></tr>{{end}}
+</tbody></table></div>
+{{if $.Open}}<form method="post" action="/registration-reviews/{{$.ID}}/link-person"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="person_id" value="{{.ID}}"><button class="btn btn-primary" type="submit">Rattacher à cette personne</button></form>{{end}}
+</div></article>
+{{else}}<p>Aucun candidat détecté. Cela ne constitue pas une preuve qu'aucune fiche n'existe.</p>{{end}}</section>
+{{if .Open}}<section class="border rounded p-3"><h2>Nouvelle personne</h2><p>Après vérification, si aucune fiche ne correspond à cette personne, créez une nouvelle Person à partir des données déclarées. Cette décision sera enregistrée avec votre identité et ne pourra pas être modifiée ici.</p><form method="post" action="/registration-reviews/{{.ID}}/create-person"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button class="btn btn-outline-primary" type="submit">Créer une nouvelle Person</button></form></section>{{end}}
+{{end}}

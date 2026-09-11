@@ -137,6 +137,34 @@ type PersonGuardian struct {
 	CreatedAt        pgtype.Timestamptz
 }
 
+type RegistrationSubmission struct {
+	ID               int32
+	Status           string
+	FirstName        string
+	LastName         string
+	BirthDate        pgtype.Date
+	Email            pgtype.Text
+	PhoneNumber      pgtype.Text
+	Address          pgtype.Text
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	ResolvedPersonID pgtype.Int4
+	ResolutionType   pgtype.Text
+	ResolvedAt       pgtype.Timestamptz
+	ResolvedByUserID pgtype.Int4
+}
+
+type RegistrationSubmissionCandidate struct {
+	SubmissionID     int32
+	PersonID         int32
+	Confidence       string
+	MatchedName      bool
+	MatchedBirthDate bool
+	MatchedEmail     bool
+	MatchedPhone     bool
+	DetectedAt       pgtype.Timestamptz
+}
+
 type Role struct {
 	ID   int32
 	Name string

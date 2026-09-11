@@ -11,6 +11,7 @@ import (
 	"github.com/grapinou/club-core/internal/config"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/handlers"
+	"github.com/grapinou/club-core/internal/identityresolution"
 	"github.com/grapinou/club-core/internal/mailer"
 	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/grapinou/club-core/internal/router"
@@ -19,8 +20,10 @@ import (
 )
 
 type Application struct {
-	Handler  http.Handler
-	Accounts *accounts.Service
+	Handler     http.Handler
+	Accounts    *accounts.Service
+	Submissions *identityresolution.Submitter
+	Reviews     *identityresolution.ReviewService
 }
 
 func New(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool) (*Application, error) {
@@ -53,13 +56,18 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, 
 	sessions := auth.NewSessions(runtime.SecureCookies)
 	permissions := authorization.New(queries)
 	access := handlers.NewAccess(cfg.SiteName, permissions)
+	reviews := identityresolution.NewReviewService(db, permissions)
+	access.SetRegistrationCounter(reviews)
 	csrf := websecurity.NewCSRF(runtime.SecureCookies)
 	mux := router.New(cfg, queries, access, csrf)
 	accountService := accounts.New(db, m, a, sender, runtime.SMTP.From, runtime.BaseURL, permissions)
 	handlers.NewMembershipHandler(cfg.SiteName, runtime.Location, m, accountService, queries, permissions).Register(mux, access, csrf)
+	handlers.NewRegistrationHandler(cfg.SiteName, runtime.Location, reviews).Register(mux, access, csrf)
 	handlers.NewAuthHandler(cfg.SiteName, a, login, sessions, runtime.SecureCookies).Register(mux)
 	return &Application{
-		Handler:  sessions.Middleware(login, access.Navigation(mux)),
-		Accounts: accountService,
+		Handler:     sessions.Middleware(login, access.Navigation(mux)),
+		Accounts:    accountService,
+		Submissions: identityresolution.NewSubmitter(db),
+		Reviews:     reviews,
 	}, nil
 }

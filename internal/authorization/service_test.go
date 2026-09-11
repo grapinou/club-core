@@ -19,17 +19,17 @@ func (r *reader) ListUserRoles(context.Context, int32) ([]dbsqlc.Role, error) {
 	return r.roles, r.err
 }
 func TestPermissions(t *testing.T) {
-	all := []Permission{PersonsRead, PersonsWrite, MembershipsRead, MembershipsApprove, ActivationResend, RolesRead, RolesManage}
+	all := []Permission{PersonsRead, PersonsWrite, MembershipsRead, MembershipsApprove, ActivationResend, RegistrationsReview, RolesRead, RolesManage}
 	for _, tc := range []struct {
 		name  string
 		roles []string
 		want  int
 	}{
-		{"president", []string{"president"}, 7}, {"secretary", []string{"secretary"}, 5},
+		{"president", []string{"president"}, 8}, {"secretary", []string{"secretary"}, 6},
 		{"treasurer", []string{"treasurer"}, 0}, {"coach", []string{"coach"}, 0}, {"no roles", nil, 0},
 		{"legacy unknown", []string{"member", "administrator"}, 0},
-		{"multiple", []string{"secretary", "treasurer", "coach"}, 5},
-		{"union", []string{"secretary", "president"}, 7},
+		{"multiple", []string{"secretary", "treasurer", "coach"}, 6},
+		{"union", []string{"secretary", "president"}, 8},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := &reader{}

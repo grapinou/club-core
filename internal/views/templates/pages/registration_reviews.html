@@ -1,0 +1,8 @@
+{{define "content"}}
+<h1>Vérifications d'identité</h1>
+<p>{{.RegistrationReviewCount}} soumission(s) à traiter. Les rapprochements à vérifier apparaissent en premier, puis les soumissions sans candidat et l'historique.</p>
+<div class="table-responsive"><table class="table align-middle">
+<thead><tr><th>Date</th><th>Nom Prénom déclarés</th><th>Naissance</th><th>Statut</th><th>Meilleur rapprochement</th><th>Candidats</th></tr></thead>
+<tbody>{{range .Rows}}<tr {{if .Awaiting}}class="table-warning"{{end}}><td>{{.CreatedAt}}</td><td><a href="/registration-reviews/{{.ID}}">{{.Name}}</a></td><td>{{.BirthDate}}</td><td>{{.Status}}</td><td>{{.Confidence}}</td><td>{{.Count}}</td></tr>
+{{else}}<tr><td colspan="6">Aucune soumission.</td></tr>{{end}}</tbody></table></div>
+{{end}}
