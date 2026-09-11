@@ -1,0 +1,15 @@
+Bonjour,
+
+Votre compte Club Core a été créé. Vous pouvez maintenant l'activer.
+
+Identifiant : {{.Username}}
+Code d'activation : {{.Code}}
+
+Pour activer votre compte, rendez-vous sur :
+{{.ActivationURL}}
+
+Saisissez votre identifiant, ce code et un nouveau mot de passe.
+Ce code a une durée de validité limitée. Si nécessaire, contactez votre club pour un nouvel envoi.
+
+L'activation du compte et la validation de l'adhésion sont distinctes.
+Si vous n'êtes pas à l'origine de cette démarche, contactez votre club.

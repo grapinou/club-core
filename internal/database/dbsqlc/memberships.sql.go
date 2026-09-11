@@ -107,6 +107,26 @@ func (q *Queries) GetMembershipDetails(ctx context.Context, id int32) (GetMember
 	return i, err
 }
 
+const getUserByID = `-- name: GetUserByID :one
+SELECT id, person_id, login_email, password_hash, is_active, created_at, username, activated_at FROM users WHERE id = $1
+`
+
+func (q *Queries) GetUserByID(ctx context.Context, id int32) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByID, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.PersonID,
+		&i.LoginEmail,
+		&i.PasswordHash,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.Username,
+		&i.ActivatedAt,
+	)
+	return i, err
+}
+
 const getUserByPerson = `-- name: GetUserByPerson :one
 SELECT id, person_id, login_email, password_hash, is_active, created_at, username, activated_at FROM users WHERE person_id = $1
 `

@@ -1,0 +1,43 @@
+{{define "content"}}
+<div class="row justify-content-center">
+<section class="col-12 col-md-7 col-lg-5">
+<h1 class="h3 mb-3">{{if .Activation}}Activer votre compte{{else}}Connexion{{end}}</h1>
+{{if .Message}}<p class="alert alert-info" role="status">{{.Message}}</p>{{end}}
+{{if and .LoggedIn (not .Activation)}}
+<p>Vous êtes connecté.</p>
+<form method="post" action="/logout">
+<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+<button class="btn btn-outline-secondary" type="submit">Se déconnecter</button>
+</form>
+{{else}}
+{{if .Activation}}<p>Saisissez les informations reçues par email et choisissez votre mot de passe.</p>{{end}}
+<form method="post" action="{{if .Activation}}/activate{{else}}/login{{end}}">
+<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+<div class="mb-3">
+<label class="form-label" for="username">Identifiant</label>
+<input class="form-control" id="username" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+</div>
+{{if .Activation}}
+<div class="mb-3">
+<label class="form-label" for="code">Code d'activation</label>
+<input class="form-control" id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" required>
+</div>
+{{end}}
+<div class="mb-3">
+<label class="form-label" for="password">{{if .Activation}}Nouveau mot de passe{{else}}Mot de passe{{end}}</label>
+<input class="form-control" id="password" name="password" type="password" autocomplete="{{if .Activation}}new-password{{else}}current-password{{end}}" {{if .Activation}}minlength="12" aria-describedby="password-help"{{end}} required>
+{{if .Activation}}<p id="password-help" class="form-text">Minimum 12 caractères. Maximum 72 octets (les caractères accentués peuvent compter pour plusieurs octets).</p>{{end}}
+</div>
+{{if .Activation}}
+<div class="mb-3">
+<label class="form-label" for="confirmation">Confirmation du mot de passe</label>
+<input class="form-control" id="confirmation" name="confirmation" type="password" autocomplete="new-password" required>
+</div>
+{{end}}
+<button class="btn btn-primary" type="submit">{{if .Activation}}Activer mon compte{{else}}Se connecter{{end}}</button>
+</form>
+<p class="mt-3"><a href="{{if .Activation}}/login{{else}}/activate{{end}}">{{if .Activation}}Aller à la connexion{{else}}Activer mon compte{{end}}</a></p>
+{{end}}
+</section>
+</div>
+{{end}}

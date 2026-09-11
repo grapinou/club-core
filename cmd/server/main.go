@@ -5,11 +5,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
+	"github.com/grapinou/club-core/internal/application"
 	"github.com/grapinou/club-core/internal/config"
 	"github.com/grapinou/club-core/internal/database"
-	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/grapinou/club-core/internal/router"
 )
 
 const configPath = "config/config.json"
@@ -24,6 +24,10 @@ func main() {
 		)
 	}
 
+	runtime, err := config.LoadRuntime()
+	if err != nil {
+		log.Fatal(err)
+	}
 	ctx := context.Background()
 
 	db, err := database.New(
@@ -46,13 +50,21 @@ func main() {
 
 	log.Println("Connexion à PostgreSQL établie")
 
-	queries := dbsqlc.New(db)
-
-	mux := router.New(cfg, queries)
+	app, err := application.New(cfg, runtime, db)
+	if err != nil {
+		log.Fatal("impossible d'initialiser l'application")
+	}
 
 	log.Println("Serveur lancé sur http://localhost:8080")
 
-	if err := http.ListenAndServe(":8080", mux); err != nil {
+	address := ":8080"
+	if !runtime.SecureCookies {
+		address = "127.0.0.1:8080"
+	}
+	server := &http.Server{Addr: address, Handler: app.Handler,
+		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second,
+		WriteTimeout: 45 * time.Second, IdleTimeout: 60 * time.Second}
+	if err := server.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
 
