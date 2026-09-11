@@ -298,7 +298,7 @@ func TestConsentMigrationRoundTrip(t *testing.T) {
 	if _, err = db.ExecContext(ctx, "INSERT INTO consent_definitions(code,version,title,description) VALUES ('test',1,'Test','Test')"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = provider.Down(ctx); err != nil {
+	if _, err = provider.DownTo(ctx, 14); err != nil {
 		t.Fatal(err)
 	}
 	var remaining bool

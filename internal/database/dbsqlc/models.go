@@ -62,6 +62,10 @@ type Membership struct {
 	EndedAt          pgtype.Date
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
+	RequestedAt      pgtype.Timestamptz
+	ApprovedAt       pgtype.Timestamptz
+	ApprovedByUserID pgtype.Int4
+	AdminNote        pgtype.Text
 }
 
 type MembershipActivity struct {
@@ -76,6 +80,12 @@ type MembershipConsent struct {
 	Decision            string
 	GivenByPersonID     int32
 	RecordedAt          pgtype.Timestamptz
+}
+
+type MembershipConsentRequirement struct {
+	MembershipID        int32
+	ConsentDefinitionID int32
+	PresentedAt         pgtype.Timestamptz
 }
 
 type MembershipGroup struct {
@@ -156,10 +166,22 @@ type TrialRegistration struct {
 type User struct {
 	ID           int32
 	PersonID     int32
-	LoginEmail   string
-	PasswordHash string
+	LoginEmail   pgtype.Text
+	PasswordHash pgtype.Text
 	IsActive     bool
 	CreatedAt    pgtype.Timestamptz
+	Username     string
+	ActivatedAt  pgtype.Timestamptz
+}
+
+type UserActivationCode struct {
+	ID            int64
+	UserID        int32
+	CodeHash      []byte
+	ExpiresAt     pgtype.Timestamptz
+	UsedAt        pgtype.Timestamptz
+	InvalidatedAt pgtype.Timestamptz
+	CreatedAt     pgtype.Timestamptz
 }
 
 type UserRole struct {
