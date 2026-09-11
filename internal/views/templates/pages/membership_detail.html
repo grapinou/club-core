@@ -1,0 +1,54 @@
+{{define "content"}}
+<a href="/memberships">Retour aux adhésions</a>
+<h1 class="mt-3">Dossier de {{.FirstName}} {{.LastName}}</h1>
+<p><span class="badge {{.StatusClass}}">{{.Status}}</span> · {{.Season}}</p>
+{{if .Notice}}<p class="alert {{.NoticeClass}}" role="status">{{.Notice}}</p>{{end}}
+<section class="card mb-4"><div class="card-body">
+<h2 class="h4">{{.CompletenessTitle}}</h2>
+{{if .BlockingIssues}}<div class="alert alert-danger"><h3 class="h6">Blocages</h3><ul class="mb-0">{{range .BlockingIssues}}<li>{{.}}</li>{{end}}</ul></div>{{end}}
+{{if .Warnings}}<div class="alert alert-warning"><h3 class="h6">Conseils — ne bloquent pas l'approbation</h3><ul class="mb-0">{{range .Warnings}}<li>{{.}}</li>{{end}}</ul></div>{{end}}
+</div></section>
+<div class="row">
+<section class="col-md-6 mb-4"><h2 class="h4">Identité</h2>
+<dl><dt>Prénom</dt><dd>{{.FirstName}}</dd><dt>Nom</dt><dd>{{.LastName}}</dd><dt>Date de naissance</dt><dd>{{.BirthDate}} — {{.Majority}}</dd>
+<dt>Téléphone</dt><dd>{{.Phone}}</dd><dt>Email</dt><dd>{{.Email}}</dd><dt>Adresse</dt><dd class="text-break">{{.Address}}</dd><dt>Notes Person</dt><dd class="text-break">{{.PersonNotes}}</dd></dl>
+</section>
+<section class="col-md-6 mb-4"><h2 class="h4">Adhésion</h2>
+<dl><dt>Saison</dt><dd>{{.Season}}</dd><dt>Type</dt><dd>{{.Type}}</dd><dt>Statut</dt><dd>{{.Status}}</dd><dt>Date de demande</dt><dd>{{.RequestedAt}}</dd><dt>Date d'adhésion</dt><dd>{{.JoinedAt}}</dd></dl>
+{{if .HasApproval}}<p>Validée le {{.ApprovedAt}} par {{.Approver}}.</p>{{else}}<p>Aucune approbation enregistrée.</p>{{end}}
+<h3 class="h6">Note administrative</h3><p class="text-break">{{if .AdminNote}}{{.AdminNote}}{{else}}Aucune note administrative.{{end}}</p>
+<h3 class="h6">Activités</h3><ul>{{range .Activities}}<li>{{.}}</li>{{else}}<li>Aucune activité renseignée.</li>{{end}}</ul>
+</section>
+</div>
+<section class="mb-4"><h2 class="h4">Responsables légaux</h2>
+<div class="table-responsive"><table class="table"><thead><tr><th>Nom</th><th>Relation</th><th>Contact principal</th><th>Téléphone</th><th>Email</th></tr></thead>
+<tbody>{{range .Guardians}}<tr><td>{{.Name}}</td><td>{{.Relationship}}</td><td>{{if .Primary}}Oui{{else}}Non{{end}}</td><td>{{.Phone}}</td><td>{{.Email}}</td></tr>{{else}}<tr><td colspan="5">Aucun responsable légal renseigné.</td></tr>{{end}}</tbody></table></div>
+</section>
+<section class="mb-4"><h2 class="h4">Contacts d'urgence</h2>
+<div class="table-responsive"><table class="table"><thead><tr><th>Priorité</th><th>Nom</th><th>Relation</th><th>Téléphone</th><th>Email</th></tr></thead>
+<tbody>{{range .EmergencyContacts}}<tr><td>{{.Priority}}</td><td>{{.Name}}</td><td>{{.Relationship}}</td><td>{{.Phone}}</td><td>{{.Email}}</td></tr>{{else}}<tr><td colspan="5">Aucun contact d'urgence renseigné.</td></tr>{{end}}</tbody></table></div>
+</section>
+<section class="mb-4"><h2 class="h4">Consentements présentés lors de la demande</h2>
+{{range .Consents}}<article class="card mb-3"><div class="card-body">
+<h3 class="h5">{{.Title}} — version {{.Version}}</h3><p class="text-break">{{.Description}}</p>
+<p><span class="badge {{.Class}}">{{.Decision}}</span></p><p class="mb-0">Réponse de {{.Giver}} · {{.RecordedAt}}</p>
+</div></article>{{else}}<p>Aucun consentement présenté pour cette demande.</p>{{end}}
+<p class="text-body-secondary">Un refus ou un retrait de consentement ne bloque pas l'adhésion lorsqu'une réponse initiale existe.</p>
+</section>
+<section class="card mb-4"><div class="card-body"><h2 class="h4">Compte User</h2>
+<p>{{.Account.Label}}</p>
+{{if .Account.Exists}}<dl><dt>Identifiant</dt><dd>{{.Account.Username}}</dd><dt>Compte actif ?</dt><dd>{{if .Account.Active}}Oui{{else}}Non{{end}}</dd><dt>Compte activé ?</dt><dd>{{if .Account.Activated}}Oui{{else}}Non{{end}}</dd><dt>Activation nécessaire ?</dt><dd>{{if .Account.NeedsActivation}}Oui{{else}}Non{{end}}</dd></dl>{{end}}
+{{if .CanResend}}<form method="post" action="/users/{{.Account.ID}}/resend-activation">
+<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+<input type="hidden" name="membership_id" value="{{.ID}}">
+<button type="submit" class="btn btn-outline-primary">Renvoyer l'activation</button>
+</form>{{end}}
+</div></section>
+{{if .CanApprove}}<section class="card border-primary"><div class="card-body"><h2 class="h4">Validation administrative</h2>
+<form method="post" action="/memberships/{{.ID}}/approve">
+<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+<label class="form-label" for="admin_note">Note administrative facultative</label>
+<textarea class="form-control mb-3" id="admin_note" name="admin_note" rows="3">{{.AdminNote}}</textarea>
+<button type="submit" class="btn btn-primary" {{if not .Ready}}disabled{{end}}>Valider l'adhésion</button>
+</form></div></section>{{end}}
+{{end}}

@@ -67,6 +67,8 @@ type AccountState struct {
 }
 
 type Details struct {
+	Guardians           []dbsqlc.ListPersonGuardiansRow
+	EmergencyContacts   []dbsqlc.ListPersonEmergencyContactsRow
 	Account             AccountState
 	Membership          dbsqlc.GetMembershipDetailsRow
 	Activities          []dbsqlc.Activity
@@ -202,16 +204,21 @@ func IsMinor(birth, at time.Time) bool {
 
 func completeness(ctx context.Context, tx pgx.Tx, id int32, at time.Time) (Completeness, error) {
 	c := Completeness{BlockingIssues: []string{}, Warnings: []string{}, MissingConsentDefinitionIDs: []int32{}}
-	var birth pgtype.Date
-	var activity, guardian, emergency bool
-	err := tx.QueryRow(ctx, `SELECT p.birth_date,
- EXISTS(SELECT 1 FROM membership_activities WHERE membership_id=m.id),
- EXISTS(SELECT 1 FROM person_guardians WHERE child_person_id=p.id),
- EXISTS(SELECT 1 FROM person_emergency_contacts WHERE person_id=p.id)
- FROM memberships m JOIN persons p ON p.id=m.person_id WHERE m.id=$1`, id).Scan(&birth, &activity, &guardian, &emergency)
+	facts, err := dbsqlc.New(tx).ListMembershipCompletenessFacts(ctx, []int32{id})
 	if err != nil {
 		return c, err
 	}
+	if len(facts) != 1 {
+		return c, pgx.ErrNoRows
+	}
+	return evaluateCompleteness(facts[0], at), nil
+}
+
+// evaluateCompleteness is shared by detail, approval and the batched list.
+func evaluateCompleteness(f dbsqlc.ListMembershipCompletenessFactsRow, at time.Time) Completeness {
+	c := Completeness{BlockingIssues: []string{}, Warnings: []string{}, MissingConsentDefinitionIDs: f.MissingConsentIds}
+	birth, activity, guardian, emergency := f.BirthDate, f.HasActivity, f.HasGuardian, f.HasEmergency
+
 	if !birth.Valid || birth.InfinityModifier != pgtype.Finite {
 		c.BlockingIssues = append(c.BlockingIssues, "missing_birth_date")
 	} else {
@@ -231,28 +238,11 @@ func completeness(ctx context.Context, tx pgx.Tx, id int32, at time.Time) (Compl
 	if !activity {
 		c.BlockingIssues = append(c.BlockingIssues, "missing_activity")
 	}
-	rows, err := tx.Query(ctx, `SELECT r.consent_definition_id FROM membership_consent_requirements r
- WHERE r.membership_id=$1 AND NOT EXISTS (
- SELECT 1 FROM membership_consents c WHERE c.membership_id=r.membership_id
- AND c.consent_definition_id=r.consent_definition_id
- AND c.id = (SELECT initial.id FROM membership_consents initial WHERE initial.membership_id=r.membership_id AND initial.consent_definition_id=r.consent_definition_id ORDER BY initial.recorded_at,initial.id LIMIT 1)
- AND c.decision IN ('granted','refused'))
- ORDER BY r.consent_definition_id`, id)
-	if err != nil {
-		return c, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var def int32
-		if err = rows.Scan(&def); err != nil {
-			return c, err
-		}
-		c.MissingConsentDefinitionIDs = append(c.MissingConsentDefinitionIDs, def)
-	}
+
 	if len(c.MissingConsentDefinitionIDs) > 0 {
 		c.BlockingIssues = append(c.BlockingIssues, "unanswered_consent")
 	}
-	return c, rows.Err()
+	return c
 }
 
 func (s *Service) GetDetails(ctx context.Context, id int32) (Details, error) {
@@ -278,6 +268,14 @@ func (s *Service) GetDetails(ctx context.Context, id int32) (Details, error) {
 		return d, err
 	}
 	d.ConsentRequirements, err = q.ListMembershipConsentRequirements(ctx, id)
+	if err != nil {
+		return d, err
+	}
+	d.Guardians, err = q.ListPersonGuardians(ctx, d.Membership.Person.ID)
+	if err != nil {
+		return d, err
+	}
+	d.EmergencyContacts, err = q.ListPersonEmergencyContacts(ctx, d.Membership.Person.ID)
 	if err != nil {
 		return d, err
 	}

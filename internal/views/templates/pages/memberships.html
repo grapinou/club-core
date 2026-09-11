@@ -1,0 +1,19 @@
+{{define "content"}}
+<h1>Adhésions</h1>
+<p>Les demandes en attente sont affichées en premier, de la plus ancienne à la plus récente.</p>
+<div class="table-responsive">
+<table class="table align-middle">
+<thead><tr><th>Nom Prénom</th><th>Saison</th><th>Type d'adhésion</th><th>Statut</th><th>Demande</th><th>Approbation</th><th>Dossier</th><th>Compte</th></tr></thead>
+<tbody>
+{{range .Rows}}
+<tr {{if .Pending}}class="table-warning"{{end}} data-membership-id="{{.ID}}">
+<td><a href="/memberships/{{.ID}}">{{.Name}}</a></td>
+<td>{{.Season}}</td><td>{{.Type}}</td><td><span class="badge {{.StatusClass}}">{{.Status}}</span></td>
+<td>{{.RequestedAt}}</td><td>{{.ApprovedAt}}</td>
+<td>{{.Completeness}}<br><small>{{.BlockingCount}} blocage(s), {{.WarningCount}} conseil(s)</small></td>
+<td>{{.Account}}</td>
+</tr>
+{{else}}<tr><td colspan="8">Aucune adhésion à afficher.</td></tr>{{end}}
+</tbody></table>
+</div>
+{{end}}

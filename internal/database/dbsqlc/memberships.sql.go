@@ -107,6 +107,23 @@ func (q *Queries) GetMembershipDetails(ctx context.Context, id int32) (GetMember
 	return i, err
 }
 
+const getMembershipIDForUser = `-- name: GetMembershipIDForUser :one
+SELECT m.id FROM memberships m JOIN users u ON u.person_id=m.person_id
+WHERE m.id=$1 AND u.id=$2
+`
+
+type GetMembershipIDForUserParams struct {
+	MembershipID int32
+	UserID       int32
+}
+
+func (q *Queries) GetMembershipIDForUser(ctx context.Context, arg GetMembershipIDForUserParams) (int32, error) {
+	row := q.db.QueryRow(ctx, getMembershipIDForUser, arg.MembershipID, arg.UserID)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getUserByID = `-- name: GetUserByID :one
 SELECT id, person_id, login_email, password_hash, is_active, created_at, username, activated_at FROM users WHERE id = $1
 `
@@ -167,6 +184,74 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 	return i, err
 }
 
+const listAdministrativeMemberships = `-- name: ListAdministrativeMemberships :many
+SELECT m.id, m.person_id, m.season_id, m.membership_type_id, m.status, m.joined_at, m.ended_at, m.created_at, m.updated_at, m.requested_at, m.approved_at, m.approved_by_user_id, m.admin_note, p.first_name, p.last_name, s.name AS season_name,
+       t.name AS membership_type_name,
+       u.id AS user_id, u.username, u.is_active AS user_is_active, u.activated_at
+FROM memberships m
+JOIN persons p ON p.id=m.person_id
+JOIN seasons s ON s.id=m.season_id
+JOIN membership_types t ON t.id=m.membership_type_id
+LEFT JOIN users u ON u.person_id=m.person_id
+ORDER BY (m.status='pending') DESC,
+ CASE WHEN m.status='pending' THEN m.requested_at END ASC,
+ CASE WHEN m.status<>'pending' THEN m.requested_at END DESC, m.id
+`
+
+type ListAdministrativeMembershipsRow struct {
+	Membership         Membership
+	FirstName          string
+	LastName           string
+	SeasonName         string
+	MembershipTypeName string
+	UserID             pgtype.Int4
+	Username           pgtype.Text
+	UserIsActive       pgtype.Bool
+	ActivatedAt        pgtype.Timestamptz
+}
+
+func (q *Queries) ListAdministrativeMemberships(ctx context.Context) ([]ListAdministrativeMembershipsRow, error) {
+	rows, err := q.db.Query(ctx, listAdministrativeMemberships)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAdministrativeMembershipsRow
+	for rows.Next() {
+		var i ListAdministrativeMembershipsRow
+		if err := rows.Scan(
+			&i.Membership.ID,
+			&i.Membership.PersonID,
+			&i.Membership.SeasonID,
+			&i.Membership.MembershipTypeID,
+			&i.Membership.Status,
+			&i.Membership.JoinedAt,
+			&i.Membership.EndedAt,
+			&i.Membership.CreatedAt,
+			&i.Membership.UpdatedAt,
+			&i.Membership.RequestedAt,
+			&i.Membership.ApprovedAt,
+			&i.Membership.ApprovedByUserID,
+			&i.Membership.AdminNote,
+			&i.FirstName,
+			&i.LastName,
+			&i.SeasonName,
+			&i.MembershipTypeName,
+			&i.UserID,
+			&i.Username,
+			&i.UserIsActive,
+			&i.ActivatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMembershipActivities = `-- name: ListMembershipActivities :many
 SELECT a.id, a.name, a.is_active, a.created_at FROM activities a JOIN membership_activities ma ON ma.activity_id = a.id
 WHERE ma.membership_id = $1 ORDER BY a.name, a.id
@@ -197,8 +282,66 @@ func (q *Queries) ListMembershipActivities(ctx context.Context, membershipID int
 	return items, nil
 }
 
+const listMembershipCompletenessFacts = `-- name: ListMembershipCompletenessFacts :many
+SELECT m.id, p.birth_date,
+ EXISTS(SELECT 1 FROM membership_activities ma WHERE ma.membership_id=m.id) AS has_activity,
+ EXISTS(SELECT 1 FROM person_guardians g WHERE g.child_person_id=p.id) AS has_guardian,
+ EXISTS(SELECT 1 FROM person_emergency_contacts e WHERE e.person_id=p.id) AS has_emergency,
+ ARRAY(
+  SELECT r.consent_definition_id FROM membership_consent_requirements r
+  WHERE r.membership_id=m.id AND NOT EXISTS (
+   SELECT 1 FROM membership_consents c
+   WHERE c.id=(
+    SELECT initial.id FROM membership_consents initial
+    WHERE initial.membership_id=r.membership_id AND initial.consent_definition_id=r.consent_definition_id
+    ORDER BY initial.recorded_at,initial.id LIMIT 1
+   ) AND c.decision IN ('granted','refused')
+  ) ORDER BY r.consent_definition_id
+ )::integer[] AS missing_consent_ids
+FROM memberships m JOIN persons p ON p.id=m.person_id
+WHERE m.id=ANY($1::integer[])
+`
+
+type ListMembershipCompletenessFactsRow struct {
+	ID                int32
+	BirthDate         pgtype.Date
+	HasActivity       bool
+	HasGuardian       bool
+	HasEmergency      bool
+	MissingConsentIds []int32
+}
+
+// Facts only: the shared Go evaluator owns the completeness policy.
+func (q *Queries) ListMembershipCompletenessFacts(ctx context.Context, dollar_1 []int32) ([]ListMembershipCompletenessFactsRow, error) {
+	rows, err := q.db.Query(ctx, listMembershipCompletenessFacts, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMembershipCompletenessFactsRow
+	for rows.Next() {
+		var i ListMembershipCompletenessFactsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BirthDate,
+			&i.HasActivity,
+			&i.HasGuardian,
+			&i.HasEmergency,
+			&i.MissingConsentIds,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMembershipConsentRequirements = `-- name: ListMembershipConsentRequirements :many
-SELECT r.presented_at, d.id, d.code, d.version, d.title, d.description, d.is_active, d.created_at, c.decision, c.given_by_person_id, c.recorded_at
+SELECT r.presented_at, d.id, d.code, d.version, d.title, d.description, d.is_active, d.created_at, c.decision, c.given_by_person_id, c.recorded_at,
+ giver.first_name AS giver_first_name, giver.last_name AS giver_last_name
 FROM membership_consent_requirements r
 JOIN consent_definitions d ON d.id = r.consent_definition_id
 LEFT JOIN membership_consents c ON c.id = (
@@ -206,6 +349,7 @@ LEFT JOIN membership_consents c ON c.id = (
  WHERE mc.membership_id = r.membership_id AND mc.consent_definition_id = r.consent_definition_id
  ORDER BY mc.recorded_at DESC, mc.id DESC LIMIT 1
 )
+LEFT JOIN persons giver ON giver.id=c.given_by_person_id
 WHERE r.membership_id = $1 ORDER BY d.code, d.version
 `
 
@@ -221,6 +365,8 @@ type ListMembershipConsentRequirementsRow struct {
 	Decision        pgtype.Text
 	GivenByPersonID pgtype.Int4
 	RecordedAt      pgtype.Timestamptz
+	GiverFirstName  pgtype.Text
+	GiverLastName   pgtype.Text
 }
 
 func (q *Queries) ListMembershipConsentRequirements(ctx context.Context, membershipID int32) ([]ListMembershipConsentRequirementsRow, error) {
@@ -244,6 +390,8 @@ func (q *Queries) ListMembershipConsentRequirements(ctx context.Context, members
 			&i.Decision,
 			&i.GivenByPersonID,
 			&i.RecordedAt,
+			&i.GiverFirstName,
+			&i.GiverLastName,
 		); err != nil {
 			return nil, err
 		}

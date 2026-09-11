@@ -57,6 +57,7 @@ func (a *Access) RequirePermission(permission authorization.Permission, next htt
 }
 
 type navigationKey struct{}
+type membershipNavigationKey struct{}
 
 func (a *Access) Navigation(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -66,6 +67,10 @@ func (a *Access) Navigation(next http.Handler) http.Handler {
 			if err == nil {
 				r = r.WithContext(context.WithValue(r.Context(), navigationKey{}, allowed))
 			}
+			membershipRead, membershipErr := a.checker.HasPermission(r.Context(), id, authorization.MembershipsRead)
+			if membershipErr == nil {
+				r = r.WithContext(context.WithValue(r.Context(), membershipNavigationKey{}, membershipRead))
+			}
 			w.Header().Set("Cache-Control", "no-store")
 		}
 		next.ServeHTTP(w, r)
@@ -73,5 +78,6 @@ func (a *Access) Navigation(next http.Handler) http.Handler {
 }
 func pageSecurity(r *http.Request) views.SecurityData {
 	canRead, _ := r.Context().Value(navigationKey{}).(bool)
-	return views.SecurityData{CanReadPersons: canRead, CSRFToken: websecurity.Token(r.Context())}
+	canReadMemberships, _ := r.Context().Value(membershipNavigationKey{}).(bool)
+	return views.SecurityData{CanReadMemberships: canReadMemberships, CanReadPersons: canRead, CSRFToken: websecurity.Token(r.Context())}
 }

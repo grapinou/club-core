@@ -1,5 +1,4 @@
-// Package application wires HTTP and administrative use cases without exposing
-// approval/resend as public endpoints.
+// Package application wires public HTTP and permission-protected administrative use cases.
 package application
 
 import (
@@ -54,10 +53,13 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, 
 	sessions := auth.NewSessions(runtime.SecureCookies)
 	permissions := authorization.New(queries)
 	access := handlers.NewAccess(cfg.SiteName, permissions)
-	mux := router.New(cfg, queries, access, websecurity.NewCSRF(runtime.SecureCookies))
+	csrf := websecurity.NewCSRF(runtime.SecureCookies)
+	mux := router.New(cfg, queries, access, csrf)
+	accountService := accounts.New(db, m, a, sender, runtime.SMTP.From, runtime.BaseURL, permissions)
+	handlers.NewMembershipHandler(cfg.SiteName, runtime.Location, m, accountService, queries, permissions).Register(mux, access, csrf)
 	handlers.NewAuthHandler(cfg.SiteName, a, login, sessions, runtime.SecureCookies).Register(mux)
 	return &Application{
 		Handler:  sessions.Middleware(login, access.Navigation(mux)),
-		Accounts: accounts.New(db, m, a, sender, runtime.SMTP.From, runtime.BaseURL, permissions),
+		Accounts: accountService,
 	}, nil
 }
