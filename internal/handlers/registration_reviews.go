@@ -4,31 +4,34 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/grapinou/club-core/internal/accounts"
 	"net/http"
 	"time"
 
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/identityresolution"
+	"github.com/grapinou/club-core/internal/registrationapplications"
 	"github.com/grapinou/club-core/internal/views"
 	"github.com/grapinou/club-core/internal/websecurity"
 )
 
 type RegistrationHandler struct {
-	site    string
-	loc     *time.Location
-	reviews *identityresolution.ReviewService
+	applications *registrationapplications.Service
+	site         string
+	loc          *time.Location
+	reviews      *identityresolution.ReviewService
 }
 
-func NewRegistrationHandler(site string, loc *time.Location, reviews *identityresolution.ReviewService) *RegistrationHandler {
-	return &RegistrationHandler{site, loc, reviews}
+func NewRegistrationHandler(site string, loc *time.Location, reviews *identityresolution.ReviewService, applications *registrationapplications.Service) *RegistrationHandler {
+	return &RegistrationHandler{applications, site, loc, reviews}
 }
 func (h *RegistrationHandler) Register(mux *http.ServeMux, access *Access, csrf *websecurity.CSRF) {
 	for _, route := range []struct {
 		path    string
 		handler http.HandlerFunc
 	}{
-		{"POST /registration-reviews/{id}/finalize-application", h.finalize}, {"GET /registration-reviews", h.list}, {"GET /registration-reviews/{id}", h.detail}, {"POST /registration-reviews/{id}/link-person", h.link}, {"POST /registration-reviews/{id}/create-person", h.create},
+		{"POST /registration-reviews/{id}/guardian-activation", h.guardianActivation}, {"POST /registration-reviews/{id}/confirm-guardian", h.confirmGuardian}, {"POST /registration-reviews/{id}/link-guardian", h.linkGuardian}, {"POST /registration-reviews/{id}/create-guardian", h.createGuardian}, {"POST /registration-reviews/{id}/finalize-application", h.finalize}, {"GET /registration-reviews", h.list}, {"GET /registration-reviews/{id}", h.detail}, {"POST /registration-reviews/{id}/link-person", h.link}, {"POST /registration-reviews/{id}/create-person", h.create},
 	} {
 		mux.Handle(route.path, access.RequirePermission(authorization.RegistrationsReview, csrf.Protect(route.handler)))
 	}
@@ -61,6 +64,10 @@ func (h *RegistrationHandler) detail(w http.ResponseWriter, r *http.Request) {
 	v.SiteName = h.site
 	v.Title = "Vérification d'identité - " + h.site
 	switch r.URL.Query().Get("notice") {
+	case "activation_failed":
+		v.Notice = "Activation non envoyée. Le dossier est conservé ; vous pouvez réessayer."
+	case "activation_prepared":
+		v.Notice = "Activation guardian préparée. Vérifiez l’état du compte et la disponibilité de l’envoi email."
 	case "resolved":
 		v.Notice = "Résolution d'identité enregistrée."
 	case "closed":
@@ -110,4 +117,61 @@ func (h *RegistrationHandler) finalize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, fmt.Sprintf("/registration-reviews/%d", id), http.StatusSeeOther)
+}
+
+func (h *RegistrationHandler) confirmGuardian(w http.ResponseWriter, r *http.Request) {
+	id, ok := membershipID(w, r)
+	if !ok {
+		return
+	}
+	if err := h.applications.ConfirmGuardian(r.Context(), id); err != nil {
+		membershipError(w, r, err)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/registration-reviews/%d", id), http.StatusSeeOther)
+}
+func (h *RegistrationHandler) linkGuardian(w http.ResponseWriter, r *http.Request) {
+	h.resolveGuardian(w, r, true)
+}
+func (h *RegistrationHandler) createGuardian(w http.ResponseWriter, r *http.Request) {
+	h.resolveGuardian(w, r, false)
+}
+func (h *RegistrationHandler) resolveGuardian(w http.ResponseWriter, r *http.Request, link bool) {
+	id, ok := membershipID(w, r)
+	if !ok {
+		return
+	}
+	actor, _ := auth.UserID(r.Context())
+	var person *int32
+	if link {
+		p, err := parseID(r.PostForm.Get("person_id"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		person = &p
+	}
+	err := h.reviews.ResolveGuardian(r.Context(), actor, id, person)
+	if err != nil && !errors.Is(err, identityresolution.ErrClosed) {
+		membershipError(w, r, err)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/registration-reviews/%d", id), http.StatusSeeOther)
+}
+
+func (h *RegistrationHandler) guardianActivation(w http.ResponseWriter, r *http.Request) {
+	id, ok := membershipID(w, r)
+	if !ok {
+		return
+	}
+	err := h.applications.RetryGuardianActivation(r.Context(), id)
+	notice := "activation_prepared"
+	var delivery *accounts.DeliveryError
+	if errors.As(err, &delivery) {
+		notice = "activation_failed"
+	} else if err != nil {
+		membershipError(w, r, err)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/registration-reviews/%d?notice=%s", id, notice), http.StatusSeeOther)
 }

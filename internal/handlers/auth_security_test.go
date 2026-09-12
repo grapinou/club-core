@@ -97,7 +97,7 @@ func TestAuthCSRFAndSecretRedaction(t *testing.T) {
 		t.Fatal("CSRF reached business service", activation.calls)
 	}
 	// An oversized POST is rejected without calling the service.
-	form := url.Values{"csrf_token": {csrf.Value}, "password": {strings.Repeat("x", 9000)}}
+	form := url.Values{"csrf_token": {csrf.Value}, "password": {strings.Repeat("x", 33*1024)}}
 	r := httptest.NewRequest("POST", "https://club.example.test/activate", strings.NewReader(form.Encode()))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	r.AddCookie(csrf)

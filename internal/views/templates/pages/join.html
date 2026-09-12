@@ -1,17 +1,26 @@
 {{define "content"}}
-<h1>Adhérer au club</h1>
+<h1>{{if .Child}}J’inscris mon enfant{{else}}Adhérer au club{{end}}</h1>
 {{if .Submitted}}
+{{if .Child}}<div class="alert alert-success" role="status"><p>La demande d'inscription de votre enfant a bien été enregistrée.</p><p>Le club peut avoir besoin de vérifier certaines informations avant de finaliser le dossier.</p><p>Vous serez contacté si une action complémentaire est nécessaire.</p></div>{{else}}
 <div class="alert alert-success" role="status"><p>Votre demande a bien été enregistrée.</p>
 <p>Selon votre situation, une vérification par email peut être nécessaire. Consultez votre messagerie et vos courriers indésirables.</p>
 <p class="mb-0">Si aucune action n'est nécessaire, le club traitera directement votre demande.</p></div>
-<a href="/registration/verify">Saisir un code de vérification</a>
+<a href="/registration/verify">Saisir un code de vérification</a>{{end}}
 {{else}}
-<p>Je souhaite m'inscrire moi-même. Ce parcours est réservé aux personnes majeures.</p>
-<p>Le parcours « J'inscris mon enfant » n'est pas encore disponible.</p>
+{{if .Child}}<p>Renseignez séparément vos informations et celles de votre enfant. Votre email sert à vous contacter.</p>{{else}}<p>Je souhaite m'inscrire moi-même. Ce parcours est réservé aux personnes majeures.</p>
+<p><a href="/join/child">J’inscris mon enfant</a></p>{{end}}
 {{if .Unavailable}}<p class="alert alert-info">Les inscriptions ne sont pas disponibles pour le moment. Contactez le club.</p>{{else}}
 {{if .Errors}}<div class="alert alert-danger" role="alert"><p>Vérifiez les champs indiqués avant de continuer.</p>{{with index .Errors "form"}}<p class="mb-0">{{.}}</p>{{end}}</div>{{end}}
 {{if .Review}}
-<h2>Récapitulatif de votre demande</h2>
+<h2>Récapitulatif de votre demande</h2>{{if .Child}}<h3>Vos informations</h3><dl>
+<dt>Prénom</dt><dd class="text-break">{{.Values.Get "guardian_first_name"}}</dd>
+<dt>Nom</dt><dd class="text-break">{{.Values.Get "guardian_last_name"}}</dd>
+<dt>Date de naissance</dt><dd class="text-break">{{.Values.Get "guardian_birth_date"}}</dd>
+<dt>Email</dt><dd class="text-break">{{.Values.Get "guardian_email"}}</dd>
+<dt>Téléphone</dt><dd class="text-break">{{.Values.Get "guardian_phone_number"}}</dd>
+<dt>Adresse</dt><dd class="text-break">{{.Values.Get "guardian_address"}}</dd>
+<dt>Lien avec l’enfant</dt><dd>{{.RelationshipLabel}}</dd><dt>Contact d'urgence</dt><dd>{{if .Selected "emergency_contact" "yes"}}Oui{{else}}Non{{end}}</dd></dl><h3>Informations de l’enfant</h3>{{end}}
+
 <dl class="row">
 <dt class="col-sm-4">Prénom et nom</dt><dd class="col-sm-8 text-break">{{.Values.Get "first_name"}} {{.Values.Get "last_name"}}</dd>
 <dt class="col-sm-4">Date de naissance</dt><dd class="col-sm-8">{{.Values.Get "birth_date"}}</dd>
@@ -25,29 +34,31 @@
 <h3>Vos décisions de consentement</h3>
 {{range .Catalog.Consents}}<section class="card mb-3"><div class="card-body"><h4 class="h5">{{.Title}} — version {{.Version}}</h4><p class="text-break" style="white-space:pre-wrap">{{.Description}}</p><p><strong>{{if $.Selected (printf "consent_%d" .ID) "granted"}}J'accepte{{else}}Je refuse{{end}}</strong></p></div></section>{{end}}
 <p>Votre demande sera soumise au club pour approbation. Aucun compte ni mot de passe n'est créé à cette étape.</p>
-<form method="post" action="/join">{{range .Hidden}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">{{end}}
+<form method="post" action="{{.Path}}">{{range .Hidden}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">{{end}}
 <button type="submit" name="action" value="edit" class="btn btn-outline-secondary">Modifier</button>
 <button type="submit" name="action" value="submit" class="btn btn-primary">Enregistrer ma demande</button></form>
 {{else}}
-<form method="post" action="/join">
+<form method="post" action="{{.Path}}">
 <input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="presentation" value="{{.Presentation}}">
-<fieldset class="mb-4"><legend>Votre identité et vos coordonnées</legend><p>Les champs marqués * sont obligatoires.</p>
+{{if .Child}}<fieldset class="mb-4"><legend>Vos informations</legend><div class="mb-3"><label for="guardian_first_name">Prénom *</label><input class="form-control" type="text" id="guardian_first_name" name="guardian_first_name" maxlength="200" required value="{{.Values.Get "guardian_first_name"}}"><p class="text-danger">{{index .Errors "guardian_first_name"}}</p></div><div class="mb-3"><label for="guardian_last_name">Nom *</label><input class="form-control" type="text" id="guardian_last_name" name="guardian_last_name" maxlength="200" required value="{{.Values.Get "guardian_last_name"}}"><p class="text-danger">{{index .Errors "guardian_last_name"}}</p></div><div class="mb-3"><label for="guardian_birth_date">Date de naissance (facultative)</label><input class="form-control" type="date" id="guardian_birth_date" name="guardian_birth_date" maxlength="10" value="{{.Values.Get "guardian_birth_date"}}"><p class="text-danger">{{index .Errors "guardian_birth_date"}}</p></div><div class="mb-3"><label for="guardian_email">Email *</label><input class="form-control" type="email" id="guardian_email" name="guardian_email" maxlength="254" required value="{{.Values.Get "guardian_email"}}"><p class="text-danger">{{index .Errors "guardian_email"}}</p></div><div class="mb-3"><label for="guardian_phone_number">Téléphone (facultatif)</label><input class="form-control" type="tel" id="guardian_phone_number" name="guardian_phone_number" maxlength="80" value="{{.Values.Get "guardian_phone_number"}}"><p class="text-danger">{{index .Errors "guardian_phone_number"}}</p></div><div class="mb-3"><label for="guardian_address">Adresse (facultative)</label><input class="form-control" type="text" id="guardian_address" name="guardian_address" maxlength="2000" value="{{.Values.Get "guardian_address"}}"><p class="text-danger">{{index .Errors "guardian_address"}}</p></div><label for="relationship_type">Lien avec l'enfant *</label><select class="form-select" id="relationship_type" name="relationship_type" required><option value="">Choisissez</option><option value="mother" {{if .Selected "relationship_type" "mother"}}selected{{end}}>Mère</option><option value="father" {{if .Selected "relationship_type" "father"}}selected{{end}}>Père</option><option value="guardian" {{if .Selected "relationship_type" "guardian"}}selected{{end}}>Responsable légal</option><option value="other" {{if .Selected "relationship_type" "other"}}selected{{end}}>Autre</option></select><p class="text-danger">{{index .Errors "relationship_type"}}</p>
+<fieldset><legend class="h6">Peut-on vous contacter en cas d'urgence concernant cet enfant ?</legend><label><input type="radio" name="emergency_contact" value="yes" required {{if .Selected "emergency_contact" "yes"}}checked{{end}}> Oui</label> <label><input type="radio" name="emergency_contact" value="no" required {{if .Selected "emergency_contact" "no"}}checked{{end}}> Non</label><p class="text-danger">{{index .Errors "emergency_contact"}}</p></fieldset></fieldset>{{end}}
+<fieldset class="mb-4"><legend>{{if .Child}}Informations de l’enfant{{else}}Votre identité et vos coordonnées{{end}}</legend><p>Les champs marqués * sont obligatoires.</p>
 <div class="row g-3">
 <div class="col-md-6"><label for="first_name" class="form-label">Prénom *</label><input id="first_name" name="first_name" class="form-control" autocomplete="given-name" maxlength="200" required value="{{.Values.Get "first_name"}}" aria-describedby="first_name-error"><p id="first_name-error" class="text-danger">{{index .Errors "first_name"}}</p></div>
 <div class="col-md-6"><label for="last_name" class="form-label">Nom *</label><input id="last_name" name="last_name" class="form-control" autocomplete="family-name" maxlength="200" required value="{{.Values.Get "last_name"}}" aria-describedby="last_name-error"><p id="last_name-error" class="text-danger">{{index .Errors "last_name"}}</p></div>
 <div class="col-md-6"><label for="birth_date" class="form-label">Date de naissance *</label><input type="date" id="birth_date" name="birth_date" class="form-control" autocomplete="bday" required value="{{.Values.Get "birth_date"}}" aria-describedby="birth_date-error"><p id="birth_date-error" class="text-danger">{{index .Errors "birth_date"}}</p></div>
-<div class="col-md-6"><label for="email" class="form-label">Email *</label><input type="email" id="email" name="email" class="form-control" autocomplete="email" maxlength="254" required value="{{.Values.Get "email"}}" aria-describedby="email-error"><p id="email-error" class="text-danger">{{index .Errors "email"}}</p></div>
+<div class="col-md-6"><label for="email" class="form-label">Email {{if .Child}}(facultatif){{else}}*{{end}}</label><input type="email" id="email" name="email" class="form-control" autocomplete="email" maxlength="254" {{if not .Child}}required{{end}} value="{{.Values.Get "email"}}" aria-describedby="email-error"><p id="email-error" class="text-danger">{{index .Errors "email"}}</p></div>
 <div class="col-md-6"><label for="phone_number" class="form-label">Téléphone (facultatif)</label><input type="tel" id="phone_number" name="phone_number" class="form-control" autocomplete="tel" maxlength="80" value="{{.Values.Get "phone_number"}}" aria-describedby="phone_number-error"><p id="phone_number-error" class="text-danger">{{index .Errors "phone_number"}}</p></div>
 <div class="col-12"><label for="address" class="form-label">Adresse (facultative)</label><textarea id="address" name="address" class="form-control" autocomplete="street-address" maxlength="2000" rows="3" aria-describedby="address-error">{{.Values.Get "address"}}</textarea><p id="address-error" class="text-danger">{{index .Errors "address"}}</p></div>
 </div></fieldset>
-<fieldset class="mb-4"><legend>Votre adhésion</legend>
+<fieldset class="mb-4"><legend>{{if .Child}}Adhésion de l’enfant{{else}}Votre adhésion{{end}}</legend>
 {{if eq (len .Catalog.Seasons) 1}}{{range .Catalog.Seasons}}<p>Saison : <strong>{{.Name}}</strong></p><input type="hidden" name="season_id" value="{{.ID}}">{{end}}
 {{else}}<label for="season_id" class="form-label">Saison *</label><select id="season_id" name="season_id" class="form-select" required aria-describedby="season_id-error"><option value="">Choisissez une saison</option>{{range .Catalog.Seasons}}<option value="{{.ID}}" {{if $.Selected "season_id" (printf "%d" .ID)}}selected{{end}}>{{.Name}}</option>{{end}}</select>{{end}}<p id="season_id-error" class="text-danger">{{index .Errors "season_id"}}</p>
 <label for="membership_type_id" class="form-label">Type d'adhésion *</label><select id="membership_type_id" name="membership_type_id" class="form-select" required aria-describedby="membership_type_id-error"><option value="">Choisissez un type d'adhésion</option>{{range .Catalog.Types}}<option value="{{.ID}}" {{if $.Selected "membership_type_id" (printf "%d" .ID)}}selected{{end}}>{{.Name}}</option>{{end}}</select><p id="membership_type_id-error" class="text-danger">{{index .Errors "membership_type_id"}}</p>
 </fieldset>
 <fieldset class="mb-4" aria-describedby="activities-error"><legend>Activités souhaitées *</legend><p>Choisissez au moins une activité. Plusieurs choix sont possibles.</p>
 {{range .Catalog.Activities}}<div class="form-check"><input type="checkbox" class="form-check-input" id="activity-{{.ID}}" name="activity_id" value="{{.ID}}" {{if $.Selected "activity_id" (printf "%d" .ID)}}checked{{end}}><label class="form-check-label" for="activity-{{.ID}}">{{.Name}}</label></div>{{end}}<p id="activities-error" class="text-danger">{{index .Errors "activities"}}</p></fieldset>
-<section class="mb-4"><h2 class="h4">Consentements</h2><p>Répondez séparément à chaque proposition. Vous pouvez refuser un consentement sans empêcher votre demande d'adhésion.</p><p class="text-danger">{{index .Errors "consents"}}</p>
+<section class="mb-4"><h2 class="h4">Consentements</h2>{{if .Child}}<p>Vous répondez pour l’adhésion de votre enfant. Le club devra confirmer toute nouvelle relation guardian avant de finaliser le dossier.</p>{{end}}<p>Répondez séparément à chaque proposition. Vous pouvez refuser un consentement sans empêcher votre demande d'adhésion.</p><p class="text-danger">{{index .Errors "consents"}}</p>
 {{range .Catalog.Consents}}<fieldset class="border rounded p-3 mb-3" aria-describedby="consent-{{.ID}}-description consent-{{.ID}}-error"><legend class="h5">{{.Title}} — version {{.Version}}</legend><p id="consent-{{.ID}}-description" class="text-break" style="white-space:pre-wrap">{{.Description}}</p>
 <div class="form-check"><input class="form-check-input" type="radio" id="consent-{{.ID}}-granted" name="consent_{{.ID}}" value="granted" required {{if $.Selected (printf "consent_%d" .ID) "granted"}}checked{{end}}><label class="form-check-label" for="consent-{{.ID}}-granted">J'accepte</label></div>
 <div class="form-check"><input class="form-check-input" type="radio" id="consent-{{.ID}}-refused" name="consent_{{.ID}}" value="refused" required {{if $.Selected (printf "consent_%d" .ID) "refused"}}checked{{end}}><label class="form-check-label" for="consent-{{.ID}}-refused">Je refuse</label></div><p id="consent-{{.ID}}-error" class="text-danger">{{index $.Errors (printf "consent_%d" .ID)}}</p></fieldset>{{else}}<p>Aucune décision de consentement n'est demandée actuellement.</p>{{end}}</section>

@@ -15,6 +15,16 @@ type Activity struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type ChildRegistrationApplication struct {
+	ApplicationID             int32
+	GuardianClaimID           int32
+	RelationshipType          string
+	EmergencyContactRequested bool
+	GuardianConfirmedAt       pgtype.Timestamptz
+	GuardianConfirmedByUserID pgtype.Int4
+	CreatedAt                 pgtype.Timestamptz
+}
+
 type ConsentDefinition struct {
 	ID          int32
 	Code        string
@@ -61,6 +71,34 @@ type GuardianAccessGrant struct {
 	RevokedAt        pgtype.Timestamptz
 	RevokedByUserID  pgtype.Int4
 	CreatedAt        pgtype.Timestamptz
+}
+
+type GuardianIdentityClaim struct {
+	ID               int32
+	Status           string
+	FirstName        string
+	LastName         string
+	BirthDate        pgtype.Date
+	Email            string
+	PhoneNumber      pgtype.Text
+	Address          pgtype.Text
+	ResolvedPersonID pgtype.Int4
+	ResolutionType   pgtype.Text
+	ResolvedAt       pgtype.Timestamptz
+	ResolvedByUserID pgtype.Int4
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
+type GuardianIdentityClaimCandidate struct {
+	GuardianClaimID  int32
+	PersonID         int32
+	Confidence       string
+	MatchedName      bool
+	MatchedBirthDate bool
+	MatchedEmail     bool
+	MatchedPhone     bool
+	DetectedAt       pgtype.Timestamptz
 }
 
 type Membership struct {

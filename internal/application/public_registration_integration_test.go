@@ -199,7 +199,7 @@ func TestPublicJoinValidation(t *testing.T) {
 			if !strings.Contains(response.Body.String(), "1 rue du Club") {
 				t.Fatal("lost entered values")
 			}
-			if tc.name == "minor" && !strings.Contains(html.UnescapeString(response.Body.String()), "n’est pas encore disponible") {
+			if tc.name == "minor" && !strings.Contains(html.UnescapeString(response.Body.String()), "Utilisez le parcours") {
 				t.Fatal("minor UX")
 			}
 		})
@@ -487,7 +487,7 @@ func TestPublicJoinHTTPSecurityAndLimits(t *testing.T) {
 			values.Set("csrf_token", strings.Repeat("a", 64))
 		}
 		if kind == "body" {
-			values.Set("address", strings.Repeat("x", 9000))
+			values.Set("address", strings.Repeat("x", 33*1024))
 		}
 		request := httptest.NewRequest("POST", "https://club.example.test/join", strings.NewReader(values.Encode()))
 		request.RemoteAddr = fmt.Sprintf("198.51.100.%d:1", i+1)

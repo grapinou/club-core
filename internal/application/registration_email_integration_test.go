@@ -378,7 +378,7 @@ func TestEmailVerificationHTTP(t *testing.T) {
 	}
 	// The shared middleware rejects cross-origin and oversized forms before verification.
 	for _, origin := range []bool{true, false} {
-		request := httptest.NewRequest("POST", "https://club.example.test/registration/verify", strings.NewReader(form.Encode()+strings.Repeat("x", 9000)))
+		request := httptest.NewRequest("POST", "https://club.example.test/registration/verify", strings.NewReader(form.Encode()+strings.Repeat("x", 33*1024)))
 		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		if origin {
 			request.Header.Set("Origin", "https://evil.example")

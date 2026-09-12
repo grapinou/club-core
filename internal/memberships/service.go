@@ -409,3 +409,9 @@ func (s *Service) ApproveMembership(ctx context.Context, id, approver int32, adm
 	}
 	return result, nil
 }
+
+// IsEligibleMinor also rejects future dates using the club's civil timezone.
+func (s *Service) IsEligibleMinor(birth pgtype.Date) bool {
+	today := time.Now().In(s.location)
+	return birth.Valid && birth.InfinityModifier == pgtype.Finite && birth.Time.Format("2006-01-02") <= today.Format("2006-01-02") && civildate.IsMinor(birth.Time, today)
+}

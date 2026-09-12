@@ -243,6 +243,7 @@ func (s *ReviewService) CountOpen(ctx context.Context, actor int32) (int64, erro
 }
 
 type Details struct {
+	Child       *ChildDetails
 	Submission  dbsqlc.GetRegistrationSubmissionRow
 	Candidates  []dbsqlc.ListRegistrationCandidatesRow
 	Application *dbsqlc.GetRegistrationApplicationDetailsRow
@@ -275,6 +276,32 @@ func (s *ReviewService) GetDetails(ctx context.Context, actor, id int32) (Detail
 	application, appErr := q.GetRegistrationApplicationDetails(ctx, id)
 	if appErr == nil {
 		detail.Application = &application
+		child, e := q.GetChildRegistrationApplication(ctx, application.ID)
+		if e == nil {
+			cd := &ChildDetails{Application: child}
+			if cd.Guardian, err = q.GetGuardianIdentityClaim(ctx, child.GuardianClaimID); err != nil {
+				return Details{}, err
+			}
+			if cd.Candidates, err = q.ListGuardianIdentityCandidates(ctx, child.GuardianClaimID); err != nil {
+				return Details{}, err
+			}
+			e = tx.QueryRow(ctx, `SELECT relationship_type FROM person_guardians WHERE child_person_id=$1 AND guardian_person_id=$2`, sub.ResolvedPersonID, cd.Guardian.ResolvedPersonID).Scan(&cd.ExistingRelationship)
+			if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+				return Details{}, e
+			}
+			cd.RelationExists = e == nil
+			if cd.Guardian.ResolvedPersonID.Valid {
+				u, e := q.GetUserByPerson(ctx, cd.Guardian.ResolvedPersonID.Int32)
+				if e == nil {
+					cd.GuardianUser = &u
+				} else if !errors.Is(e, pgx.ErrNoRows) {
+					return Details{}, e
+				}
+			}
+			detail.Child = cd
+		} else if !errors.Is(e, pgx.ErrNoRows) {
+			return Details{}, e
+		}
 		if detail.Activities, err = q.ListRegistrationApplicationActivities(ctx, application.ID); err != nil {
 			return Details{}, err
 		}
@@ -349,7 +376,11 @@ func (s *ReviewService) resolve(ctx context.Context, actor, id int32, person *in
 			return err
 		}
 	}
-	return tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	s.afterResolution(ctx, id)
+	return nil
 }
 
 // RetryApplication permits a reviewer to retry the original immutable choices
@@ -376,5 +407,9 @@ func (s *ReviewService) RetryApplication(ctx context.Context, actor, id int32) e
 	if err = s.finalizer.FinalizeSubmission(ctx, tx, id); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	s.afterResolution(ctx, id)
+	return nil
 }

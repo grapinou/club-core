@@ -40,6 +40,7 @@ type RegistrationApplicationView struct {
 	Consents                     []dbsqlc.ListRegistrationApplicationConsentsRow
 }
 type RegistrationDetailView struct {
+	Child        *identityresolution.ChildDetails
 	Application  *RegistrationApplicationView
 	AutomaticNew bool
 	SecurityData
@@ -95,7 +96,15 @@ func RegistrationRows(rows []dbsqlc.ListRegistrationReviewsRow, loc *time.Locati
 	for _, r := range rows {
 		row := RegistrationRowView{ID: r.ID, Name: r.LastName + " " + r.FirstName, BirthDate: date(r.BirthDate), CreatedAt: timestamp(r.CreatedAt, loc), Status: registrationStatus(r.Status), Confidence: confidence(r.BestConfidence), Count: r.CandidateCount, Awaiting: r.Status == "awaiting_identity_review"}
 		if r.ApplicationNeedsReview {
-			row.Status = "Identité résolue — adhésion à vérifier"
+			row.Status = "Dossier d’adhésion à vérifier"
+			switch r.ApplicationReason {
+			case "guardian_confirmation_required":
+				row.Status = "Lien guardian à confirmer"
+			case "guardian_identity_review":
+				row.Status = "Identité guardian à vérifier"
+			case "child_identity_review":
+				row.Status = "Identité enfant à vérifier"
+			}
 			row.Awaiting = true
 		}
 		out = append(out, row)
@@ -106,7 +115,7 @@ func RegistrationDetail(d identityresolution.Details, loc *time.Location) Regist
 	s := d.Submission
 	values := []string{s.FirstName, s.LastName, date(s.BirthDate), s.Email.String, s.PhoneNumber.String, s.Address.String}
 	labels := []string{"Prénom", "Nom", "Date de naissance", "Email", "Téléphone", "Adresse"}
-	v := RegistrationDetailView{ID: s.ID, Status: registrationStatus(s.Status), CreatedAt: timestamp(s.CreatedAt, loc), Open: s.Status == "received" || s.Status == "awaiting_identity_review" || s.Status == "awaiting_email_verification", EmailVerified: s.EmailVerified && !s.ResolvedByUserID.Valid, AwaitingEmail: s.Status == "awaiting_email_verification", Resolved: s.Status == "resolved", ResolvedPersonID: s.ResolvedPersonID.Int32, ResolvedAt: timestamp(s.ResolvedAt, loc), Resolver: textOrDash(s.ResolverUsername.String)}
+	v := RegistrationDetailView{Child: d.Child, ID: s.ID, Status: registrationStatus(s.Status), CreatedAt: timestamp(s.CreatedAt, loc), Open: s.Status == "received" || s.Status == "awaiting_identity_review" || s.Status == "awaiting_email_verification", EmailVerified: s.EmailVerified && !s.ResolvedByUserID.Valid, AwaitingEmail: s.Status == "awaiting_email_verification", Resolved: s.Status == "resolved", ResolvedPersonID: s.ResolvedPersonID.Int32, ResolvedAt: timestamp(s.ResolvedAt, loc), Resolver: textOrDash(s.ResolverUsername.String)}
 	v.AutomaticNew = s.ResolutionType.String == "new_person" && !s.ResolvedByUserID.Valid
 	if d.Application != nil {
 		a := d.Application
@@ -126,6 +135,16 @@ func RegistrationDetail(d identityresolution.Details, loc *time.Location) Regist
 			av.Reason = "Une adhésion existe déjà pour cette personne et cette saison."
 		case "choices_unavailable":
 			av.Reason = "La saison, le type d’adhésion ou une activité n’est plus disponible."
+		case "guardian_identity_review":
+			av.Reason = "Identité guardian à vérifier"
+		case "child_identity_review":
+			av.Reason = "Identité enfant à vérifier"
+		case "guardian_confirmation_required":
+			av.Reason = "Lien guardian à confirmer"
+		case "member_not_minor":
+			av.Reason = "La Person enfant retenue n’est pas mineure."
+		case "guardian_relation_invalid":
+			av.Reason = "La relation guardian ne peut pas être utilisée. Vérifiez les Persons retenues."
 		case "member_not_adult":
 			av.Reason = "L’identité retenue ne relève pas du parcours adulte."
 		case "membership_unavailable":

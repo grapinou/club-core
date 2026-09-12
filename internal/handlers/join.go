@@ -27,10 +27,12 @@ func NewJoinHandler(site string, s *registrationapplications.Service, l *Attempt
 	return &JoinHandler{site, s, l}
 }
 func (h *JoinHandler) Register(mux *http.ServeMux, csrf *websecurity.CSRF) {
+	mux.Handle("GET /join/child", csrf.Protect(http.HandlerFunc(h.get)))
+	mux.Handle("GET /join/child/submitted", csrf.Protect(http.HandlerFunc(h.submitted)))
 	mux.Handle("GET /join", csrf.Protect(http.HandlerFunc(h.get)))
 	mux.Handle("GET /join/submitted", csrf.Protect(http.HandlerFunc(h.submitted)))
 	protected := csrf.Protect(http.HandlerFunc(h.post))
-	mux.Handle("POST /join", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	post := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !h.limiter.AllowRequest(r) {
 			w.Header().Set("Cache-Control", "no-store")
 			w.Header().Set("Retry-After", "900")
@@ -38,9 +40,12 @@ func (h *JoinHandler) Register(mux *http.ServeMux, csrf *websecurity.CSRF) {
 			return
 		}
 		protected.ServeHTTP(w, r)
-	}))
+	})
+	mux.Handle("POST /join", post)
+	mux.Handle("POST /join/child", post)
 }
 func (h *JoinHandler) render(w http.ResponseWriter, r *http.Request, v views.JoinView, status int) {
+	v.Child = strings.HasPrefix(r.URL.Path, "/join/child")
 	v.SecurityData = pageSecurity(r)
 	v.SiteName = h.site
 	v.Title = "Adhérer - " + h.site
@@ -110,6 +115,29 @@ func joinInput(form url.Values) (registrationapplications.Input, registrationapp
 }
 func (h *JoinHandler) post(w http.ResponseWriter, r *http.Request) {
 	in, fields := joinInput(r.PostForm)
+	if r.URL.Path == "/join/child" {
+		guardianForm := url.Values{}
+		for _, key := range []string{"first_name", "last_name", "birth_date", "email", "phone_number", "address"} {
+			guardianForm[key] = r.PostForm["guardian_"+key]
+			if len(guardianForm[key]) > 1 {
+				fields["form"] = "Chaque champ doit être renseigné une seule fois."
+			}
+		}
+		guardian, _ := joinInput(guardianForm)
+		if guardianForm.Get("birth_date") != "" && !guardian.Identity.BirthDate.Valid {
+			fields["guardian_birth_date"] = "Indiquez une date valide ou laissez ce champ vide."
+		}
+		for _, key := range []string{"relationship_type", "emergency_contact"} {
+			if len(r.PostForm[key]) != 1 {
+				fields[key] = "Choisissez une réponse."
+			}
+		}
+		emergency := r.PostForm.Get("emergency_contact")
+		if emergency != "yes" && emergency != "no" {
+			fields["emergency_contact"] = "Choisissez Oui ou Non."
+		}
+		in.Child = &registrationapplications.ChildInput{Guardian: guardian.Identity, RelationshipType: r.PostForm.Get("relationship_type"), EmergencyContactRequested: emergency == "yes"}
+	}
 	action := r.PostForm.Get("action")
 	if action != "review" && action != "edit" && action != "submit" {
 		fields["form"] = "Vérifiez votre demande avant de l'enregistrer."
@@ -118,7 +146,11 @@ func (h *JoinHandler) post(w http.ResponseWriter, r *http.Request) {
 	if len(fields) == 0 && action == "submit" {
 		_, err = h.applications.Submit(r.Context(), in, websecurity.Token(r.Context()))
 		if err == nil {
-			http.Redirect(w, r, "/join/submitted", http.StatusSeeOther)
+			path := "/join/submitted"
+			if in.Child != nil {
+				path = "/join/child/submitted"
+			}
+			http.Redirect(w, r, path, http.StatusSeeOther)
 			return
 		}
 	} else {

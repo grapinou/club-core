@@ -11,6 +11,7 @@ import (
 
 type JoinHidden struct{ Name, Value string }
 type JoinView struct {
+	Child bool
 	SecurityData
 	SiteName, Title, Presentation  string
 	Catalog                        registrationapplications.Catalog
@@ -34,3 +35,14 @@ var joinFiles embed.FS
 var joinTemplate = template.Must(template.ParseFS(joinFiles, "templates/layouts/base.html", "templates/pages/join.html"))
 
 func RenderJoin(w io.Writer, v JoinView) error { return joinTemplate.ExecuteTemplate(w, "base", v) }
+
+func (v JoinView) Path() string {
+	if v.Child {
+		return "/join/child"
+	}
+	return "/join"
+}
+
+func (v JoinView) RelationshipLabel() string {
+	return map[string]string{"mother": "Mère", "father": "Père", "guardian": "Responsable légal", "other": "Autre"}[v.Values.Get("relationship_type")]
+}

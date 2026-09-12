@@ -281,6 +281,7 @@ func (q *Queries) ListRegistrationCandidates(ctx context.Context, submissionID i
 
 const listRegistrationReviews = `-- name: ListRegistrationReviews :many
 SELECT s.id,s.status,s.first_name,s.last_name,s.birth_date,s.created_at,
+ COALESCE((SELECT a.last_error_code FROM registration_applications a WHERE a.submission_id=s.id),'')::text AS application_reason,
  EXISTS(SELECT 1 FROM registration_applications a WHERE a.submission_id=s.id AND a.status='needs_review') AS application_needs_review,
  count(c.person_id)::integer AS candidate_count,
  COALESCE(CASE max(CASE c.confidence WHEN 'strong' THEN 3 WHEN 'possible' THEN 2 WHEN 'weak' THEN 1 END)
@@ -300,6 +301,7 @@ type ListRegistrationReviewsRow struct {
 	LastName               string
 	BirthDate              pgtype.Date
 	CreatedAt              pgtype.Timestamptz
+	ApplicationReason      string
 	ApplicationNeedsReview bool
 	CandidateCount         int32
 	BestConfidence         string
@@ -321,6 +323,7 @@ func (q *Queries) ListRegistrationReviews(ctx context.Context) ([]ListRegistrati
 			&i.LastName,
 			&i.BirthDate,
 			&i.CreatedAt,
+			&i.ApplicationReason,
 			&i.ApplicationNeedsReview,
 			&i.CandidateCount,
 			&i.BestConfidence,

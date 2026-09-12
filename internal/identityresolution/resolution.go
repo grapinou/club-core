@@ -21,8 +21,14 @@ func CreateDeclaredPerson(ctx context.Context, tx pgx.Tx, sub dbsqlc.Registratio
 	return dbsqlc.New(tx).CreatePerson(ctx, dbsqlc.CreatePersonParams{FirstName: strings.TrimSpace(sub.FirstName), LastName: strings.TrimSpace(sub.LastName), BirthDate: sub.BirthDate, Email: cleanText(sub.Email), PhoneNumber: cleanText(sub.PhoneNumber), Address: cleanText(sub.Address)})
 }
 
-// ResolveUnmatchedSelf is exclusively for a complete, validated self application.
+// ResolveUnmatchedSelf retains the adult API and shares the zero-candidate
+// primitive with the validated child application.
 func ResolveUnmatchedSelf(ctx context.Context, tx pgx.Tx, id int32) error {
+	return ResolveUnmatchedApplication(ctx, tx, id)
+}
+
+// ResolveUnmatchedApplication requires a complete, validated public application.
+func ResolveUnmatchedApplication(ctx context.Context, tx pgx.Tx, id int32) error {
 	q := dbsqlc.New(tx)
 	sub, err := q.LockRegistrationSubmission(ctx, id)
 	if err != nil {

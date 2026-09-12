@@ -11,7 +11,8 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"net/mail"
+	"github.com/grapinou/club-core/internal/accounts"
+	"github.com/grapinou/club-core/internal/guardianaccess"
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +29,8 @@ import (
 const PresentationValidity = time.Hour
 
 type Service struct {
+	guardians   *guardianaccess.Service
+	accounts    *accounts.Service
 	db          *pgxpool.Pool
 	identities  *identityresolution.Submitter
 	memberships *memberships.Service
@@ -136,6 +139,7 @@ func (s *Service) PresentedCatalog(ctx context.Context, c Catalog, token, csrf s
 }
 
 type Input struct {
+	Child                      *ChildInput
 	Identity                   identityresolution.SubmissionInput
 	SeasonID, MembershipTypeID int32
 	ActivityIDs                []int32
@@ -160,15 +164,17 @@ func (s *Service) validate(ctx context.Context, q *dbsqlc.Queries, in Input, csr
 			fields[key] = "Vérifiez la longueur et le format de ce champ."
 		}
 	}
-	if !in.Identity.BirthDate.Valid || in.Identity.BirthDate.InfinityModifier != pgtype.Finite {
-		fields["birth_date"] = "Indiquez une date de naissance valide."
-	} else if !s.memberships.IsAdult(in.Identity.BirthDate) {
-		fields["birth_date"] = "Ce formulaire est réservé aux personnes majeures. Le parcours « J’inscris mon enfant » n’est pas encore disponible."
-	}
-	email := strings.TrimSpace(in.Identity.Email.String)
-	address, err := mail.ParseAddress(email)
-	if !in.Identity.Email.Valid || email == "" || err != nil || address.Address != email || strings.ContainsAny(email, "\r\n") {
-		fields["email"] = "Indiquez une adresse email valide."
+	if in.Child != nil {
+		s.validateChild(in, fields)
+	} else {
+		if !in.Identity.BirthDate.Valid || in.Identity.BirthDate.InfinityModifier != pgtype.Finite {
+			fields["birth_date"] = "Indiquez une date de naissance valide."
+		} else if !s.memberships.IsAdult(in.Identity.BirthDate) {
+			fields["birth_date"] = "Ce formulaire est réservé aux personnes majeures. Utilisez le parcours « J’inscris mon enfant »."
+		}
+		if !validEmail(in.Identity.Email, true) {
+			fields["email"] = "Indiquez une adresse email valide."
+		}
 	}
 	c, err := catalog(ctx, q)
 	if err != nil {
@@ -278,13 +284,28 @@ func (s *Service) Submit(ctx context.Context, in Input, csrf string) (identityre
 		v.String = strings.TrimSpace(v.String)
 		v.Valid = v.String != ""
 	}
-	sub, err := s.identities.CreateInTransaction(ctx, tx, in.Identity)
+	var claim dbsqlc.GuardianIdentityClaim
+	submitter := s.identities
+	if in.Child != nil {
+		claim, err = identityresolution.CreateGuardianClaim(ctx, tx, in.Child.Guardian)
+		if err != nil {
+			return zero, err
+		}
+		submitter = identityresolution.NewSubmitter(s.db)
+	}
+	sub, err := submitter.CreateInTransaction(ctx, tx, in.Identity)
 	if err != nil {
 		return zero, err
 	}
 	app, err := q.CreateRegistrationApplication(ctx, dbsqlc.CreateRegistrationApplicationParams{SubmissionID: sub.ID, RequestKey: key[:], SeasonID: in.SeasonID, MembershipTypeID: in.MembershipTypeID})
 	if err != nil {
 		return zero, err
+	}
+	if in.Child != nil {
+		err = q.CreateChildRegistrationApplication(ctx, dbsqlc.CreateChildRegistrationApplicationParams{ApplicationID: app.ID, GuardianClaimID: claim.ID, RelationshipType: in.Child.RelationshipType, EmergencyContactRequested: in.Child.EmergencyContactRequested})
+		if err != nil {
+			return zero, err
+		}
 	}
 	for _, id := range in.ActivityIDs {
 		if err = q.CreateRegistrationApplicationActivity(ctx, dbsqlc.CreateRegistrationApplicationActivityParams{ApplicationID: app.ID, ActivityID: id}); err != nil {
@@ -301,12 +322,17 @@ func (s *Service) Submit(ctx context.Context, in Input, csrf string) (identityre
 		return zero, err
 	}
 	if len(candidates) == 0 {
-		if err = identityresolution.ResolveUnmatchedSelf(ctx, tx, sub.ID); err != nil {
+		if err = identityresolution.ResolveUnmatchedApplication(ctx, tx, sub.ID); err != nil {
 			return zero, err
 		}
 		// A new Person and membership are one atomic creation, including unexpected
 		// SQL failure. Existing identity resolutions use a recoverable savepoint below.
-		if err = s.finalize(ctx, tx, sub.ID, true); err != nil {
+		if err = s.finalize(ctx, tx, sub.ID, in.Child == nil); err != nil {
+			return zero, err
+		}
+	}
+	if in.Child != nil && len(candidates) > 0 {
+		if err = s.finalize(ctx, tx, sub.ID, false); err != nil {
 			return zero, err
 		}
 	}
@@ -331,9 +357,19 @@ func (s *Service) Finalize(ctx context.Context, submissionID int32) (dbsqlc.Regi
 	if err != nil {
 		return a, err
 	}
-	return a, tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return a, err
+	}
+	s.AfterResolution(ctx, submissionID)
+	return a, nil
 }
 func (s *Service) FinalizeSubmission(ctx context.Context, tx pgx.Tx, id int32) error {
+	if err := identityresolution.LockDeliveryDecision(ctx, tx, id); err != nil {
+		return err
+	}
+	if _, err := dbsqlc.New(tx).LockRegistrationSubmission(ctx, id); err != nil {
+		return err
+	}
 	return s.finalize(ctx, tx, id, false)
 }
 func (s *Service) finalize(ctx context.Context, tx pgx.Tx, id int32, strict bool) error {
@@ -352,7 +388,22 @@ func (s *Service) finalize(ctx context.Context, tx pgx.Tx, id int32, strict bool
 	if err != nil {
 		return err
 	}
-	if sub.Status != "resolved" {
+	child, childErr := q.GetChildRegistrationApplication(ctx, a.ID)
+	isChild := childErr == nil
+	if childErr != nil && !errors.Is(childErr, pgx.ErrNoRows) {
+		return childErr
+	}
+	giver := sub.ResolvedPersonID.Int32
+	if isChild {
+		var reason string
+		giver, reason, err = s.prepareChild(ctx, tx, a, sub, child, false)
+		if err != nil {
+			return err
+		}
+		if reason != "" {
+			return q.MarkRegistrationApplicationReview(ctx, dbsqlc.MarkRegistrationApplicationReviewParams{ID: a.ID, LastErrorCode: pgtype.Text{String: reason, Valid: true}})
+		}
+	} else if sub.Status != "resolved" {
 		return nil
 	}
 	activities, err := q.ListRegistrationApplicationActivities(ctx, a.ID)
@@ -369,7 +420,7 @@ func (s *Service) finalize(ctx context.Context, tx pgx.Tx, id int32, strict bool
 		r.ActivityIDs = append(r.ActivityIDs, v.ID)
 	}
 	for _, d := range decisions {
-		r.Consents = append(r.Consents, memberships.Decision{ConsentDefinitionID: d.ConsentDefinitionID, Decision: d.Decision, GivenByPersonID: r.PersonID})
+		r.Consents = append(r.Consents, memberships.Decision{ConsentDefinitionID: d.ConsentDefinitionID, Decision: d.Decision, GivenByPersonID: giver})
 		presented = append(presented, memberships.PresentedConsent{ConsentDefinitionID: d.ConsentDefinitionID, PresentedAt: d.PresentedAt})
 	}
 	// Savepoint preserves a completed identity proof even when membership creation
@@ -381,7 +432,7 @@ func (s *Service) finalize(ctx context.Context, tx pgx.Tx, id int32, strict bool
 	var birth pgtype.Date
 	err = nested.QueryRow(ctx, `SELECT birth_date FROM persons WHERE id=$1 FOR NO KEY UPDATE`, r.PersonID).Scan(&birth)
 	reason := ""
-	if err == nil && !s.memberships.IsAdult(birth) {
+	if err == nil && !isChild && !s.memberships.IsAdult(birth) {
 		reason = "member_not_adult"
 	}
 	var m dbsqlc.Membership

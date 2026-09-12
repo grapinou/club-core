@@ -9,6 +9,9 @@ import (
 	"github.com/grapinou/club-core/internal/auth"
 )
 
+// MaxFormBodyBytes covers two identities, URL-encoded addresses and signed consent IDs.
+const MaxFormBodyBytes = 32 * 1024
+
 type CSRF struct {
 	secure bool
 	origin *http.CrossOriginProtection
@@ -49,7 +52,7 @@ func (c *CSRF) Protect(next http.Handler) http.Handler {
 				http.Error(w, "Requête non autorisée.", 403)
 				return
 			}
-			r.Body = http.MaxBytesReader(w, r.Body, 8192)
+			r.Body = http.MaxBytesReader(w, r.Body, MaxFormBodyBytes)
 			if err := r.ParseForm(); err != nil {
 				http.Error(w, "Requête invalide.", 400)
 				return

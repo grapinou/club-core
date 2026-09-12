@@ -127,7 +127,7 @@ func (s *Service) AuthorizeProvisionTx(ctx context.Context, tx pgx.Tx, child, gu
 
 func (s *Service) Grant(ctx context.Context, child, guardian int32) (dbsqlc.GuardianAccessGrant, error) {
 	var zero dbsqlc.GuardianAccessGrant
-	actor, err := s.RequireAdministrator(ctx)
+	_, err := s.RequireAdministrator(ctx)
 	if err != nil {
 		return zero, err
 	}
@@ -136,14 +136,7 @@ func (s *Service) Grant(ctx context.Context, child, guardian int32) (dbsqlc.Guar
 		return zero, err
 	}
 	defer tx.Rollback(ctx)
-	if err = s.lockEligible(ctx, tx, child, guardian); err != nil {
-		return zero, err
-	}
-	q := dbsqlc.New(tx)
-	grant, err := q.CreateGuardianAccessGrant(ctx, dbsqlc.CreateGuardianAccessGrantParams{ChildPersonID: child, GuardianPersonID: guardian, GrantedByUserID: pgtype.Int4{Int32: actor, Valid: true}})
-	if errors.Is(err, pgx.ErrNoRows) {
-		grant, err = q.GetActiveGuardianAccess(ctx, dbsqlc.GetActiveGuardianAccessParams{ChildPersonID: child, GuardianPersonID: guardian})
-	}
+	grant, err := s.GrantTx(ctx, tx, child, guardian)
 	if err != nil {
 		return zero, err
 	}
@@ -259,4 +252,22 @@ func (s *Service) ListActiveGuardiansForChild(ctx context.Context, child int32) 
 		}
 	}
 	return result, nil
+}
+
+// GrantTx is the transactional variant of Grant. It preserves actor, permission,
+// relation and minority checks and never treats primary contact as digital access.
+func (s *Service) GrantTx(ctx context.Context, tx pgx.Tx, child, guardian int32) (dbsqlc.GuardianAccessGrant, error) {
+	q := dbsqlc.New(tx)
+	actor, err := requireAdministrator(ctx, q, authorization.New(q))
+	if err != nil {
+		return dbsqlc.GuardianAccessGrant{}, err
+	}
+	if err = s.lockEligible(ctx, tx, child, guardian); err != nil {
+		return dbsqlc.GuardianAccessGrant{}, err
+	}
+	grant, err := q.CreateGuardianAccessGrant(ctx, dbsqlc.CreateGuardianAccessGrantParams{ChildPersonID: child, GuardianPersonID: guardian, GrantedByUserID: pgtype.Int4{Int32: actor, Valid: true}})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return q.GetActiveGuardianAccess(ctx, dbsqlc.GetActiveGuardianAccessParams{ChildPersonID: child, GuardianPersonID: guardian})
+	}
+	return grant, err
 }

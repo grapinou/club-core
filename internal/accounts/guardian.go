@@ -40,7 +40,7 @@ func (s *Service) EnsureUserForPerson(ctx context.Context, person int32) (dbsqlc
 
 // EnsureGuardianUser never creates a Membership or a child account. Resource IDs
 // identify the relationship; the administrator actor comes only from auth context.
-func (s *Service) EnsureGuardianUser(ctx context.Context, child, guardian int32) (ResendResult, error) {
+func (s *Service) EnsureGuardianUser(ctx context.Context, child, guardian int32, options ...GuardianUserOption) (ResendResult, error) {
 	var result ResendResult
 	if s.guardians == nil {
 		return result, guardianaccess.ErrIneligible
@@ -60,6 +60,20 @@ func (s *Service) EnsureGuardianUser(ctx context.Context, child, guardian int32)
 	result.UserID = u.ID
 	if !u.IsActive {
 		return result, ErrDisabled
+	}
+	// Automatic finalization reuses a pending activation; explicit existing admin
+	// calls keep their resend semantics. Eligibility/person locks serialize this check.
+	for _, option := range options {
+		if option == KeepPendingActivation {
+			var pending bool
+			err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM user_activation_codes WHERE user_id=$1 AND used_at IS NULL AND invalidated_at IS NULL AND expires_at>clock_timestamp())`, u.ID).Scan(&pending)
+			if err != nil {
+				return result, err
+			}
+			if pending {
+				return result, tx.Commit(ctx)
+			}
+		}
 	}
 	d, err := s.activation.PreparePersonOnlyTx(ctx, tx, u.ID)
 	if err != nil {
@@ -86,3 +100,7 @@ func (s *Service) EnsureGuardianUser(ctx context.Context, child, guardian int32)
 
 // SetGuardianAccess wires the resource-scoped authorization service.
 func (s *Service) SetGuardianAccess(g *guardianaccess.Service) { s.guardians = g }
+
+type GuardianUserOption int
+
+const KeepPendingActivation GuardianUserOption = 1
