@@ -1,11 +1,13 @@
 {{ define "content" }}
 
-<h1>{{ .Heading }}</h1>
+<div class="content-readable"><header class="page-header"><h1>{{ .Heading }}</h1></header>
 
 <p>
     {{ .Description }}
 </p>
 
+{{if .Home}}<div class="actions"><a href="/join" class="btn btn-primary">Adhérer au club</a><a href="/club" class="btn btn-outline-secondary">Découvrir le club</a>{{if .Authenticated}}<a href="/dashboard">Ouvrir mon espace</a>{{end}}</div>{{end}}
+{{if .Practical}}<nav class="detail-links" aria-label="Informations pratiques"><a href="/where">Où nous trouver</a><a href="/when">Horaires</a><a href="/contact">Contacter le club</a></nav>{{end}}
 {{ if .Image }}
 <img
     src="{{ .Image }}"
@@ -13,5 +15,5 @@
     class="img-fluid mb-4"
 >
 {{ end }}
-
+</div>
 {{ end }}

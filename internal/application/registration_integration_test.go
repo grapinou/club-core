@@ -308,7 +308,7 @@ func TestRegistrationHTTPDetailAndResolution(t *testing.T) {
 	}
 	page := b.call("GET", reviewPath(id), nil)
 	body := html.UnescapeString(page.Body.String())
-	for _, value := range []string{"RÉMI", "DUPONT", "01/01/1990", "New@example.test", "remi@example.test", "Adresse existante", "Différent", "Fort (strong)", "Téléphone normalisé", "User désactivé", "compte non activé", "Rattacher à cette personne", "Créer une nouvelle Person"} {
+	for _, value := range []string{"RÉMI", "DUPONT", "01/01/1990", "New@example.test", "remi@example.test", "Adresse existante", "Différent", "Fort", "Téléphone normalisé", "Compte désactivé", "compte non activé", "Rattacher à cette personne", "Créer une nouvelle fiche"} {
 		if !strings.Contains(body, value) {
 			t.Fatal("missing detail", value)
 		}
@@ -329,7 +329,7 @@ func TestRegistrationHTTPDetailAndResolution(t *testing.T) {
 		t.Fatal("actor or Person overwritten")
 	}
 	page = b.call("GET", r.Header().Get("Location"), nil)
-	if !strings.Contains(page.Body.String(), "Résolution enregistrée") || !strings.Contains(page.Body.String(), "admin") || !strings.Contains(page.Body.String(), "Vérifications (1)") || strings.Contains(page.Body.String(), "Rattacher à cette personne") || strings.Contains(page.Body.String(), "Créer une nouvelle Person") {
+	if !strings.Contains(page.Body.String(), "Résolution enregistrée") || !strings.Contains(page.Body.String(), "admin") || !strings.Contains(page.Body.String(), "Vérifications (1)") || strings.Contains(page.Body.String(), "Rattacher à cette personne") || strings.Contains(page.Body.String(), "Créer une nouvelle fiche") {
 		t.Fatal("historical detail")
 	}
 	r = b.call("POST", reviewPath(id)+"/create-person", url.Values{"csrf_token": {token}})
@@ -466,7 +466,7 @@ func TestRegistrationAdditionalInvariants(t *testing.T) {
 		}
 		r := b.call("GET", reviewPath(id), nil)
 		body := html.UnescapeString(r.Body.String())
-		want := map[string]string{"absent": "Aucun User", "unactivated": "User actif — compte non activé", "activated": "User actif — compte activé", "disabled": "User désactivé"}[state]
+		want := map[string]string{"absent": "Aucun compte", "unactivated": "Compte non activé", "activated": "Compte activé", "disabled": "Compte désactivé"}[state]
 		if r.Code != 200 || !strings.Contains(body, want) || strings.Contains(body, "never-expose-this-hash") {
 			t.Fatal("account state presentation", state)
 		}
@@ -475,7 +475,7 @@ func TestRegistrationAdditionalInvariants(t *testing.T) {
 	if err := f.app.Reviews.CreatePerson(t.Context(), f.approver, id); !errors.Is(err, identityresolution.ErrClosed) {
 		t.Fatal("cancelled resolution")
 	}
-	if r := b.call("GET", reviewPath(id), nil); r.Code != 200 || strings.Contains(r.Body.String(), "Créer une nouvelle Person") {
+	if r := b.call("GET", reviewPath(id), nil); r.Code != 200 || strings.Contains(r.Body.String(), "Créer une nouvelle fiche") {
 		t.Fatal("cancelled UI")
 	}
 	// Application reads reject stale privileges independently of HTTP.

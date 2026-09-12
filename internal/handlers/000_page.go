@@ -13,6 +13,8 @@ func pageHandler(siteName string, page config.PageConfig) http.HandlerFunc {
 
 		data := views.PageData{SecurityData: pageSecurity(r),
 			SiteName:    siteName,
+			Home:        r.URL.Path == "/",
+			Practical:   r.URL.Path == "/where" || r.URL.Path == "/when",
 			Title:       page.Title + " - " + siteName,
 			Heading:     page.Heading,
 			Description: page.Description,

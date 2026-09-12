@@ -83,18 +83,10 @@ func timestamp(v pgtype.Timestamptz, loc *time.Location) string {
 	return v.Time.In(loc).Format("02/01/2006 à 15:04")
 }
 func membershipStatus(s string) (string, string) {
-	switch s {
-	case "pending":
-		return "En attente (pending)", "text-bg-warning"
-	case "active":
-		return "Active (active)", "text-bg-success"
-	case "ended":
-		return "Terminée (ended)", "text-bg-secondary"
-	case "cancelled":
-		return "Annulée (cancelled)", "text-bg-secondary"
-	}
-	return "Statut inconnu", "text-bg-secondary"
+	status := DisplayStatus(s)
+	return status.Label, status.Class
 }
+
 func accountLabel(a memberships.AccountState) string {
 	if !a.Exists {
 		return "Aucun compte"
@@ -187,19 +179,33 @@ func MembershipDetail(d memberships.Details, loc *time.Location, approve, resend
 		v.EmergencyContacts = append(v.EmergencyContacts, ContactView{Name: e.FirstName + " " + e.LastName, Relationship: textOrDash(e.RelationshipLabel.String), Phone: textOrDash(e.PhoneNumber.String), Email: textOrDash(e.Email.String), Priority: e.Priority})
 	}
 	for _, c := range d.ConsentRequirements {
-		decision, class := "Non renseigné", "text-bg-warning"
-		switch c.Decision.String {
-		case "granted":
-			decision, class = "Accordé (granted)", "text-bg-success"
-		case "refused":
-			decision, class = "Refusé (refused)", "text-bg-secondary"
-		case "withdrawn":
-			decision, class = "Retiré (withdrawn)", "text-bg-secondary"
-		}
+		status := DisplayStatus(c.Decision.String)
+		decision, class := status.Label, status.Class
 		v.Consents = append(v.Consents, ConsentView{Title: c.Title, Description: c.Description, Version: c.Version, Decision: decision, Class: class, Giver: textOrDash(strings.TrimSpace(c.GiverFirstName.String + " " + c.GiverLastName.String)), RecordedAt: timestamp(c.RecordedAt, loc)})
 	}
 	v.Account = AccountView{Exists: d.Account.Exists, Active: d.Account.IsActive, Activated: d.Account.IsActivated, NeedsActivation: d.Account.NeedsActivation, ID: row.UserID.Int32, Username: row.Username.String, Label: accountLabel(d.Account)}
 	v.CanApprove = approve && v.Pending
 	v.CanResend = resend && d.Account.Exists && d.Account.IsActive && d.Account.NeedsActivation
 	return v
+}
+
+func (v MembershipListView) HasPending() bool {
+	for _, r := range v.Rows {
+		if r.Pending {
+			return true
+		}
+	}
+	return false
+}
+func (v MembershipRowView) ActionLabel() string {
+	if v.Pending {
+		if v.BlockingCount > 0 {
+			return "Compléter le dossier avant approbation."
+		}
+		return "Examiner la demande pour approbation."
+	}
+	if v.Account == "Activation nécessaire" {
+		return "Renvoyer l’activation si nécessaire."
+	}
+	return "Aucune action immédiate."
 }

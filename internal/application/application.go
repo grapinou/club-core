@@ -87,6 +87,7 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, 
 	accountService := accounts.New(db, m, a, sender, runtime.SMTP.From, runtime.BaseURL, permissions)
 	accountService.SetGuardianAccess(guardians)
 	applications.SetGuardianServices(guardians, accountService)
+	handlers.RegisterDashboard(mux, cfg.SiteName, queries, guardians, csrf)
 	handlers.NewMembershipHandler(cfg.SiteName, runtime.Location, m, accountService, queries, permissions).Register(mux, access, csrf)
 	handlers.NewRegistrationHandler(cfg.SiteName, runtime.Location, reviews, applications).Register(mux, access, csrf)
 	authHandler := handlers.NewAuthHandler(cfg.SiteName, a, login, sessions, runtime.SecureCookies)

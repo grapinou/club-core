@@ -14,6 +14,7 @@ type AuthData struct {
 	SecurityData
 	SiteName, Title, Message string
 	Activation, LoggedIn     bool
+	Error                    bool
 }
 
 func RenderAuth(w io.Writer, data AuthData) error {

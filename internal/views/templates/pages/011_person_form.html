@@ -1,8 +1,8 @@
-{{ define "content" }}
+{{ define "content" }}<div class="content-readable">
 
 <h1>Ajouter une personne :</h1>
 
-<form action="/persons" method="post">
+<form class="section-panel" action="/persons" method="post">
     <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
 
     <div class="mb-3">
@@ -86,4 +86,4 @@
 
 </form>
 
-{{ end }}
+</div>{{ end }}

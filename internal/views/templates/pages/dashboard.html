@@ -1,0 +1,16 @@
+{{define "content"}}<div class="content-readable">
+<header class="page-header"><h1>Mon espace</h1><p>Bonjour {{.Name}}. Retrouvez les informations qui vous concernent.</p></header>
+<section class="section-panel"><h2>Mes adhésions</h2>
+{{range .Memberships}}<article class="mb-3"><h3>{{.SeasonName}} <span class="badge {{$.StatusClassFor .Status}}">{{$.StatusLabel .Status}}</span></h3><p>{{.MembershipTypeName}}</p><ul>{{range .Activities}}<li>{{.}}</li>{{else}}<li>Aucune activité renseignée.</li>{{end}}</ul>{{if $.CanReadMemberships}}<a href="/memberships/{{.ID}}">Consulter le dossier administratif</a>{{end}}</article>
+{{else}}<div class="empty-state">Aucune adhésion à afficher pour votre compte.</div>{{end}}</section>
+<section class="section-panel"><h2>Enfants que je peux gérer</h2><p class="text-body-secondary">Seuls les enfants pour lesquels votre accès est actuellement autorisé apparaissent ici.</p>
+{{range .Children}}<article class="card mb-3"><div class="card-body"><h3>{{.Name}}</h3>
+{{range .Memberships}}<p>{{.SeasonName}} · <span class="badge {{$.StatusClassFor .Status}}">{{$.StatusLabel .Status}}</span></p><p>{{.MembershipTypeName}}</p><ul>{{range .Activities}}<li>{{.}}</li>{{else}}<li>Aucune activité renseignée.</li>{{end}}</ul>{{if $.CanReadMemberships}}<a href="/memberships/{{.ID}}">Consulter le dossier administratif</a>{{end}}
+{{else}}<p>Aucune adhésion enregistrée.</p>{{end}}</div></article>
+{{else}}<div class="empty-state">Vous ne gérez actuellement aucun enfant.</div>{{end}}</section>
+{{if or .CanReadPersons .CanReadMemberships .CanReviewRegistrations}}<section class="section-panel"><h2>Administration</h2><p>Accédez aux dossiers que vous êtes autorisé à traiter.</p><div class="actions">
+{{if .CanReadMemberships}}<a class="btn btn-outline-primary" href="/memberships">Adhésions</a>{{end}}
+{{if .CanReviewRegistrations}}<a class="btn btn-outline-primary" href="/registration-reviews">Vérifications ({{.RegistrationReviewCount}})</a>{{end}}
+{{if .CanReadPersons}}<a class="btn btn-outline-primary" href="/persons">Personnes</a>{{end}}</div></section>{{end}}
+<div class="actions"><a href="/contact">Contacter le club</a><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button class="btn btn-outline-secondary" type="submit">Se déconnecter</button></form></div>
+</div>{{end}}

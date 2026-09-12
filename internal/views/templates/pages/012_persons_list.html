@@ -1,71 +1,7 @@
-{{ define "content" }}
-
-<h1>Liste des personnes rentrées en contact avec {{ .SiteName}} </h1>
-
-
-<a
-    href="/persons/new"
-    class="btn btn-success mb-3"
->
-    Ajouter une personne
-</a>
-
-<a
-    href="/persons/archived"
-    class="btn btn-secondary mb-3"
->
-    Personnes archivées
-</a>
-
-<table class="table">
-    <thead>
-        <tr>
-            <th>Prénom</th>
-            <th>Nom</th>
-            <th>Date de naissance</th>
-            <th>Numéro de téléphone</th>
-            <th>Email</th>
-            <th>Adresse</th>
-            <th>Créé le</th>
-            <th>Action</th>
-        </tr>
-    </thead>
-
-    <tbody>
-        {{ range .Persons }}
-        <tr>
-            <td>{{ .FirstName }}</td>
-            <td>{{ .LastName }}</td>
-            <td>{{ .BirthDate }}</td>
-            <td>{{ .PhoneNumber}}</td>
-            <td>{{ .Email }}</td>
-            <td>{{ .Address }}</td>
-            <td>{{ .CreatedAt}}</td>
-            <td> 
-                <a
-                     href="/persons/{{ .ID }}/edit"
-                     class="btn btn-primary btn-sm"
-                 >
-                    Modifier
-                </a>
-            
-                 <form
-                        action="/persons/{{ .ID }}/archive"
-                        method="post"
-                        class="d-inline"
-                        >
-<input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
-                        <button
-                        type="submit"
-                        class="btn btn-danger btn-sm"
-                        >
-                          Archiver
-                    </button>
-                </form>
-            </td>
-        </tr>
-        {{ end }}
-    </tbody>
-</table>
-
-{{ end }}
+{{define "content"}}
+<header class="page-header"><h1>Personnes</h1><p>Les personnes connues du club, avec ou sans adhésion.</p><div class="actions">{{if .CanWritePersons}}<a href="/persons/new" class="btn btn-primary">Ajouter une personne</a>{{end}}<a href="/persons/archived" class="btn btn-outline-secondary">Personnes archivées</a></div></header>
+{{if .Persons}}<table class="table data-list align-middle"><caption class="visually-hidden">Personnes connues du club</caption><thead><tr><th scope="col">Personne</th><th scope="col">Coordonnées</th><th scope="col">Création</th>{{if .CanWritePersons}}<th scope="col">Actions</th>{{end}}</tr></thead><tbody>
+{{range .Persons}}<tr><td data-label="Personne"><strong>{{.FirstName}} {{.LastName}}</strong><small>Naissance : {{.BirthDate}}</small></td><td data-label="Coordonnées">{{.Email}}<small>{{.PhoneNumber}}</small><small>{{.Address}}</small></td><td data-label="Création">{{.CreatedAt}}</td>
+{{if $.CanWritePersons}}<td data-label="Actions"><div class="actions"><a href="/persons/{{.ID}}/edit" class="btn btn-outline-secondary btn-sm">Modifier</a><form action="/persons/{{.ID}}/archive" method="post"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><button type="submit" class="btn btn-outline-danger btn-sm">Archiver</button></form></div></td>{{end}}</tr>{{end}}</tbody></table>
+{{else}}<p class="empty-state">Aucune personne à afficher.</p>{{end}}
+{{end}}

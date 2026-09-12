@@ -102,7 +102,7 @@ func TestMembershipUIReadsAndPermissions(t *testing.T) {
 				body := html.UnescapeString(response.Body.String())
 				f.assertNoDeliverySecrets(body)
 				if path == "/memberships" {
-					for _, value := range []string{"Dupont Rémi", "Separate Alice", "Distinct type", "pending", "active", "ended", "cancelled", "Complet"} {
+					for _, value := range []string{"Dupont Rémi", "Separate Alice", "Distinct type", "En attente", "Active", "Terminée", "Annulée", "Complet"} {
 						if !strings.Contains(body, value) {
 							t.Fatal("missing list value", value)
 						}
@@ -114,7 +114,7 @@ func TestMembershipUIReadsAndPermissions(t *testing.T) {
 					if strings.Contains(body, "Alice") || !strings.Contains(body, "Contact d'urgence conseillé") {
 						t.Fatal("mixed dossier or missing warning")
 					}
-				} else if !strings.Contains(body, "alice@example.test") || strings.Contains(body, "Valider l'adhésion") {
+				} else if !strings.Contains(body, "alice@example.test") || strings.Contains(body, "Approuver l'adhésion") {
 					t.Fatal("active dossier")
 				}
 			}
@@ -172,7 +172,7 @@ func TestMembershipUIDetailSnapshotAndMinor(t *testing.T) {
 	b := f.membershipAdminBrowser()
 	response := b.call("GET", dossierPath(m.ID), nil)
 	body := html.UnescapeString(response.Body.String())
-	for _, value := range []string{"Mineur", "Practice", "Parent Guardian", "Mère", "0611111111", "First Emergency", "version 1", "Texte présenté", "Accordé (granted)", "Refusé (refused)", "Retiré (withdrawn)", "Dossier prêt à être validé"} {
+	for _, value := range []string{"Mineur", "Practice", "Parent Guardian", "Mère", "0611111111", "First Emergency", "version 1", "Texte présenté", "Accordé", "Refusé", "Retiré", "Dossier prêt à être validé"} {
 		if !strings.Contains(body, value) {
 			t.Fatal("missing detail", value)
 		}
@@ -241,7 +241,7 @@ func TestMembershipUIApprovalAndResend(t *testing.T) {
 			t.Fatal("approval detail", value)
 		}
 	}
-	if strings.Contains(body, "Valider l'adhésion") {
+	if strings.Contains(body, "Approuver l'adhésion") {
 		t.Fatal("approval button after approval")
 	}
 	f.assertNoDeliverySecrets(body)

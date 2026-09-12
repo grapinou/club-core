@@ -66,6 +66,7 @@ func (a *Access) RequirePermission(permission authorization.Permission, next htt
 }
 
 type navigationKey struct{}
+type personWriteNavigationKey struct{}
 type membershipNavigationKey struct{}
 type registrationNavigationKey struct{}
 type registrationNavigation struct {
@@ -76,6 +77,10 @@ type registrationNavigation struct {
 func (a *Access) Navigation(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if id, ok := auth.UserID(r.Context()); ok {
+			write, writeErr := a.checker.HasPermission(r.Context(), id, authorization.PersonsWrite)
+			if writeErr == nil {
+				r = r.WithContext(context.WithValue(r.Context(), personWriteNavigationKey{}, write))
+			}
 			// Per-request display hint; errors hide the link and grant no permissions.
 			allowed, err := a.checker.HasPermission(r.Context(), id, authorization.PersonsRead)
 			if err == nil {
@@ -102,5 +107,7 @@ func pageSecurity(r *http.Request) views.SecurityData {
 	canRead, _ := r.Context().Value(navigationKey{}).(bool)
 	canReadMemberships, _ := r.Context().Value(membershipNavigationKey{}).(bool)
 	review, _ := r.Context().Value(registrationNavigationKey{}).(registrationNavigation)
-	return views.SecurityData{CanReviewRegistrations: review.allowed, RegistrationReviewCount: review.count, CanReadMemberships: canReadMemberships, CanReadPersons: canRead, CSRFToken: websecurity.Token(r.Context())}
+	_, authenticated := auth.UserID(r.Context())
+	canWrite, _ := r.Context().Value(personWriteNavigationKey{}).(bool)
+	return views.SecurityData{Authenticated: authenticated, CanWritePersons: canWrite, CurrentPath: r.URL.Path, CanReviewRegistrations: review.allowed, RegistrationReviewCount: review.count, CanReadMemberships: canReadMemberships, CanReadPersons: canRead, CSRFToken: websecurity.Token(r.Context())}
 }

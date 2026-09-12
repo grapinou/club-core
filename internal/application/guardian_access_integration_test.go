@@ -293,7 +293,7 @@ func TestIndependentUserAndGuardianActivation(t *testing.T) {
 		t.Fatalf("guardian activation: %d", response.Code)
 	}
 	response = b.call("POST", "/login", url.Values{"csrf_token": {token}, "username": {"claire.famille"}, "password": {"guardian secure password"}})
-	if response.Code != 303 || response.Header().Get("Location") != "/" {
+	if response.Code != 303 || response.Header().Get("Location") != "/dashboard" {
 		t.Fatal("guardian login without membership")
 	}
 	guardianCtx := f.authenticatedContext(result.UserID)

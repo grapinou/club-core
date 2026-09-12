@@ -22,7 +22,7 @@ func (f *fixture) loginBrowser(username string) *browser {
 	b := newBrowser(f.app.Handler)
 	token := b.csrf(f.t, "/login")
 	response := b.call("POST", "/login", map[string][]string{"csrf_token": {token}, "username": {username}, "password": {"a secure password"}})
-	if response.Code != 303 || response.Header().Get("Location") != "/" {
+	if response.Code != 303 || response.Header().Get("Location") != "/dashboard" {
 		f.t.Fatal("test login failed")
 	}
 	return b

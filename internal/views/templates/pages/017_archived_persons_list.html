@@ -1,12 +1,12 @@
 {{ define "content" }}
 
-<h1>Personnes archivées</h1>
+<header class="page-header"><h1>Personnes archivées</h1></header>
 
-<a href="/persons" class="btn btn-secondary mb-3">
+<a href="/persons" class="btn btn-outline-secondary mb-3">
     Retour aux personnes
 </a>
 
-<table class="table">
+{{if .Persons}}<table class="table data-list">
     <thead>
         <tr>
             <th>Prénom</th>
@@ -20,13 +20,13 @@
     <tbody>
         {{ range .Persons }}
         <tr>
-            <td>{{ .FirstName }}</td>
-            <td>{{ .LastName }}</td>
-            <td>{{ .BirthDate }}</td>
-            <td>{{ .Email }}</td>
+            <td data-label="Prénom">{{ .FirstName }}</td>
+            <td data-label="Nom">{{ .LastName }}</td>
+            <td data-label="Naissance">{{ .BirthDate }}</td>
+            <td data-label="Email">{{ .Email }}</td>
 
             <td>
-                <form
+                {{if $.CanWritePersons}}<form
                     action="/persons/{{ .ID }}/restore"
                     method="post"
                     class="d-inline"
@@ -34,15 +34,15 @@
 <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
                     <button
                         type="submit"
-                        class="btn btn-success btn-sm"
+                        class="btn btn-outline-primary btn-sm"
                     >
                         Restaurer
                     </button>
-                </form>
+                </form>{{end}}
             </td>
         </tr>
     {{ end }}
     </tbody>
-</table>
+</table>{{else}}<p class="empty-state">Aucune personne archivée.</p>{{end}}
 
 {{ end }}

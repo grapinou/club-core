@@ -1,8 +1,8 @@
 {{define "content"}}
-<h1>Vérifications d'identité</h1>
-<p>{{.RegistrationReviewCount}} soumission(s) à traiter. Les dossiers à traiter apparaissent en premier. Les vérifications email en cours restent consultables, sans être comptées parmi les interventions nécessaires.</p>
-<div class="table-responsive"><table class="table align-middle">
-<thead><tr><th>Date</th><th>Nom Prénom déclarés</th><th>Naissance</th><th>Statut</th><th>Meilleur rapprochement</th><th>Candidats</th></tr></thead>
-<tbody>{{range .Rows}}<tr {{if .Awaiting}}class="table-warning"{{end}}><td>{{.CreatedAt}}</td><td><a href="/registration-reviews/{{.ID}}">{{.Name}}</a></td><td>{{.BirthDate}}</td><td>{{.Status}}</td><td>{{.Confidence}}</td><td>{{.Count}}</td></tr>
-{{else}}<tr><td colspan="6">Aucune soumission.</td></tr>{{end}}</tbody></table></div>
+<header class="page-header"><h1>Vérifications</h1><p>{{.RegistrationReviewCount}} dossier(s) à traiter. Les dossiers à traiter apparaissent en premier. Les vérifications email en cours restent consultables, sans être comptées parmi les interventions nécessaires.</p></header>
+{{if eq .RegistrationReviewCount 0}}<p class="empty-state">Aucune vérification ne nécessite votre intervention.</p>{{end}}
+{{if .Rows}}<table class="table align-middle data-list"><caption class="visually-hidden">Demandes et raisons de vérification</caption><thead><tr><th scope="col">Personne concernée</th><th scope="col">Pourquoi vérifier ?</th><th scope="col">Action</th></tr></thead><tbody>
+{{range .Rows}}<tr><td data-label="Personne concernée"><a class="fw-semibold" href="/registration-reviews/{{.ID}}">{{.Name}}</a><small>Reçue le {{.CreatedAt}}</small><small>{{.Age}}</small></td>
+<td data-label="Pourquoi vérifier ?"><strong>{{.Status}}</strong><small>{{.Kind}}</small></td><td data-label="Action"><a class="btn {{if .Awaiting}}btn-outline-primary{{else}}btn-outline-secondary{{end}}" href="/registration-reviews/{{.ID}}">{{if .Awaiting}}Examiner le dossier{{else}}Consulter le dossier{{end}}</a></td></tr>{{end}}
+</tbody></table>{{else}}<p class="text-body-secondary">Les demandes nécessitant une vérification apparaîtront ici.</p>{{end}}
 {{end}}

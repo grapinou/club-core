@@ -40,7 +40,7 @@ func (h *AuthHandler) render(w http.ResponseWriter, r *http.Request, activation 
 	if activation {
 		title = "Activer votre compte"
 	}
-	data := views.AuthData{SecurityData: pageSecurity(r), SiteName: h.siteName, Title: title + " - " + h.siteName, Activation: activation, Message: message, LoggedIn: loggedIn}
+	data := views.AuthData{SecurityData: pageSecurity(r), SiteName: h.siteName, Title: title + " - " + h.siteName, Activation: activation, Error: r.URL.Query().Get("error") == "1", Message: message, LoggedIn: loggedIn}
 	var buf bytes.Buffer
 	if err := views.RenderAuth(&buf, data); err != nil {
 		http.Error(w, "Erreur interne du serveur", 500)
@@ -89,7 +89,7 @@ func (h *AuthHandler) postLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Connexion temporairement indisponible.", http.StatusServiceUnavailable)
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
 }
 func (h *AuthHandler) postLogout(w http.ResponseWriter, r *http.Request) {
 	h.sessions.Delete(w, r)

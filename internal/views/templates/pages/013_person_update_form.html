@@ -1,8 +1,8 @@
-{{ define "content" }}
+{{ define "content" }}<div class="content-readable">
 
 <h1>Modifier une personne :</h1>
 
-<form action="/persons/{{ .Person.ID }}/edit" method="post">
+<form class="section-panel" action="/persons/{{ .Person.ID }}/edit" method="post">
     <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
 
     <div class="mb-3">
@@ -93,4 +93,4 @@
 </form>
 
 
-{{ end }}
+</div>{{ end }}

@@ -231,7 +231,7 @@ func TestFullActivationAndUsernameLogin(t *testing.T) {
 	// No current membership is required to log in.
 	f.exec("UPDATE memberships SET status='ended',ended_at=current_date WHERE id=$1", m.ID)
 	response = b.call("POST", "/login", url.Values{"csrf_token": {token}, "username": {"remi.dupont"}, "password": {"a secure password"}})
-	if response.Code != 303 || response.Header().Get("Location") != "/" {
+	if response.Code != 303 || response.Header().Get("Location") != "/dashboard" {
 		t.Fatal("login")
 	}
 	cookie := b.cookies["__Host-club_session"]

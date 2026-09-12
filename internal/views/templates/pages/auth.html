@@ -1,10 +1,9 @@
 {{define "content"}}
-<div class="row justify-content-center">
-<section class="col-12 col-md-7 col-lg-5">
+<section class="auth-panel">
 <h1 class="h3 mb-3">{{if .Activation}}Activer votre compte{{else}}Connexion{{end}}</h1>
-{{if .Message}}<p class="alert alert-info" role="status">{{.Message}}</p>{{end}}
+{{if .Message}}<p class="alert {{if .Error}}alert-danger{{else}}alert-info{{end}}" role="{{if .Error}}alert{{else}}status{{end}}">{{.Message}}</p>{{end}}
 {{if and .LoggedIn (not .Activation)}}
-<p>Vous êtes connecté.</p>
+<p>Vous êtes connecté.</p><p><a class="btn btn-primary" href="/dashboard">Ouvrir mon espace</a></p>
 <form method="post" action="/logout">
 <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
 <button class="btn btn-outline-secondary" type="submit">Se déconnecter</button>
@@ -39,5 +38,4 @@
 <p class="mt-3"><a href="{{if .Activation}}/login{{else}}/activate{{end}}">{{if .Activation}}Aller à la connexion{{else}}Activer mon compte{{end}}</a></p>
 {{end}}
 </section>
-</div>
 {{end}}

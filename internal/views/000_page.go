@@ -14,6 +14,7 @@ import (
 var pageFiles embed.FS
 
 type PageData struct {
+	Home, Practical bool
 	SecurityData
 	SiteName    string
 	Title       string

@@ -1,19 +1,10 @@
 {{define "content"}}
-<h1>Adhésions</h1>
-<p>Les demandes en attente sont affichées en premier, de la plus ancienne à la plus récente.</p>
-<div class="table-responsive">
-<table class="table align-middle">
-<thead><tr><th>Nom Prénom</th><th>Saison</th><th>Type d'adhésion</th><th>Statut</th><th>Demande</th><th>Approbation</th><th>Dossier</th><th>Compte</th></tr></thead>
-<tbody>
-{{range .Rows}}
-<tr {{if .Pending}}class="table-warning"{{end}} data-membership-id="{{.ID}}">
-<td><a href="/memberships/{{.ID}}">{{.Name}}</a></td>
-<td>{{.Season}}</td><td>{{.Type}}</td><td><span class="badge {{.StatusClass}}">{{.Status}}</span></td>
-<td>{{.RequestedAt}}</td><td>{{.ApprovedAt}}</td>
-<td>{{.Completeness}}<br><small>{{.BlockingCount}} blocage(s), {{.WarningCount}} conseil(s)</small></td>
-<td>{{.Account}}</td>
-</tr>
-{{else}}<tr><td colspan="8">Aucune adhésion à afficher.</td></tr>{{end}}
-</tbody></table>
-</div>
+<header class="page-header"><h1>Adhésions</h1><p>Les demandes en attente sont affichées en premier, de la plus ancienne à la plus récente.</p></header>
+{{if not .HasPending}}<p class="empty-state">Aucune adhésion en attente.</p>{{end}}
+{{if .Rows}}<table class="table align-middle data-list"><caption class="visually-hidden">Adhésions et actions à traiter</caption><thead><tr><th scope="col">Personne</th><th scope="col">Adhésion</th><th scope="col">État du dossier</th><th scope="col">Action requise</th></tr></thead><tbody>
+{{range .Rows}}<tr data-membership-id="{{.ID}}"><td data-label="Personne"><a class="fw-semibold" href="/memberships/{{.ID}}">{{.Name}}</a><small>Demande : {{.RequestedAt}}</small></td>
+<td data-label="Adhésion">{{.Season}}<small>{{.Type}}</small><span class="badge {{.StatusClass}}">{{.Status}}</span></td>
+<td data-label="État du dossier"><strong>{{.Completeness}}</strong>{{if .BlockingCount}}<small class="text-danger">{{.BlockingCount}} blocage(s) à traiter</small>{{end}}{{if .WarningCount}}<small>{{.WarningCount}} conseil(s), sans blocage</small>{{end}}<small>{{.Account}}</small></td>
+<td data-label="Action requise"><p>{{.ActionLabel}}</p><a href="/memberships/{{.ID}}">Ouvrir le dossier</a>{{if ne .ApprovedAt "—"}}<small>Approbation : {{.ApprovedAt}}</small>{{end}}</td></tr>{{end}}
+</tbody></table>{{else}}<p class="text-body-secondary">Les nouvelles demandes apparaîtront ici.</p>{{end}}
 {{end}}

@@ -84,7 +84,7 @@ func TestPublicJoinFormAndNewMembership(t *testing.T) {
 	b := newBrowser(f.app.Handler)
 	page := b.call("GET", "/join", nil)
 	body := html.UnescapeString(page.Body.String())
-	for _, want := range []string{"Adhérer", "Je souhaite m'inscrire moi-même", "Saison :", "Droit à l’image", "version 2", "Texte complet", "J'accepte", "Je refuse", "<fieldset", "<legend", "for=\"birth_date\"", "aria-describedby", "name=\"csrf_token\""} {
+	for _, want := range []string{"Adhérer", "Je m’inscris", "Saison :", "Droit à l’image", "version 2", "Texte complet", "J'accepte", "Je refuse", "<fieldset", "<legend", "for=\"birth_date\"", "aria-describedby", "name=\"csrf_token\""} {
 		if !strings.Contains(body, want) {
 			t.Fatal("missing form content", want)
 		}
@@ -377,7 +377,7 @@ func TestPublicJoinBusinessChangesPreserveIdentity(t *testing.T) {
 			}
 			admin := f.membershipAdminBrowser()
 			page := admin.call("GET", reviewPath(sub), nil)
-			if page.Code != 200 || !strings.Contains(html.UnescapeString(page.Body.String()), "Vérification complémentaire nécessaire") {
+			if page.Code != 200 || !strings.Contains(html.UnescapeString(page.Body.String()), "Ce qui reste à vérifier") {
 				t.Fatal("admin cannot find application")
 			}
 			if kind != "duplicate" {

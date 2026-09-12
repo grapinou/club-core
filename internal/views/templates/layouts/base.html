@@ -30,57 +30,25 @@
 
 
 
-    <nav class="navbar navbar-expand-lg bg-body-tertiary">
-    <div class="container">
+<a class="skip-link" href="#main-content">Aller au contenu</a>
+<header class="site-header">
+<nav class="container site-nav" aria-label="Navigation principale">
+<a class="site-brand" href="/"><img src="/static/images/logo.jpeg" alt="" width="32" height="32">{{.SiteName}}</a>
+<div class="public-nav">
+<a href="/" {{if eq .CurrentPath "/"}}aria-current="page"{{end}}>Accueil</a>
+<a href="/club" {{if eq .CurrentPath "/club"}}aria-current="page"{{end}}>Le club</a>
+<a href="/where" {{if or (eq .CurrentPath "/where") (eq .CurrentPath "/when")}}aria-current="page"{{end}}>Où / Quand</a>
+<a class="btn btn-primary" href="/join">Adhérer</a>
+<a href="/contact" {{if eq .CurrentPath "/contact"}}aria-current="page"{{end}}>Contact</a>
+{{if .Authenticated}}<a href="/dashboard" {{if eq .CurrentPath "/dashboard"}}aria-current="page"{{end}}>Mon espace</a>{{else}}<a href="/login" {{if eq .CurrentPath "/login"}}aria-current="page"{{end}}>Connexion</a>{{end}}
+</div></nav>
+{{if or .CanReadPersons .CanReadMemberships .CanReviewRegistrations}}<nav class="admin-nav" aria-label="Administration"><div class="container"><span class="small text-body-secondary">Administration</span>
+{{if .CanReadMemberships}}<a href="/memberships">Adhésions</a>{{end}}
+{{if .CanReviewRegistrations}}<a href="/registration-reviews">Vérifications ({{.RegistrationReviewCount}})</a>{{end}}
+{{if .CanReadPersons}}<a href="/persons">Personnes</a>{{end}}
+</div></nav>{{end}}</header>
 
-        <a class="navbar-brand" href="/">
-
-        <img
-        src="/static/images/logo.jpeg"
-        alt=""
-        width="32"
-        height="32"
-    >
-
-            {{ .SiteName }}
-        </a>
-
-        <button
-            class="navbar-toggler"
-            type="button"
-            data-bs-toggle="collapse"
-            data-bs-target="#mainNavbar"
-            aria-controls="mainNavbar"
-            aria-expanded="false"
-            aria-label="Afficher la navigation"
-        >
-            <span class="navbar-toggler-icon"></span>
-        </button>
-
-        <div
-            class="collapse navbar-collapse"
-            id="mainNavbar"
-        >
-            <div class="navbar-nav">
-                <a class="nav-link" href="/">Accueil</a>
-                <a class="nav-link" href="/club">Le club</a>
-                <a class="nav-link" href="/where">Où ?</a>
-                <a class="nav-link" href="/when">Quand ?</a>
-                <a class="nav-link" href="/contact">Contact</a>
-                <a class="nav-link" href="/rules">Règlement</a>
-                {{if .CanReadPersons}}<a class="nav-link" href="/persons">Personnes</a>{{end}}
-                {{if .CanReadMemberships}}<a class="nav-link" href="/memberships">Adhésions</a>{{end}}
-                {{if .CanReviewRegistrations}}<a class="nav-link" href="/registration-reviews">Vérifications ({{.RegistrationReviewCount}})</a>{{end}}
-                <a class="nav-link" href="/join">Adhérer</a>
-                <a class="nav-link" href="/login">Connexion</a>
-            </div>
-        </div>
-
-    </div>
-</nav>
-
-
-    <main class="container py-4">
+    <main id="main-content" class="container py-4" tabindex="-1">
         {{ template "content" . }}
     </main>
 
@@ -88,7 +56,7 @@
 <footer class="border-top py-3">
     <div class="container">
         <p class="mb-0 text-body-secondary">
-            {{ .SiteName }}
+            {{ .SiteName }} · <a href="/contact">Contact</a> · <a href="/rules">Règlement intérieur</a>
         </p>
     </div>
 </footer>
