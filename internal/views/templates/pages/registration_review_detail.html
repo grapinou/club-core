@@ -3,12 +3,16 @@
 <h1>Vérification d'identité</h1>
 {{if .Notice}}<p class="alert alert-info" role="status">{{.Notice}}</p>{{end}}
 <p><strong>{{.Status}}</strong> — Soumission du {{.CreatedAt}}</p>
-{{if .Resolved}}<section class="alert alert-success"><h2>Résolution enregistrée</h2><p>{{.ResolutionType}} : Person n° {{.ResolvedPersonID}}. Résolue le {{.ResolvedAt}} {{if .EmailVerified}}— Mode : Vérification d’un email connu. Intervention administrative : Aucune.{{else}}par {{.Resolver}}.{{end}}</p><p>Cette décision est définitive dans cette interface.</p></section>{{end}}
+{{if .Resolved}}<section class="alert alert-success"><h2>Résolution enregistrée</h2><p>{{.ResolutionType}} : Person n° {{.ResolvedPersonID}}. Résolue le {{.ResolvedAt}} {{if .EmailVerified}}— Mode : Vérification d’un email connu. Intervention administrative : Aucune.{{else if .AutomaticNew}}— Mode : Création automatique d’une nouvelle personne. Intervention administrative : Aucune.{{else}}par {{.Resolver}}.{{end}}</p><p>Cette décision est définitive dans cette interface.</p></section>{{end}}
 {{if .AwaitingEmail}}<p class="alert alert-info">Une preuve par email est en cours. Aucune intervention immédiate n’est nécessaire. Une décision administrative ci-dessous remplacera cette vérification.</p>{{end}}
+{{with .Application}}<section class="card mb-4"><div class="card-body"><h2>Demande d’adhésion publique</h2><dl><dt>Saison</dt><dd>{{.Season}}</dd><dt>Type d’adhésion</dt><dd>{{.Type}}</dd><dt>État</dt><dd>{{.Status}}</dd><dt>Membership</dt><dd>{{if .MembershipID}}<a href="/memberships/{{.MembershipID}}">Membership #{{.MembershipID}}</a>{{else}}Non créée{{end}}</dd></dl>
+<h3 class="h5">Activités demandées</h3><ul>{{range .Activities}}<li>{{.Name}}</li>{{end}}</ul>
+<h3 class="h5">Consentements présentés</h3>{{range .Consents}}<article class="border rounded p-2 mb-2"><h4 class="h6">{{.Title}} — version {{.Version}}</h4><p class="text-break" style="white-space:pre-wrap">{{.Description}}</p><p>{{if eq .Decision "granted"}}Accepté{{else}}Refusé{{end}}</p></article>{{else}}<p>Aucun consentement présenté.</p>{{end}}
+{{if .NeedsReview}}<p class="alert alert-warning">{{.Reason}}</p><form method="post" action="/registration-reviews/{{$.ID}}/finalize-application"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><button type="submit" class="btn btn-outline-primary">Réessayer la création de l’adhésion</button></form>{{end}}</div></section>{{end}}
 <section><h2>Données déclarées</h2><dl>{{range .Fields}}<dt>{{.Label}}</dt><dd class="text-break" style="white-space: pre-wrap">{{.Declared}}</dd>{{end}}</dl></section>
 <section><h2>Candidats possibles</h2>
 <p>Un rapprochement, même fort, ne prouve pas l'identité. Vérifiez les éléments avant de décider. Les raisons sont conservées au moment de la soumission ; les fiches ci-dessous reflètent leurs données actuelles.</p>
-<p>Le rattachement ne modifie ni les coordonnées ni le nom de la Person existante. Aucune adhésion ou activation de compte n'est créée ici.</p>
+<p>Le rattachement ne modifie ni les coordonnées ni le nom de la Person existante. Si une demande publique est associée, l’adhésion en attente d’approbation est créée après résolution. Aucun compte n’est activé ici.</p>
 {{range .Candidates}}
 <article class="card mb-3"><div class="card-body"><h3>{{.Name}}</h3>
 <p>{{.Confidence}} — Détecté le {{.DetectedAt}}</p><p>{{.Account}}{{if .Archived}} — Person archivée{{end}}</p>

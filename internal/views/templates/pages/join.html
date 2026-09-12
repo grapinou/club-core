@@ -1,0 +1,57 @@
+{{define "content"}}
+<h1>Adhérer au club</h1>
+{{if .Submitted}}
+<div class="alert alert-success" role="status"><p>Votre demande a bien été enregistrée.</p>
+<p>Selon votre situation, une vérification par email peut être nécessaire. Consultez votre messagerie et vos courriers indésirables.</p>
+<p class="mb-0">Si aucune action n'est nécessaire, le club traitera directement votre demande.</p></div>
+<a href="/registration/verify">Saisir un code de vérification</a>
+{{else}}
+<p>Je souhaite m'inscrire moi-même. Ce parcours est réservé aux personnes majeures.</p>
+<p>Le parcours « J'inscris mon enfant » n'est pas encore disponible.</p>
+{{if .Unavailable}}<p class="alert alert-info">Les inscriptions ne sont pas disponibles pour le moment. Contactez le club.</p>{{else}}
+{{if .Errors}}<div class="alert alert-danger" role="alert"><p>Vérifiez les champs indiqués avant de continuer.</p>{{with index .Errors "form"}}<p class="mb-0">{{.}}</p>{{end}}</div>{{end}}
+{{if .Review}}
+<h2>Récapitulatif de votre demande</h2>
+<dl class="row">
+<dt class="col-sm-4">Prénom et nom</dt><dd class="col-sm-8 text-break">{{.Values.Get "first_name"}} {{.Values.Get "last_name"}}</dd>
+<dt class="col-sm-4">Date de naissance</dt><dd class="col-sm-8">{{.Values.Get "birth_date"}}</dd>
+<dt class="col-sm-4">Email</dt><dd class="col-sm-8 text-break">{{.Values.Get "email"}}</dd>
+<dt class="col-sm-4">Téléphone</dt><dd class="col-sm-8">{{.Values.Get "phone_number"}}</dd>
+<dt class="col-sm-4">Adresse</dt><dd class="col-sm-8 text-break" style="white-space:pre-wrap">{{.Values.Get "address"}}</dd>
+<dt class="col-sm-4">Saison</dt><dd class="col-sm-8">{{range .Catalog.Seasons}}{{if $.Selected "season_id" (printf "%d" .ID)}}{{.Name}}{{end}}{{end}}</dd>
+<dt class="col-sm-4">Type d'adhésion</dt><dd class="col-sm-8">{{range .Catalog.Types}}{{if $.Selected "membership_type_id" (printf "%d" .ID)}}{{.Name}}{{end}}{{end}}</dd>
+<dt class="col-sm-4">Activités</dt><dd class="col-sm-8"><ul>{{range .Catalog.Activities}}{{if $.Selected "activity_id" (printf "%d" .ID)}}<li>{{.Name}}</li>{{end}}{{end}}</ul></dd>
+</dl>
+<h3>Vos décisions de consentement</h3>
+{{range .Catalog.Consents}}<section class="card mb-3"><div class="card-body"><h4 class="h5">{{.Title}} — version {{.Version}}</h4><p class="text-break" style="white-space:pre-wrap">{{.Description}}</p><p><strong>{{if $.Selected (printf "consent_%d" .ID) "granted"}}J'accepte{{else}}Je refuse{{end}}</strong></p></div></section>{{end}}
+<p>Votre demande sera soumise au club pour approbation. Aucun compte ni mot de passe n'est créé à cette étape.</p>
+<form method="post" action="/join">{{range .Hidden}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">{{end}}
+<button type="submit" name="action" value="edit" class="btn btn-outline-secondary">Modifier</button>
+<button type="submit" name="action" value="submit" class="btn btn-primary">Enregistrer ma demande</button></form>
+{{else}}
+<form method="post" action="/join">
+<input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="presentation" value="{{.Presentation}}">
+<fieldset class="mb-4"><legend>Votre identité et vos coordonnées</legend><p>Les champs marqués * sont obligatoires.</p>
+<div class="row g-3">
+<div class="col-md-6"><label for="first_name" class="form-label">Prénom *</label><input id="first_name" name="first_name" class="form-control" autocomplete="given-name" maxlength="200" required value="{{.Values.Get "first_name"}}" aria-describedby="first_name-error"><p id="first_name-error" class="text-danger">{{index .Errors "first_name"}}</p></div>
+<div class="col-md-6"><label for="last_name" class="form-label">Nom *</label><input id="last_name" name="last_name" class="form-control" autocomplete="family-name" maxlength="200" required value="{{.Values.Get "last_name"}}" aria-describedby="last_name-error"><p id="last_name-error" class="text-danger">{{index .Errors "last_name"}}</p></div>
+<div class="col-md-6"><label for="birth_date" class="form-label">Date de naissance *</label><input type="date" id="birth_date" name="birth_date" class="form-control" autocomplete="bday" required value="{{.Values.Get "birth_date"}}" aria-describedby="birth_date-error"><p id="birth_date-error" class="text-danger">{{index .Errors "birth_date"}}</p></div>
+<div class="col-md-6"><label for="email" class="form-label">Email *</label><input type="email" id="email" name="email" class="form-control" autocomplete="email" maxlength="254" required value="{{.Values.Get "email"}}" aria-describedby="email-error"><p id="email-error" class="text-danger">{{index .Errors "email"}}</p></div>
+<div class="col-md-6"><label for="phone_number" class="form-label">Téléphone (facultatif)</label><input type="tel" id="phone_number" name="phone_number" class="form-control" autocomplete="tel" maxlength="80" value="{{.Values.Get "phone_number"}}" aria-describedby="phone_number-error"><p id="phone_number-error" class="text-danger">{{index .Errors "phone_number"}}</p></div>
+<div class="col-12"><label for="address" class="form-label">Adresse (facultative)</label><textarea id="address" name="address" class="form-control" autocomplete="street-address" maxlength="2000" rows="3" aria-describedby="address-error">{{.Values.Get "address"}}</textarea><p id="address-error" class="text-danger">{{index .Errors "address"}}</p></div>
+</div></fieldset>
+<fieldset class="mb-4"><legend>Votre adhésion</legend>
+{{if eq (len .Catalog.Seasons) 1}}{{range .Catalog.Seasons}}<p>Saison : <strong>{{.Name}}</strong></p><input type="hidden" name="season_id" value="{{.ID}}">{{end}}
+{{else}}<label for="season_id" class="form-label">Saison *</label><select id="season_id" name="season_id" class="form-select" required aria-describedby="season_id-error"><option value="">Choisissez une saison</option>{{range .Catalog.Seasons}}<option value="{{.ID}}" {{if $.Selected "season_id" (printf "%d" .ID)}}selected{{end}}>{{.Name}}</option>{{end}}</select>{{end}}<p id="season_id-error" class="text-danger">{{index .Errors "season_id"}}</p>
+<label for="membership_type_id" class="form-label">Type d'adhésion *</label><select id="membership_type_id" name="membership_type_id" class="form-select" required aria-describedby="membership_type_id-error"><option value="">Choisissez un type d'adhésion</option>{{range .Catalog.Types}}<option value="{{.ID}}" {{if $.Selected "membership_type_id" (printf "%d" .ID)}}selected{{end}}>{{.Name}}</option>{{end}}</select><p id="membership_type_id-error" class="text-danger">{{index .Errors "membership_type_id"}}</p>
+</fieldset>
+<fieldset class="mb-4" aria-describedby="activities-error"><legend>Activités souhaitées *</legend><p>Choisissez au moins une activité. Plusieurs choix sont possibles.</p>
+{{range .Catalog.Activities}}<div class="form-check"><input type="checkbox" class="form-check-input" id="activity-{{.ID}}" name="activity_id" value="{{.ID}}" {{if $.Selected "activity_id" (printf "%d" .ID)}}checked{{end}}><label class="form-check-label" for="activity-{{.ID}}">{{.Name}}</label></div>{{end}}<p id="activities-error" class="text-danger">{{index .Errors "activities"}}</p></fieldset>
+<section class="mb-4"><h2 class="h4">Consentements</h2><p>Répondez séparément à chaque proposition. Vous pouvez refuser un consentement sans empêcher votre demande d'adhésion.</p><p class="text-danger">{{index .Errors "consents"}}</p>
+{{range .Catalog.Consents}}<fieldset class="border rounded p-3 mb-3" aria-describedby="consent-{{.ID}}-description consent-{{.ID}}-error"><legend class="h5">{{.Title}} — version {{.Version}}</legend><p id="consent-{{.ID}}-description" class="text-break" style="white-space:pre-wrap">{{.Description}}</p>
+<div class="form-check"><input class="form-check-input" type="radio" id="consent-{{.ID}}-granted" name="consent_{{.ID}}" value="granted" required {{if $.Selected (printf "consent_%d" .ID) "granted"}}checked{{end}}><label class="form-check-label" for="consent-{{.ID}}-granted">J'accepte</label></div>
+<div class="form-check"><input class="form-check-input" type="radio" id="consent-{{.ID}}-refused" name="consent_{{.ID}}" value="refused" required {{if $.Selected (printf "consent_%d" .ID) "refused"}}checked{{end}}><label class="form-check-label" for="consent-{{.ID}}-refused">Je refuse</label></div><p id="consent-{{.ID}}-error" class="text-danger">{{index $.Errors (printf "consent_%d" .ID)}}</p></fieldset>{{else}}<p>Aucune décision de consentement n'est demandée actuellement.</p>{{end}}</section>
+<p>Vous pourrez relire votre demande avant de l'enregistrer.</p><button type="submit" name="action" value="review" class="btn btn-primary">Vérifier ma demande</button>
+</form>
+{{end}}{{end}}{{end}}
+{{end}}

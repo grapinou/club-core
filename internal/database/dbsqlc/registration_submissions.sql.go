@@ -12,7 +12,7 @@ import (
 )
 
 const countOpenRegistrationReviews = `-- name: CountOpenRegistrationReviews :one
-SELECT count(*) FROM registration_submissions WHERE status IN ('received','awaiting_identity_review')
+SELECT count(*) FROM registration_submissions s WHERE status IN ('received','awaiting_identity_review') OR EXISTS(SELECT 1 FROM registration_applications a WHERE a.submission_id=s.id AND a.status='needs_review')
 `
 
 func (q *Queries) CountOpenRegistrationReviews(ctx context.Context) (int64, error) {
@@ -281,25 +281,28 @@ func (q *Queries) ListRegistrationCandidates(ctx context.Context, submissionID i
 
 const listRegistrationReviews = `-- name: ListRegistrationReviews :many
 SELECT s.id,s.status,s.first_name,s.last_name,s.birth_date,s.created_at,
+ EXISTS(SELECT 1 FROM registration_applications a WHERE a.submission_id=s.id AND a.status='needs_review') AS application_needs_review,
  count(c.person_id)::integer AS candidate_count,
  COALESCE(CASE max(CASE c.confidence WHEN 'strong' THEN 3 WHEN 'possible' THEN 2 WHEN 'weak' THEN 1 END)
  WHEN 3 THEN 'strong' WHEN 2 THEN 'possible' WHEN 1 THEN 'weak' END,'none')::text AS best_confidence
 FROM registration_submissions s LEFT JOIN registration_submission_candidates c ON c.submission_id=s.id
 GROUP BY s.id
-ORDER BY CASE s.status WHEN 'awaiting_identity_review' THEN 0 WHEN 'received' THEN 1 WHEN 'awaiting_email_verification' THEN 2 ELSE 3 END,
+ORDER BY CASE WHEN EXISTS(SELECT 1 FROM registration_applications a WHERE a.submission_id=s.id AND a.status='needs_review') THEN 0 ELSE 1 END,
+ CASE s.status WHEN 'awaiting_identity_review' THEN 0 WHEN 'received' THEN 1 WHEN 'awaiting_email_verification' THEN 2 ELSE 3 END,
  CASE WHEN s.status IN ('received','awaiting_identity_review') THEN s.created_at END,
  CASE WHEN s.status NOT IN ('received','awaiting_identity_review') THEN s.updated_at END DESC,s.id
 `
 
 type ListRegistrationReviewsRow struct {
-	ID             int32
-	Status         string
-	FirstName      string
-	LastName       string
-	BirthDate      pgtype.Date
-	CreatedAt      pgtype.Timestamptz
-	CandidateCount int32
-	BestConfidence string
+	ID                     int32
+	Status                 string
+	FirstName              string
+	LastName               string
+	BirthDate              pgtype.Date
+	CreatedAt              pgtype.Timestamptz
+	ApplicationNeedsReview bool
+	CandidateCount         int32
+	BestConfidence         string
 }
 
 func (q *Queries) ListRegistrationReviews(ctx context.Context) ([]ListRegistrationReviewsRow, error) {
@@ -318,6 +321,7 @@ func (q *Queries) ListRegistrationReviews(ctx context.Context) ([]ListRegistrati
 			&i.LastName,
 			&i.BirthDate,
 			&i.CreatedAt,
+			&i.ApplicationNeedsReview,
 			&i.CandidateCount,
 			&i.BestConfidence,
 		); err != nil {

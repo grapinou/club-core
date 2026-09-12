@@ -43,24 +43,32 @@ func NewEmailSubmitter(db *pgxpool.Pool, email *EmailService) *Submitter {
 // NewSubmitter stages only for internal review workflows.
 func NewSubmitter(db *pgxpool.Pool) *Submitter { return &Submitter{db: db} }
 
-func validInput(in SubmissionInput) bool {
-	for _, name := range []string{in.FirstName, in.LastName} {
-		if strings.TrimSpace(name) == "" || !utf8.ValidString(name) || utf8.RuneCountInString(name) > 200 || strings.ContainsRune(name, 0) {
-			return false
-		}
-	}
+// InvalidInputFields shares identity size/encoding rules with the public form.
+// Birth date and email remain optional for identity-only internal workflows.
+func InvalidInputFields(in SubmissionInput) []string {
+	var invalid []string
 	for _, field := range []struct {
-		value pgtype.Text
-		max   int
-	}{{in.Email, 254}, {in.PhoneNumber, 80}, {in.Address, 2000}} {
-		if field.value.Valid && (!utf8.ValidString(field.value.String) || utf8.RuneCountInString(field.value.String) > field.max || strings.ContainsRune(field.value.String, 0)) {
-			return false
+		key      string
+		value    pgtype.Text
+		max      int
+		required bool
+	}{
+		{"first_name", pgtype.Text{String: in.FirstName, Valid: true}, 200, true},
+		{"last_name", pgtype.Text{String: in.LastName, Valid: true}, 200, true},
+		{"email", in.Email, 254, false}, {"phone_number", in.PhoneNumber, 80, false}, {"address", in.Address, 2000, false},
+	} {
+		if (field.required && strings.TrimSpace(field.value.String) == "") || (field.value.Valid && (!utf8.ValidString(field.value.String) || utf8.RuneCountInString(field.value.String) > field.max || strings.ContainsRune(field.value.String, 0))) {
+			invalid = append(invalid, field.key)
 		}
 	}
-	return !in.BirthDate.Valid || in.BirthDate.InfinityModifier == pgtype.Finite
+	if in.BirthDate.Valid && in.BirthDate.InfinityModifier != pgtype.Finite {
+		invalid = append(invalid, "birth_date")
+	}
+	return invalid
 }
+func ValidInput(in SubmissionInput) bool { return len(InvalidInputFields(in)) == 0 }
 func (s *Submitter) CreateSubmission(ctx context.Context, in SubmissionInput) (Acceptance, error) {
-	if !validInput(in) {
+	if !ValidInput(in) {
 		return Acceptance{}, ErrInvalidSubmission
 	}
 	_, err := s.create(ctx, in)
@@ -81,14 +89,30 @@ func (s *Submitter) create(ctx context.Context, in SubmissionInput) (int32, erro
 		return 0, err
 	}
 	defer tx.Rollback(ctx)
-	q := dbsqlc.New(tx)
-	sub, err := q.CreateRegistrationSubmission(ctx, in)
+	sub, err := s.CreateInTransaction(ctx, tx, in)
 	if err != nil {
 		return 0, err
 	}
+	if err = tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return sub.ID, nil
+}
+
+// CreateInTransaction stages identity evidence and any email intent atomically
+// with a complete public application. Callers use READ COMMITTED for the quota.
+func (s *Submitter) CreateInTransaction(ctx context.Context, tx pgx.Tx, in SubmissionInput) (dbsqlc.RegistrationSubmission, error) {
+	if !ValidInput(in) {
+		return dbsqlc.RegistrationSubmission{}, ErrInvalidSubmission
+	}
+	q := dbsqlc.New(tx)
+	sub, err := q.CreateRegistrationSubmission(ctx, in)
+	if err != nil {
+		return dbsqlc.RegistrationSubmission{}, err
+	}
 	persons, err := q.ListIdentityMatchingPersons(ctx)
 	if err != nil {
-		return 0, err
+		return dbsqlc.RegistrationSubmission{}, err
 	}
 	found := false
 	for _, p := range persons {
@@ -98,24 +122,21 @@ func (s *Submitter) create(ctx context.Context, in SubmissionInput) (int32, erro
 		}
 		evidence.SubmissionID = sub.ID
 		if err = q.CreateRegistrationCandidate(ctx, evidence); err != nil {
-			return 0, err
+			return dbsqlc.RegistrationSubmission{}, err
 		}
 		found = true
 	}
 	if found {
 		if err = q.MarkRegistrationForReview(ctx, sub.ID); err != nil {
-			return 0, err
+			return dbsqlc.RegistrationSubmission{}, err
 		}
 	}
 	if s.email != nil {
 		if err = s.email.Enqueue(ctx, tx, sub); err != nil {
-			return 0, err
+			return dbsqlc.RegistrationSubmission{}, err
 		}
 	}
-	if err = tx.Commit(ctx); err != nil {
-		return 0, err
-	}
-	return sub.ID, nil
+	return sub, nil
 }
 func normalizedName(s string) string {
 	return norm.NFC.String(strings.ToLower(strings.Join(strings.Fields(s), " ")))
@@ -179,6 +200,7 @@ type PermissionChecker interface {
 type ReviewService struct {
 	db          *pgxpool.Pool
 	permissions PermissionChecker
+	finalizer   ResolutionFinalizer
 }
 
 func NewReviewService(db *pgxpool.Pool, p PermissionChecker) *ReviewService {
@@ -221,8 +243,11 @@ func (s *ReviewService) CountOpen(ctx context.Context, actor int32) (int64, erro
 }
 
 type Details struct {
-	Submission dbsqlc.GetRegistrationSubmissionRow
-	Candidates []dbsqlc.ListRegistrationCandidatesRow
+	Submission  dbsqlc.GetRegistrationSubmissionRow
+	Candidates  []dbsqlc.ListRegistrationCandidatesRow
+	Application *dbsqlc.GetRegistrationApplicationDetailsRow
+	Activities  []dbsqlc.Activity
+	Consents    []dbsqlc.ListRegistrationApplicationConsentsRow
 }
 
 func (s *ReviewService) GetDetails(ctx context.Context, actor, id int32) (Details, error) {
@@ -246,10 +271,23 @@ func (s *ReviewService) GetDetails(ctx context.Context, actor, id int32) (Detail
 	if err != nil {
 		return Details{}, err
 	}
+	detail := Details{Submission: sub, Candidates: candidates}
+	application, appErr := q.GetRegistrationApplicationDetails(ctx, id)
+	if appErr == nil {
+		detail.Application = &application
+		if detail.Activities, err = q.ListRegistrationApplicationActivities(ctx, application.ID); err != nil {
+			return Details{}, err
+		}
+		if detail.Consents, err = q.ListRegistrationApplicationConsents(ctx, application.ID); err != nil {
+			return Details{}, err
+		}
+	} else if !errors.Is(appErr, pgx.ErrNoRows) {
+		return Details{}, appErr
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return Details{}, err
 	}
-	return Details{sub, candidates}, nil
+	return detail, nil
 }
 func (s *ReviewService) LinkPerson(ctx context.Context, actor, id, person int32) error {
 	return s.resolve(ctx, actor, id, &person)
@@ -293,7 +331,7 @@ func (s *ReviewService) resolve(ctx context.Context, actor, id int32, person *in
 		}
 	} else {
 		kind = "new_person"
-		p, createErr := q.CreatePerson(ctx, dbsqlc.CreatePersonParams{FirstName: strings.TrimSpace(sub.FirstName), LastName: strings.TrimSpace(sub.LastName), BirthDate: sub.BirthDate, Email: cleanText(sub.Email), PhoneNumber: cleanText(sub.PhoneNumber), Address: cleanText(sub.Address)})
+		p, createErr := CreateDeclaredPerson(ctx, tx, sub)
 		if createErr != nil {
 			return createErr
 		}
@@ -304,6 +342,38 @@ func (s *ReviewService) resolve(ctx context.Context, actor, id int32, person *in
 	}
 	_, err = q.ResolveRegistrationSubmission(ctx, dbsqlc.ResolveRegistrationSubmissionParams{ID: id, ResolvedPersonID: pgtype.Int4{Int32: target, Valid: true}, ResolutionType: pgtype.Text{String: kind, Valid: true}, ResolvedByUserID: pgtype.Int4{Int32: actor, Valid: true}})
 	if err != nil {
+		return err
+	}
+	if s.finalizer != nil {
+		if err = s.finalizer.FinalizeSubmission(ctx, tx, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// RetryApplication permits a reviewer to retry the original immutable choices
+// after restoring availability. Identity is never re-resolved here.
+func (s *ReviewService) RetryApplication(ctx context.Context, actor, id int32) error {
+	if err := s.require(ctx, actor); err != nil {
+		return err
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err = LockDeliveryDecision(ctx, tx, id); err != nil {
+		return err
+	}
+	sub, err := dbsqlc.New(tx).LockRegistrationSubmission(ctx, id)
+	if err != nil {
+		return err
+	}
+	if sub.Status != "resolved" || s.finalizer == nil {
+		return ErrUnavailable
+	}
+	if err = s.finalizer.FinalizeSubmission(ctx, tx, id); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

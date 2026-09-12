@@ -137,6 +137,32 @@ type PersonGuardian struct {
 	CreatedAt        pgtype.Timestamptz
 }
 
+type RegistrationApplication struct {
+	ID               int32
+	SubmissionID     int32
+	RequestKey       []byte
+	SeasonID         int32
+	MembershipTypeID int32
+	Status           string
+	MembershipID     pgtype.Int4
+	LastErrorCode    pgtype.Text
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	FinalizedAt      pgtype.Timestamptz
+}
+
+type RegistrationApplicationActivity struct {
+	ApplicationID int32
+	ActivityID    int32
+}
+
+type RegistrationApplicationConsent struct {
+	ApplicationID       int32
+	ConsentDefinitionID int32
+	Decision            string
+	PresentedAt         pgtype.Timestamptz
+}
+
 type RegistrationEmailVerification struct {
 	ID              int64
 	SubmissionID    int32

@@ -15,19 +15,21 @@ import (
 	"github.com/grapinou/club-core/internal/mailer"
 	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/grapinou/club-core/internal/outbox"
+	"github.com/grapinou/club-core/internal/registrationapplications"
 	"github.com/grapinou/club-core/internal/router"
 	"github.com/grapinou/club-core/internal/websecurity"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Application struct {
-	Handler            http.Handler
-	Accounts           *accounts.Service
-	Submissions        *identityresolution.Submitter
-	Reviews            *identityresolution.ReviewService
-	Verifications      *identityresolution.EmailService
-	VerificationOutbox *outbox.Worker
-	SubmissionLimiter  *handlers.AttemptLimiter
+	Handler                  http.Handler
+	Accounts                 *accounts.Service
+	Submissions              *identityresolution.Submitter
+	Reviews                  *identityresolution.ReviewService
+	Verifications            *identityresolution.EmailService
+	VerificationOutbox       *outbox.Worker
+	SubmissionLimiter        *handlers.AttemptLimiter
+	RegistrationApplications *registrationapplications.Service
 }
 
 func New(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool) (*Application, error) {
@@ -56,6 +58,13 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, 
 	if err != nil {
 		return nil, err
 	}
+	submissions := identityresolution.NewEmailSubmitter(db, verification)
+	applications, err := registrationapplications.New(db, submissions, m)
+	if err != nil {
+		return nil, err
+	}
+	verification.SetFinalizer(applications)
+	submissionLimiter := handlers.NewRegistrationSubmissionLimiter()
 	queries := dbsqlc.New(db)
 	login, err := auth.New(queries)
 	if err != nil {
@@ -65,9 +74,11 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, 
 	permissions := authorization.New(queries)
 	access := handlers.NewAccess(cfg.SiteName, permissions)
 	reviews := identityresolution.NewReviewService(db, permissions)
+	reviews.SetFinalizer(applications)
 	access.SetRegistrationCounter(reviews)
 	csrf := websecurity.NewCSRF(runtime.SecureCookies)
 	mux := router.New(cfg, queries, access, csrf)
+	handlers.NewJoinHandler(cfg.SiteName, applications, submissionLimiter).Register(mux, csrf)
 	accountService := accounts.New(db, m, a, sender, runtime.SMTP.From, runtime.BaseURL, permissions)
 	handlers.NewMembershipHandler(cfg.SiteName, runtime.Location, m, accountService, queries, permissions).Register(mux, access, csrf)
 	handlers.NewRegistrationHandler(cfg.SiteName, runtime.Location, reviews).Register(mux, access, csrf)
@@ -75,12 +86,13 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, 
 	authHandler.Register(mux)
 	authHandler.RegisterRegistrationVerification(mux, verification)
 	return &Application{
-		Handler:            sessions.Middleware(login, access.Navigation(mux)),
-		Accounts:           accountService,
-		Submissions:        identityresolution.NewEmailSubmitter(db, verification),
-		Reviews:            reviews,
-		Verifications:      verification,
-		VerificationOutbox: outbox.New(db, verification, sender, runtime.SMTP.From, runtime.BaseURL),
-		SubmissionLimiter:  handlers.NewRegistrationSubmissionLimiter(),
+		Handler:                  sessions.Middleware(login, access.Navigation(mux)),
+		Accounts:                 accountService,
+		Submissions:              submissions,
+		Reviews:                  reviews,
+		Verifications:            verification,
+		VerificationOutbox:       outbox.New(db, verification, sender, runtime.SMTP.From, runtime.BaseURL),
+		SubmissionLimiter:        submissionLimiter,
+		RegistrationApplications: applications,
 	}, nil
 }

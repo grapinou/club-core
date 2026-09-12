@@ -32,7 +32,16 @@ type RegistrationCandidateView struct {
 	Reasons                               []string
 	Fields                                []RegistrationFieldView
 }
+type RegistrationApplicationView struct {
+	Season, Type, Status, Reason string
+	MembershipID                 int32
+	NeedsReview                  bool
+	Activities                   []dbsqlc.Activity
+	Consents                     []dbsqlc.ListRegistrationApplicationConsentsRow
+}
 type RegistrationDetailView struct {
+	Application  *RegistrationApplicationView
+	AutomaticNew bool
 	SecurityData
 	SiteName, Title, Status, CreatedAt, Notice string
 	ID                                         int32
@@ -84,7 +93,12 @@ func confidence(s string) string {
 func RegistrationRows(rows []dbsqlc.ListRegistrationReviewsRow, loc *time.Location) []RegistrationRowView {
 	out := make([]RegistrationRowView, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, RegistrationRowView{ID: r.ID, Name: r.LastName + " " + r.FirstName, BirthDate: date(r.BirthDate), CreatedAt: timestamp(r.CreatedAt, loc), Status: registrationStatus(r.Status), Confidence: confidence(r.BestConfidence), Count: r.CandidateCount, Awaiting: r.Status == "awaiting_identity_review"})
+		row := RegistrationRowView{ID: r.ID, Name: r.LastName + " " + r.FirstName, BirthDate: date(r.BirthDate), CreatedAt: timestamp(r.CreatedAt, loc), Status: registrationStatus(r.Status), Confidence: confidence(r.BestConfidence), Count: r.CandidateCount, Awaiting: r.Status == "awaiting_identity_review"}
+		if r.ApplicationNeedsReview {
+			row.Status = "Identité résolue — adhésion à vérifier"
+			row.Awaiting = true
+		}
+		out = append(out, row)
 	}
 	return out
 }
@@ -93,6 +107,32 @@ func RegistrationDetail(d identityresolution.Details, loc *time.Location) Regist
 	values := []string{s.FirstName, s.LastName, date(s.BirthDate), s.Email.String, s.PhoneNumber.String, s.Address.String}
 	labels := []string{"Prénom", "Nom", "Date de naissance", "Email", "Téléphone", "Adresse"}
 	v := RegistrationDetailView{ID: s.ID, Status: registrationStatus(s.Status), CreatedAt: timestamp(s.CreatedAt, loc), Open: s.Status == "received" || s.Status == "awaiting_identity_review" || s.Status == "awaiting_email_verification", EmailVerified: s.EmailVerified && !s.ResolvedByUserID.Valid, AwaitingEmail: s.Status == "awaiting_email_verification", Resolved: s.Status == "resolved", ResolvedPersonID: s.ResolvedPersonID.Int32, ResolvedAt: timestamp(s.ResolvedAt, loc), Resolver: textOrDash(s.ResolverUsername.String)}
+	v.AutomaticNew = s.ResolutionType.String == "new_person" && !s.ResolvedByUserID.Valid
+	if d.Application != nil {
+		a := d.Application
+		av := &RegistrationApplicationView{Season: a.SeasonName, Type: a.MembershipTypeName, MembershipID: a.MembershipID.Int32, NeedsReview: a.Status == "needs_review", Activities: d.Activities, Consents: d.Consents}
+		switch a.Status {
+		case "awaiting_identity":
+			av.Status = "En attente de résolution de l’identité"
+		case "membership_created":
+			av.Status = "Demande d’adhésion enregistrée"
+		case "needs_review":
+			av.Status = "Vérification complémentaire nécessaire"
+		case "cancelled":
+			av.Status = "Annulée"
+		}
+		switch a.LastErrorCode.String {
+		case "membership_already_exists":
+			av.Reason = "Une adhésion existe déjà pour cette personne et cette saison."
+		case "choices_unavailable":
+			av.Reason = "La saison, le type d’adhésion ou une activité n’est plus disponible."
+		case "member_not_adult":
+			av.Reason = "L’identité retenue ne relève pas du parcours adulte."
+		case "membership_unavailable":
+			av.Reason = "La création de l’adhésion n’a pas pu aboutir. Une nouvelle tentative est possible."
+		}
+		v.Application = av
+	}
 	v.ResolutionType = "Person existante"
 	if s.ResolutionType.String == "new_person" {
 		v.ResolutionType = "Nouvelle Person"

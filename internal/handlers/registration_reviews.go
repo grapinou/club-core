@@ -28,7 +28,7 @@ func (h *RegistrationHandler) Register(mux *http.ServeMux, access *Access, csrf 
 		path    string
 		handler http.HandlerFunc
 	}{
-		{"GET /registration-reviews", h.list}, {"GET /registration-reviews/{id}", h.detail}, {"POST /registration-reviews/{id}/link-person", h.link}, {"POST /registration-reviews/{id}/create-person", h.create},
+		{"POST /registration-reviews/{id}/finalize-application", h.finalize}, {"GET /registration-reviews", h.list}, {"GET /registration-reviews/{id}", h.detail}, {"POST /registration-reviews/{id}/link-person", h.link}, {"POST /registration-reviews/{id}/create-person", h.create},
 	} {
 		mux.Handle(route.path, access.RequirePermission(authorization.RegistrationsReview, csrf.Protect(route.handler)))
 	}
@@ -97,4 +97,17 @@ func (h *RegistrationHandler) resolve(w http.ResponseWriter, r *http.Request, li
 		return
 	}
 	http.Redirect(w, r, fmt.Sprintf("/registration-reviews/%d?notice=%s", id, notice), http.StatusSeeOther)
+}
+
+func (h *RegistrationHandler) finalize(w http.ResponseWriter, r *http.Request) {
+	id, ok := membershipID(w, r)
+	if !ok {
+		return
+	}
+	actor, _ := auth.UserID(r.Context())
+	if err := h.reviews.RetryApplication(r.Context(), actor, id); err != nil {
+		membershipError(w, r, err)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/registration-reviews/%d", id), http.StatusSeeOther)
 }

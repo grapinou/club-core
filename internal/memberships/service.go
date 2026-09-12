@@ -82,19 +82,49 @@ type Approval struct {
 	ActivationDelivery *activation.Delivery
 }
 
+type PresentedConsent struct {
+	ConsentDefinitionID int32
+	PresentedAt         pgtype.Timestamptz
+}
+
+func (s *Service) IsAdult(birth pgtype.Date) bool {
+	return birth.Valid && birth.InfinityModifier == pgtype.Finite && !IsMinor(birth.Time, time.Now().In(s.location))
+}
+
 func (s *Service) CreateRequest(ctx context.Context, r Request) (dbsqlc.Membership, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return dbsqlc.Membership{}, err
+	}
+	defer tx.Rollback(ctx)
+	result, err := s.createRequestTx(ctx, tx, r, nil)
+	if err != nil {
+		return dbsqlc.Membership{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return dbsqlc.Membership{}, err
+	}
+	return result, nil
+}
+
+// CreateRequestWithPresentedConsentsTx reuses all membership rules. The caller
+// supplies the authenticated public presentation, including an empty snapshot.
+func (s *Service) CreateRequestWithPresentedConsentsTx(ctx context.Context, tx pgx.Tx, r Request, presented []PresentedConsent) (dbsqlc.Membership, error) {
+	if presented == nil {
+		presented = []PresentedConsent{}
+	}
+	return s.createRequestTx(ctx, tx, r, presented)
+}
+
+func (s *Service) createRequestTx(ctx context.Context, tx pgx.Tx, r Request, presented []PresentedConsent) (dbsqlc.Membership, error) {
 	var zero dbsqlc.Membership
 	invalid := func(reason string) error { return fmt.Errorf("%w: %s", ErrInvalidRequest, reason) }
 	if len(r.ActivityIDs) == 0 {
 		return zero, invalid("missing_activity")
 	}
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return zero, err
-	}
-	defer tx.Rollback(ctx)
+	var err error
 	var birth pgtype.Date
-	err = tx.QueryRow(ctx, "SELECT birth_date FROM persons WHERE id=$1 FOR UPDATE", r.PersonID).Scan(&birth)
+	err = tx.QueryRow(ctx, "SELECT birth_date FROM persons WHERE id=$1 FOR NO KEY UPDATE", r.PersonID).Scan(&birth)
 	if err != nil {
 		return zero, err
 	}
@@ -130,14 +160,20 @@ func (s *Service) CreateRequest(ctx context.Context, r Request) (dbsqlc.Membersh
 			return zero, invalid("inactive activity")
 		}
 	}
-	// One statement defines the submission snapshot. SHARE prevents publication/
-	// deactivation during submission, including insertion of new definitions.
-	if _, err = tx.Exec(ctx, "LOCK TABLE consent_definitions IN SHARE MODE"); err != nil {
-		return zero, err
-	}
-	defs, err := dbsqlc.New(tx).ListActiveConsentDefinitions(ctx)
-	if err != nil {
-		return zero, err
+	// nil means the existing workflow snapshots currently active definitions.
+	// A non-nil slice is an already authenticated, immutable public presentation.
+	if presented == nil {
+		if _, err = tx.Exec(ctx, "LOCK TABLE consent_definitions IN SHARE MODE"); err != nil {
+			return zero, err
+		}
+		defs, e := dbsqlc.New(tx).ListActiveConsentDefinitions(ctx)
+		if e != nil {
+			return zero, e
+		}
+		presented = make([]PresentedConsent, 0, len(defs))
+		for _, d := range defs {
+			presented = append(presented, PresentedConsent{ConsentDefinitionID: d.ID})
+		}
 	}
 	answers := map[int32]Decision{}
 	for _, d := range r.Consents {
@@ -149,7 +185,7 @@ func (s *Service) CreateRequest(ctx context.Context, r Request) (dbsqlc.Membersh
 		}
 		answers[d.ConsentDefinitionID] = d
 	}
-	if len(answers) != len(defs) {
+	if len(answers) != len(presented) {
 		return zero, invalid("unanswered or unexpected consent")
 	}
 	var id int32
@@ -162,8 +198,8 @@ func (s *Service) CreateRequest(ctx context.Context, r Request) (dbsqlc.Membersh
 			return zero, err
 		}
 	}
-	for _, def := range defs {
-		d, ok := answers[def.ID]
+	for _, def := range presented {
+		d, ok := answers[def.ConsentDefinitionID]
 		if !ok {
 			return zero, invalid("unanswered_consent")
 		}
@@ -176,19 +212,16 @@ func (s *Service) CreateRequest(ctx context.Context, r Request) (dbsqlc.Membersh
 				return zero, err
 			}
 		}
-		if _, err = tx.Exec(ctx, "INSERT INTO membership_consent_requirements SELECT id,$2,requested_at FROM memberships WHERE id=$1", id, def.ID); err != nil {
+		if _, err = tx.Exec(ctx, "INSERT INTO membership_consent_requirements SELECT id,$2,COALESCE($3,requested_at) FROM memberships WHERE id=$1", id, def.ConsentDefinitionID, def.PresentedAt); err != nil {
 			return zero, err
 		}
-		_, err = dbsqlc.New(tx).CreateMembershipConsent(ctx, dbsqlc.CreateMembershipConsentParams{MembershipID: id, ConsentDefinitionID: def.ID, Decision: d.Decision, GivenByPersonID: d.GivenByPersonID})
+		_, err = dbsqlc.New(tx).CreateMembershipConsent(ctx, dbsqlc.CreateMembershipConsentParams{MembershipID: id, ConsentDefinitionID: def.ConsentDefinitionID, Decision: d.Decision, GivenByPersonID: d.GivenByPersonID})
 		if err != nil {
 			return zero, err
 		}
 	}
 	result, err := dbsqlc.New(tx).GetMembership(ctx, id)
 	if err != nil {
-		return zero, err
-	}
-	if err = tx.Commit(ctx); err != nil {
 		return zero, err
 	}
 	return result, nil

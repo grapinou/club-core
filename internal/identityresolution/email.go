@@ -26,15 +26,16 @@ type EmailDelivery struct {
 	PublicReference, PlaintextCode, RecipientEmail string
 }
 type EmailService struct {
-	db  *pgxpool.Pool
-	ttl time.Duration
+	db        *pgxpool.Pool
+	ttl       time.Duration
+	finalizer ResolutionFinalizer
 }
 
 func NewEmailService(db *pgxpool.Pool, ttl time.Duration) (*EmailService, error) {
 	if ttl <= 0 {
 		return nil, errors.New("registration verification TTL must be positive")
 	}
-	return &EmailService{db, ttl}, nil
+	return &EmailService{db: db, ttl: ttl}, nil
 }
 func openStatus(s string) bool {
 	return s == "received" || s == "awaiting_identity_review" || s == "awaiting_email_verification"
@@ -54,7 +55,7 @@ func (s *EmailService) eligible(ctx context.Context, tx pgx.Tx, sub dbsqlc.Regis
 	}
 	var p dbsqlc.ListIdentityMatchingPersonsRow
 	var archived bool
-	err = tx.QueryRow(ctx, `SELECT id,first_name,last_name,birth_date,email,phone_number,archived_at IS NOT NULL FROM persons WHERE id=$1 FOR SHARE`, candidates[0].PersonID).Scan(&p.ID, &p.FirstName, &p.LastName, &p.BirthDate, &p.Email, &p.PhoneNumber, &archived)
+	err = tx.QueryRow(ctx, `SELECT id,first_name,last_name,birth_date,email,phone_number,archived_at IS NOT NULL FROM persons WHERE id=$1 FOR NO KEY UPDATE`, candidates[0].PersonID).Scan(&p.ID, &p.FirstName, &p.LastName, &p.BirthDate, &p.Email, &p.PhoneNumber, &archived)
 	if err != nil {
 		return 0, "", err
 	}
@@ -258,6 +259,11 @@ func (s *EmailService) verify(ctx context.Context, reference, code string) error
 	if tag.RowsAffected() != 1 {
 		return ErrVerification
 	}
+	if s.finalizer != nil {
+		if err = s.finalizer.FinalizeSubmission(ctx, tx, id); err != nil {
+			return err
+		}
+	}
 	return tx.Commit(ctx)
 }
 
@@ -302,4 +308,21 @@ func ExpirePendingVerifications(ctx context.Context, db *pgxpool.Pool) error {
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+// VerifyEmailOutcome exposes only a safe result after a successful identity proof.
+func (s *EmailService) VerifyEmailOutcome(ctx context.Context, reference, code string) (string, error) {
+	if err := s.VerifyEmail(ctx, reference, code); err != nil {
+		return "failed", err
+	}
+	status, err := dbsqlc.New(s.db).GetVerifiedRegistrationApplicationStatus(ctx, reference)
+	if err == nil {
+		switch status {
+		case "membership_created":
+			return "membership", nil
+		case "needs_review":
+			return "review", nil
+		}
+	}
+	return "verified", nil
 }

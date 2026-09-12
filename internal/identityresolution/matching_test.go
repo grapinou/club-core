@@ -48,11 +48,11 @@ func TestPhoneNormalization(t *testing.T) {
 }
 func TestSubmissionValidation(t *testing.T) {
 	for _, in := range []SubmissionInput{{}, {FirstName: " \t", LastName: "Name"}, {FirstName: strings.Repeat("a", 201), LastName: "Name"}, {FirstName: "A", LastName: "B", Email: txt(strings.Repeat("x", 255))}, {FirstName: "A", LastName: "B", BirthDate: pgtype.Date{Valid: true, InfinityModifier: pgtype.Infinity}}} {
-		if validInput(in) {
+		if ValidInput(in) {
 			t.Fatal("invalid input accepted")
 		}
 	}
-	if !validInput(SubmissionInput{FirstName: " A ", LastName: "B"}) {
+	if !ValidInput(SubmissionInput{FirstName: " A ", LastName: "B"}) {
 		t.Fatal("optional birth date rejected")
 	}
 }
