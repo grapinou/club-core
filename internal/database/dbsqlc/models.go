@@ -52,6 +52,17 @@ type GroupSlot struct {
 	UpdatedAt  pgtype.Timestamptz
 }
 
+type GuardianAccessGrant struct {
+	ID               int64
+	ChildPersonID    int32
+	GuardianPersonID int32
+	GrantedAt        pgtype.Timestamptz
+	GrantedByUserID  pgtype.Int4
+	RevokedAt        pgtype.Timestamptz
+	RevokedByUserID  pgtype.Int4
+	CreatedAt        pgtype.Timestamptz
+}
+
 type Membership struct {
 	ID               int32
 	PersonID         int32

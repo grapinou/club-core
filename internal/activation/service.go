@@ -43,6 +43,15 @@ func New(db *pgxpool.Pool, validity time.Duration) (*Service, error) {
 // PrepareTx joins the caller's transaction and locks the user before replacing codes.
 // A delivery is usable only after the caller commits successfully.
 func (s *Service) PrepareTx(ctx context.Context, tx pgx.Tx, userID int32) (*Delivery, error) {
+	return s.prepareTx(ctx, tx, userID, false)
+}
+
+// PreparePersonOnlyTx uses the same code lifecycle without a guardian fallback.
+// Guardian provisioning must never borrow another Person's delivery channel.
+func (s *Service) PreparePersonOnlyTx(ctx context.Context, tx pgx.Tx, userID int32) (*Delivery, error) {
+	return s.prepareTx(ctx, tx, userID, true)
+}
+func (s *Service) prepareTx(ctx context.Context, tx pgx.Tx, userID int32, personOnly bool) (*Delivery, error) {
 	var d Delivery
 	var person int32
 	var activated *time.Time
@@ -80,8 +89,8 @@ func (s *Service) PrepareTx(ctx context.Context, tx pgx.Tx, userID int32) (*Deli
  SELECT id,email,0 AS rank,0 AS position FROM persons WHERE id=$1
  UNION ALL
  SELECT p.id,p.email,CASE WHEN g.is_primary_contact THEN 1 ELSE 2 END,g.id
- FROM person_guardians g JOIN persons p ON p.id=g.guardian_person_id WHERE g.child_person_id=$1
- ) candidates WHERE nullif(btrim(email),'') IS NOT NULL ORDER BY rank,position,id LIMIT 1`, person).Scan(&d.RecipientPersonID, &d.RecipientEmail)
+ FROM person_guardians g JOIN persons p ON p.id=g.guardian_person_id WHERE g.child_person_id=$1 AND NOT $2::boolean
+ ) candidates WHERE nullif(btrim(email),'') IS NOT NULL ORDER BY rank,position,id LIMIT 1`, person, personOnly).Scan(&d.RecipientPersonID, &d.RecipientEmail)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = nil
 	}

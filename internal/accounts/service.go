@@ -9,6 +9,7 @@ import (
 	"github.com/grapinou/club-core/internal/activation"
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/guardianaccess"
 	"github.com/grapinou/club-core/internal/mailer"
 	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -56,6 +57,7 @@ type PermissionChecker interface {
 	HasPermission(context.Context, int32, authorization.Permission) (bool, error)
 }
 type Service struct {
+	guardians           *guardianaccess.Service
 	permissions         PermissionChecker
 	db                  *pgxpool.Pool
 	memberships         *memberships.Service

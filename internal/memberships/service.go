@@ -6,10 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"time"
 
+	"github.com/grapinou/club-core/internal/accounts/provisioning"
 	"github.com/grapinou/club-core/internal/activation"
+	"github.com/grapinou/club-core/internal/civildate"
 	"github.com/grapinou/club-core/internal/consents"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/jackc/pgx/v5"
@@ -230,9 +231,7 @@ func (s *Service) createRequestTx(ctx context.Context, tx pgx.Tx, r Request, pre
 // IsMinor compares civil dates, with the eighteenth anniversary on March 1 for
 // February 29 births in non-leap years. No age or minority flag is persisted.
 func IsMinor(birth, at time.Time) bool {
-	anniversary := time.Date(birth.Year()+18, birth.Month(), birth.Day(), 0, 0, 0, 0, at.Location())
-	today := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, at.Location())
-	return today.Before(anniversary)
+	return civildate.IsMinor(birth, at)
 }
 
 func completeness(ctx context.Context, tx pgx.Tx, id int32, at time.Time) (Completeness, error) {
@@ -380,25 +379,8 @@ func (s *Service) ApproveMembership(ctx context.Context, id, approver int32, adm
 		return result, &IncompleteError{result.Completeness}
 	}
 	q := dbsqlc.New(tx)
-	user, err := q.GetUserByPerson(ctx, person)
-	if errors.Is(err, pgx.ErrNoRows) {
-		base := UsernameBase(first, last)
-		for suffix := 1; ; suffix++ {
-			username := base
-			if suffix > 1 {
-				username += strconv.Itoa(suffix)
-			}
-			var uid int32
-			err = tx.QueryRow(ctx, "INSERT INTO users(person_id,username,is_active) VALUES ($1,$2,true) ON CONFLICT (username) DO NOTHING RETURNING id", person, username).Scan(&uid)
-			if errors.Is(err, pgx.ErrNoRows) {
-				continue
-			}
-			if err != nil {
-				return result, err
-			}
-			break
-		}
-	} else if err != nil {
+	user, err := provisioning.EnsureUserForPersonTx(ctx, tx, person)
+	if err != nil {
 		return result, err
 	}
 	_, err = tx.Exec(ctx, "UPDATE users SET is_active=true WHERE person_id=$1", person)
