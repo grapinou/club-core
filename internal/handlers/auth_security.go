@@ -15,15 +15,25 @@ type attemptWindow struct {
 // Local limiter: shared login/activation budget, 10 attempts/IP/15min,
 // plus 120 attempts/minute globally; bounded memory and no forwarded-header trust.
 type AttemptLimiter struct {
-	mu     sync.Mutex
-	ips    map[string]attemptWindow
-	global attemptWindow
-	now    func() time.Time
+	mu                 sync.Mutex
+	ips                map[string]attemptWindow
+	global             attemptWindow
+	now                func() time.Time
+	perIP, globalLimit int
 }
 
 func NewAttemptLimiter() *AttemptLimiter {
-	return &AttemptLimiter{ips: map[string]attemptWindow{}, now: time.Now}
+	return &AttemptLimiter{ips: map[string]attemptWindow{}, now: time.Now, perIP: 10, globalLimit: 120}
 }
+
+// NewRegistrationSubmissionLimiter prepares a separate future public submission
+// budget: 5 per IP / 15 minutes and 60 globally / minute, per process.
+func NewRegistrationSubmissionLimiter() *AttemptLimiter {
+	return &AttemptLimiter{ips: map[string]attemptWindow{}, now: time.Now, perIP: 5, globalLimit: 60}
+}
+
+// AllowRequest deliberately trusts only the direct peer, never forwarded headers.
+func (l *AttemptLimiter) AllowRequest(r *http.Request) bool { return l.Allow(r.RemoteAddr) }
 func (l *AttemptLimiter) Allow(remote string) bool {
 	ip, _, err := net.SplitHostPort(remote)
 	if err != nil {
@@ -35,7 +45,7 @@ func (l *AttemptLimiter) Allow(remote string) bool {
 	if !now.Before(l.global.until) {
 		l.global = attemptWindow{until: now.Add(time.Minute)}
 	}
-	if l.global.count >= 120 {
+	if l.global.count >= l.globalLimit {
 		return false
 	}
 	l.global.count++
@@ -51,7 +61,7 @@ func (l *AttemptLimiter) Allow(remote string) bool {
 		}
 		current = attemptWindow{until: now.Add(15 * time.Minute)}
 	}
-	if current.count >= 10 {
+	if current.count >= l.perIP {
 		return false
 	}
 	current.count++

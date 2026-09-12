@@ -5,14 +5,11 @@ package identityresolution
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/grapinou/club-core/internal/mailer"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -33,19 +30,17 @@ type Acceptance struct {
 	Status string `json:"status"`
 }
 type Submitter struct {
-	db            *pgxpool.Pool
-	email         *EmailService
-	sender        mailer.Mailer
-	from, baseURL string
+	db    *pgxpool.Pool
+	email *EmailService
 }
 
-// NewEmailSubmitter is the application entrypoint for future public submissions.
-func NewEmailSubmitter(db *pgxpool.Pool, email *EmailService, sender mailer.Mailer, from, baseURL string) *Submitter {
-	return &Submitter{db: db, email: email, sender: sender, from: from, baseURL: baseURL}
+// NewEmailSubmitter atomically stages an identity and an optional delivery intent.
+// It has no mailer dependency and cannot perform SMTP I/O.
+func NewEmailSubmitter(db *pgxpool.Pool, email *EmailService) *Submitter {
+	return &Submitter{db: db, email: email}
 }
 
-// NewSubmitter stages only; it is retained for internal workflows and tests.
-// Public callers must use Application.Submissions, which orchestrates delivery.
+// NewSubmitter stages only for internal review workflows.
 func NewSubmitter(db *pgxpool.Pool) *Submitter { return &Submitter{db: db} }
 
 func validInput(in SubmissionInput) bool {
@@ -68,37 +63,20 @@ func (s *Submitter) CreateSubmission(ctx context.Context, in SubmissionInput) (A
 	if !validInput(in) {
 		return Acceptance{}, ErrInvalidSubmission
 	}
-	id, err := s.create(ctx, in)
+	_, err := s.create(ctx, in)
 	if err != nil {
 		return Acceptance{}, ErrUnavailable
-	}
-	if s.email != nil {
-		delivery, prepareErr := s.email.PrepareEmailVerification(ctx, id)
-		// After persistence, public acceptance must not disclose eligibility or SMTP.
-		if prepareErr != nil {
-			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-			if err := s.email.ReviewAfterPreparationFailure(cleanup, id); err != nil {
-				slog.Error("Registration review fallback failed; check database availability")
-			}
-			cancel()
-		} else {
-			message, sendErr := mailer.RegistrationMessage(s.from, delivery.RecipientEmail, strings.TrimRight(s.baseURL, "/")+"/registration/verify", delivery.PublicReference, delivery.PlaintextCode)
-			if sendErr == nil {
-				sendErr = s.sender.Send(ctx, message)
-			}
-			if sendErr != nil {
-				cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-				if err := s.email.FailDelivery(cleanup, delivery); err != nil {
-					slog.Error("Registration email compensation failed; check database availability")
-				}
-				cancel()
-			}
-		}
 	}
 	return Acceptance{Status: "submission accepted"}, nil
 }
 func (s *Submitter) create(ctx context.Context, in SubmissionInput) (int32, error) {
-	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	isolation := pgx.RepeatableRead
+	if s.email != nil {
+		// A fresh snapshot after the recipient advisory lock must see the previous
+		// enqueue's commit. Eligibility is re-read in this same transaction.
+		isolation = pgx.ReadCommitted
+	}
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: isolation})
 	if err != nil {
 		return 0, err
 	}
@@ -126,6 +104,11 @@ func (s *Submitter) create(ctx context.Context, in SubmissionInput) (int32, erro
 	}
 	if found {
 		if err = q.MarkRegistrationForReview(ctx, sub.ID); err != nil {
+			return 0, err
+		}
+	}
+	if s.email != nil {
+		if err = s.email.Enqueue(ctx, tx, sub); err != nil {
 			return 0, err
 		}
 	}
@@ -287,6 +270,9 @@ func (s *ReviewService) resolve(ctx context.Context, actor, id int32, person *in
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if err = LockDeliveryDecision(ctx, tx, id); err != nil {
+		return err
+	}
 	q := dbsqlc.New(tx)
 	sub, err := q.LockRegistrationSubmission(ctx, id)
 	if err != nil {

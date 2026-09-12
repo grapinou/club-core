@@ -178,6 +178,22 @@ type RegistrationSubmissionCandidate struct {
 	DetectedAt       pgtype.Timestamptz
 }
 
+type RegistrationVerificationOutbox struct {
+	ID            int64
+	SubmissionID  int32
+	Status        string
+	AttemptCount  int32
+	AvailableAt   pgtype.Timestamptz
+	LeaseUntil    pgtype.Timestamptz
+	LeaseVersion  int64
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	SentAt        pgtype.Timestamptz
+	FinishedAt    pgtype.Timestamptz
+	LastErrorCode pgtype.Text
+	RecipientHash []byte
+}
+
 type Role struct {
 	ID   int32
 	Name string

@@ -14,17 +14,20 @@ import (
 	"github.com/grapinou/club-core/internal/identityresolution"
 	"github.com/grapinou/club-core/internal/mailer"
 	"github.com/grapinou/club-core/internal/memberships"
+	"github.com/grapinou/club-core/internal/outbox"
 	"github.com/grapinou/club-core/internal/router"
 	"github.com/grapinou/club-core/internal/websecurity"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Application struct {
-	Handler       http.Handler
-	Accounts      *accounts.Service
-	Submissions   *identityresolution.Submitter
-	Reviews       *identityresolution.ReviewService
-	Verifications *identityresolution.EmailService
+	Handler            http.Handler
+	Accounts           *accounts.Service
+	Submissions        *identityresolution.Submitter
+	Reviews            *identityresolution.ReviewService
+	Verifications      *identityresolution.EmailService
+	VerificationOutbox *outbox.Worker
+	SubmissionLimiter  *handlers.AttemptLimiter
 }
 
 func New(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool) (*Application, error) {
@@ -72,10 +75,12 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, 
 	authHandler.Register(mux)
 	authHandler.RegisterRegistrationVerification(mux, verification)
 	return &Application{
-		Handler:       sessions.Middleware(login, access.Navigation(mux)),
-		Accounts:      accountService,
-		Submissions:   identityresolution.NewEmailSubmitter(db, verification, sender, runtime.SMTP.From, runtime.BaseURL),
-		Reviews:       reviews,
-		Verifications: verification,
+		Handler:            sessions.Middleware(login, access.Navigation(mux)),
+		Accounts:           accountService,
+		Submissions:        identityresolution.NewEmailSubmitter(db, verification),
+		Reviews:            reviews,
+		Verifications:      verification,
+		VerificationOutbox: outbox.New(db, verification, sender, runtime.SMTP.From, runtime.BaseURL),
+		SubmissionLimiter:  handlers.NewRegistrationSubmissionLimiter(),
 	}, nil
 }

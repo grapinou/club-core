@@ -18,8 +18,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/identityresolution"
 	"github.com/grapinou/club-core/internal/mailer"
+	"github.com/grapinou/club-core/internal/outbox"
 	"github.com/pressly/goose/v3"
 )
 
@@ -136,7 +138,7 @@ func TestEmailPreparationAndCommitOrdering(t *testing.T) {
 		t.Fatal("history invalidation")
 	}
 	// A delayed failure of the old delivery cannot invalidate the replacement.
-	f.must(f.app.Verifications.FailDelivery(t.Context(), d))
+	f.must(f.invalidateDelivery(t.Context(), d))
 	if f.emailState(id) != "awaiting_email_verification" {
 		t.Fatal("stale compensation")
 	}
@@ -148,35 +150,24 @@ func TestEmailPreparationAndCommitOrdering(t *testing.T) {
 			t.Fatal("SMTP before commit")
 		}
 	}
-	f.submit(emailInput())
+	f.submitAndDispatch(emailInput())
 	if len(f.mail.messages) != 1 {
 		t.Fatal("email missing")
 	}
 }
 func TestEmailOrchestrationAndSMTPCompensation(t *testing.T) {
 	f := newFixture(t)
-	for _, tc := range []struct {
-		name    string
-		in      identityresolution.SubmissionInput
-		mailErr error
-		want    string
-	}{{"eligible", emailInput(), nil, "awaiting_email_verification"}, {"review", registrationInput(), nil, "awaiting_identity_review"}, {"smtp", emailInput(), errors.New("private SMTP failure"), "awaiting_identity_review"}} {
-		t.Run(tc.name, func(t *testing.T) {
-			f.mail.err = tc.mailErr
-			id := f.submit(tc.in)
-			if f.emailState(id) != tc.want {
-				t.Fatal("wrong orchestration outcome")
-			}
-			if tc.mailErr != nil {
-				var invalid bool
-				f.must(f.db.QueryRow(t.Context(), "SELECT invalidated_at IS NOT NULL FROM registration_email_verifications WHERE submission_id=$1", id).Scan(&invalid))
-				if !invalid {
-					t.Fatal("missing compensation")
-				}
-			}
-		})
+	f.submitAndDispatch(emailInput())
+	f.mail.err = errors.New("private SMTP failure")
+	id := f.submitAndDispatch(emailInput())
+	if f.emailState(id) != "awaiting_email_verification" {
+		t.Fatal("retry must keep dossier queued")
 	}
-	// Public JSON remains the same when no candidate exists.
+	var invalid bool
+	f.must(f.db.QueryRow(t.Context(), "SELECT invalidated_at IS NOT NULL FROM registration_email_verifications WHERE submission_id=$1", id).Scan(&invalid))
+	if !invalid {
+		t.Fatal("attempt proof not invalidated")
+	}
 	in := emailInput()
 	in.FirstName = "No match"
 	a, err := f.app.Submissions.CreateSubmission(t.Context(), in)
@@ -185,26 +176,12 @@ func TestEmailOrchestrationAndSMTPCompensation(t *testing.T) {
 	if string(b) != `{"status":"submission accepted"}` {
 		t.Fatal("enumeration")
 	}
-	// Cancellation during SMTP does not cancel the compensation transaction.
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	f.mail.check = func(m mailer.Message) { cancel() }
-	f.mail.err = errors.New("cancelled delivery")
-	a, err = f.app.Submissions.CreateSubmission(ctx, emailInput())
-	f.must(err)
-	if a.Status != "submission accepted" {
-		t.Fatal("public error")
-	}
-	id := f.id("SELECT max(id) FROM registration_submissions")
-	if f.emailState(id) != "awaiting_identity_review" {
-		t.Fatal("cancelled compensation")
-	}
 }
 func TestEmailVerificationAndNoIdentityMutations(t *testing.T) {
 	f := newFixture(t)
 	f.id("INSERT INTO users(person_id,username,is_active) VALUES ($1,'unchanged-account',false) RETURNING id", f.person)
 	before := f.personSnapshot()
-	id := f.submit(emailInput())
+	id := f.submitAndDispatch(emailInput())
 	reference, code := verificationFrom(t, f.mail.messages[0])
 	if err := f.app.Verifications.VerifyEmail(t.Context(), reference, strings.Repeat("x", 20)); !errors.Is(err, identityresolution.ErrVerification) {
 		t.Fatal("bad code")
@@ -365,7 +342,7 @@ func TestEmailConcurrentOperations(t *testing.T) {
 }
 func TestEmailVerificationHTTP(t *testing.T) {
 	f := newFixture(t)
-	id := f.submit(emailInput())
+	id := f.submitAndDispatch(emailInput())
 	reference, code := verificationFrom(t, f.mail.messages[0])
 	b := newBrowser(f.app.Handler)
 	token := b.csrf(t, "/registration/verify")
@@ -450,7 +427,7 @@ func TestEmailVerificationRateLimits(t *testing.T) {
 }
 func TestEmailAdministrativeAuditAndMigrationDown(t *testing.T) {
 	f := newFixture(t)
-	id := f.submit(emailInput())
+	id := f.submitAndDispatch(emailInput())
 	reference, code := verificationFrom(t, f.mail.messages[0])
 	b := f.membershipAdminBrowser()
 	count, err := f.app.Reviews.CountOpen(t.Context(), f.approver)
@@ -524,13 +501,19 @@ func TestEmailResolutionRollbackAndPreparationFailure(t *testing.T) {
 	}
 	f.exec("DROP TRIGGER fail_email_resolution_test ON registration_submissions")
 	f.must(f.app.Verifications.VerifyEmail(t.Context(), d.PublicReference, d.PlaintextCode))
-	// Preparation failure after insertion must roll back the proof before fallback.
+	// Failure while choosing the queued status rolls back the entire submission.
 	f.exec(`CREATE FUNCTION fail_email_preparation_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status='awaiting_email_verification' THEN RAISE EXCEPTION 'private preparation error'; END IF; RETURN NEW; END $$`)
 	f.exec(`CREATE TRIGGER fail_email_preparation_test BEFORE UPDATE ON registration_submissions FOR EACH ROW EXECUTE FUNCTION fail_email_preparation_test()`)
-	id = f.submit(emailInput())
+	before := f.registrationSnapshot()
+	if _, err = f.app.Submissions.CreateSubmission(t.Context(), emailInput()); !errors.Is(err, identityresolution.ErrUnavailable) {
+		t.Fatal("enqueue failure accepted")
+	}
+	if before != f.registrationSnapshot() {
+		t.Fatal("partial submission")
+	}
 	var count int
 	f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM registration_email_verifications WHERE submission_id=$1", id).Scan(&count))
-	if count != 0 || f.emailState(id) != "awaiting_identity_review" || len(f.mail.messages) != 0 {
+	if count != 1 || f.emailState(id) != "resolved" || len(f.mail.messages) != 0 {
 		t.Fatal("partially prepared or sent proof")
 	}
 	f.exec("DROP TRIGGER fail_email_preparation_test ON registration_submissions")
@@ -558,7 +541,7 @@ func TestEmailCompensationAssociationAndConstraints(t *testing.T) {
 	f.must(err)
 	mismatched := *a
 	mismatched.PublicReference = b.PublicReference
-	if err = f.app.Verifications.FailDelivery(t.Context(), &mismatched); err == nil {
+	if err = f.invalidateDelivery(t.Context(), &mismatched); err == nil {
 		t.Fatal("unrelated reference accepted for compensation")
 	}
 	if f.emailState(first) != "awaiting_email_verification" || f.emailState(second) != "awaiting_email_verification" {
@@ -601,7 +584,7 @@ func TestEmailHTTPRejectionsAreIndistinguishable(t *testing.T) {
 		case "wrong":
 			code = strings.Repeat("x", 20)
 		case "invalidated":
-			f.must(svc.FailDelivery(t.Context(), d))
+			f.must(f.invalidateDelivery(t.Context(), d))
 		case "used":
 			f.must(svc.VerifyEmail(t.Context(), ref, code))
 		case "admin-resolved":
@@ -637,9 +620,9 @@ func TestEmailCompensationFailureLogsNoSecretsAndEventuallyRecovers(t *testing.T
 	previous := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
 	t.Cleanup(func() { slog.SetDefault(previous) })
-	svc, err := identityresolution.NewEmailService(f.db, 20*time.Millisecond)
+	svc, err := identityresolution.NewEmailService(f.db, time.Hour)
 	f.must(err)
-	submitter := identityresolution.NewEmailSubmitter(f.db, svc, f.mail, "club@example.test", "https://club.example.test")
+	submitter := identityresolution.NewEmailSubmitter(f.db, svc)
 	f.exec(`CREATE FUNCTION fail_email_compensation_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'sensitive database detail'; END $$`)
 	f.exec(`CREATE TRIGGER fail_email_compensation_test BEFORE UPDATE ON registration_email_verifications FOR EACH ROW EXECUTE FUNCTION fail_email_compensation_test()`)
 	f.mail.err = errors.New("sensitive SMTP detail")
@@ -648,8 +631,13 @@ func TestEmailCompensationFailureLogsNoSecretsAndEventuallyRecovers(t *testing.T
 	if result.Status != "submission accepted" {
 		t.Fatal("compensation failure disclosed")
 	}
-	if !strings.Contains(logs.String(), "Registration email compensation failed") {
-		t.Fatal("operational failure not reported")
+	worker := outbox.New(f.db, svc, f.mail, "club@example.test", "https://club.example.test")
+	if _, err = worker.ProcessOne(t.Context()); err == nil {
+		t.Fatal("compensation error missing")
+	}
+	// Run logs DB categories; ProcessOne exposes errors to its internal caller.
+	if logs.Len() != 0 && strings.Contains(logs.String(), "sensitive") {
+		t.Fatal("sensitive operational error logged")
 	}
 	ref, code := verificationFrom(t, f.mail.messages[0])
 	for _, secret := range []string{ref, code, "remi@example.test", "sensitive SMTP detail", "sensitive database detail"} {
@@ -658,10 +646,39 @@ func TestEmailCompensationFailureLogsNoSecretsAndEventuallyRecovers(t *testing.T
 		}
 	}
 	f.exec("DROP TRIGGER fail_email_compensation_test ON registration_email_verifications")
-	f.exec("SELECT pg_sleep(GREATEST(0,extract(epoch FROM (expires_at-clock_timestamp())))+0.01) FROM registration_email_verifications WHERE public_reference=$1", ref)
+	f.exec("UPDATE registration_verification_outbox SET lease_until=clock_timestamp()-interval '1 second',attempt_count=3 WHERE status='processing'")
+	_, err = worker.ProcessOne(t.Context())
+	f.must(err)
 	count, err := f.app.Reviews.CountOpen(t.Context(), f.approver)
 	f.must(err)
 	if count != 1 {
 		t.Fatal("compensation outage stranded dossier")
 	}
+}
+
+// Verification UI tests explicitly drive asynchronous delivery before using a code.
+func (f *fixture) submitAndDispatch(in identityresolution.SubmissionInput) int32 {
+	f.t.Helper()
+	id := f.submit(in)
+	_, err := f.app.VerificationOutbox.ProcessOne(f.t.Context())
+	f.must(err)
+	return id
+}
+
+func (f *fixture) invalidateDelivery(ctx context.Context, d *identityresolution.EmailDelivery) error {
+	tx, err := f.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err = identityresolution.LockDeliveryDecision(ctx, tx, d.SubmissionID); err != nil {
+		return err
+	}
+	if _, err = dbsqlc.New(tx).LockRegistrationSubmission(ctx, d.SubmissionID); err != nil {
+		return err
+	}
+	if err = identityresolution.InvalidateDeliveryAttempt(ctx, tx, d); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -161,5 +162,42 @@ func TestHTTPAttemptLimitIgnoresForwardedIP(t *testing.T) {
 	}
 	if a.calls != 0 {
 		t.Fatal("invalid calls reached service")
+	}
+}
+
+func TestRegistrationSubmissionLimiter(t *testing.T) {
+	now := time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC)
+	limiter := NewRegistrationSubmissionLimiter()
+	limiter.now = func() time.Time { return now }
+	for i := 0; i < 6; i++ {
+		r := httptest.NewRequest("POST", "/future-submission", nil)
+		r.RemoteAddr = "192.0.2.1:1234"
+		r.Header.Set("X-Forwarded-For", fmt.Sprintf("198.51.100.%d", i))
+		if got := limiter.AllowRequest(r); got != (i < 5) {
+			t.Fatal("IP limit or forwarded-header bypass")
+		}
+	}
+	// Login and verify budgets are separate from future submission traffic.
+	if !NewAttemptLimiter().Allow("192.0.2.1:1234") {
+		t.Fatal("shared login budget")
+	}
+	now = now.Add(15*time.Minute - time.Nanosecond)
+	if limiter.Allow("192.0.2.1:5678") {
+		t.Fatal("early IP window reset")
+	}
+	now = now.Add(time.Nanosecond)
+	if !limiter.Allow("192.0.2.1:5678") {
+		t.Fatal("IP window not reset")
+	}
+	limiter = NewRegistrationSubmissionLimiter()
+	limiter.now = func() time.Time { return now }
+	for i := 0; i < 61; i++ {
+		if got := limiter.Allow(fmt.Sprintf("192.0.2.%d:1234", i)); got != (i < 60) {
+			t.Fatal("global limit")
+		}
+	}
+	now = now.Add(time.Minute)
+	if !limiter.Allow("198.51.100.1:1234") {
+		t.Fatal("global window not reset")
 	}
 }

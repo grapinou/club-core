@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/grapinou/club-core/internal/application"
@@ -28,7 +31,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	db, err := database.New(
 		ctx, os.Getenv("DATABASE_URL"),
@@ -64,8 +68,27 @@ func main() {
 	server := &http.Server{Addr: address, Handler: app.Handler,
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second,
 		WriteTimeout: 45 * time.Second, IdleTimeout: 60 * time.Second}
-	if err := server.ListenAndServe(); err != nil {
-		log.Fatal(err)
+	workerDone := make(chan struct{})
+	go func() { defer close(workerDone); _ = app.VerificationOutbox.Run(ctx) }()
+	serverDone := make(chan error, 1)
+	go func() { serverDone <- server.ListenAndServe() }()
+	select {
+	case <-ctx.Done():
+	case err := <-serverDone:
+		if !errors.Is(err, http.ErrServerClosed) {
+			log.Print("HTTP server stopped unexpectedly")
+		}
+		stop()
+	}
+	shutdown, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdown); err != nil {
+		_ = server.Close()
+	}
+	select {
+	case <-workerDone:
+	case <-shutdown.Done():
+		log.Print("outbox shutdown deadline reached")
 	}
 
 }

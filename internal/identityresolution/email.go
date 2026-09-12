@@ -88,6 +88,30 @@ func (s *EmailService) PrepareEmailVerification(ctx context.Context, id int32) (
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
+	if err = LockDeliveryDecision(ctx, tx, id); err != nil {
+		return nil, err
+	}
+	d, err := s.PrepareInTransaction(ctx, tx, id)
+	if err != nil {
+		if errors.Is(err, ErrNotEligible) {
+			if cleanupErr := returnToReview(ctx, tx, id); cleanupErr != nil {
+				return nil, cleanupErr
+			}
+			if cleanupErr := tx.Commit(ctx); cleanupErr != nil {
+				return nil, cleanupErr
+			}
+		}
+		return nil, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+// PrepareInTransaction is used by the specialized outbox under its delivery lock.
+// The caller commits before using the transient plaintext delivery.
+func (s *EmailService) PrepareInTransaction(ctx context.Context, tx pgx.Tx, id int32) (*EmailDelivery, error) {
 	sub, err := dbsqlc.New(tx).LockRegistrationSubmission(ctx, id)
 	if err != nil {
 		return nil, err
@@ -97,14 +121,6 @@ func (s *EmailService) PrepareEmailVerification(ctx context.Context, id int32) (
 	}
 	person, recipient, err := s.eligible(ctx, tx, sub)
 	if err != nil {
-		if errors.Is(err, ErrNotEligible) && sub.Status == "awaiting_email_verification" {
-			if cleanupErr := returnToReview(ctx, tx, id); cleanupErr != nil {
-				return nil, cleanupErr
-			}
-			if cleanupErr := tx.Commit(ctx); cleanupErr != nil {
-				return nil, cleanupErr
-			}
-		}
 		return nil, err
 	}
 	reference := make([]byte, 32)
@@ -133,9 +149,6 @@ func (s *EmailService) PrepareEmailVerification(ctx context.Context, id int32) (
 	if err != nil {
 		return nil, err
 	}
-	if err = tx.Commit(ctx); err != nil {
-		return nil, err
-	}
 	return d, nil
 }
 func invalidateProofs(ctx context.Context, tx pgx.Tx, id int32) error {
@@ -150,50 +163,20 @@ func returnToReview(ctx context.Context, tx pgx.Tx, id int32) error {
 	return err
 }
 
-// FailDelivery compensates only this delivery. A late SMTP failure must never
-// invalidate a newer proof or overwrite a resolution which already won the race.
-func (s *EmailService) FailDelivery(ctx context.Context, d *EmailDelivery) error {
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
+// InvalidateDeliveryAttempt preserves history and only invalidates this delivery.
+// The caller must hold the submission lock; retries own their status transition.
+func InvalidateDeliveryAttempt(ctx context.Context, tx pgx.Tx, d *EmailDelivery) error {
+	var associated bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM registration_email_verifications WHERE public_reference=$1 AND submission_id=$2)`, d.PublicReference, d.SubmissionID).Scan(&associated); err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
-	sub, err := dbsqlc.New(tx).LockRegistrationSubmission(ctx, d.SubmissionID)
-	if err != nil {
-		return err
+	if !associated {
+		return ErrNotEligible
 	}
-	var usable bool
-	err = tx.QueryRow(ctx, `SELECT used_at IS NULL AND invalidated_at IS NULL FROM registration_email_verifications WHERE public_reference=$1 AND submission_id=$2 FOR UPDATE`, d.PublicReference, d.SubmissionID).Scan(&usable)
-	if err != nil {
-		return err
-	}
-	if usable && sub.Status == "awaiting_email_verification" {
-		if err = returnToReview(ctx, tx, sub.ID); err != nil {
-			return err
-		}
-	}
-	return tx.Commit(ctx)
+	_, err := tx.Exec(ctx, `UPDATE registration_email_verifications SET invalidated_at=clock_timestamp() WHERE public_reference=$1 AND submission_id=$2 AND used_at IS NULL AND invalidated_at IS NULL`, d.PublicReference, d.SubmissionID)
+	return err
 }
 
-// ReviewAfterPreparationFailure leaves no pending proof after a definitive
-// preparation failure. The expected status avoids interfering with another prepare.
-func (s *EmailService) ReviewAfterPreparationFailure(ctx context.Context, id int32) error {
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	sub, err := dbsqlc.New(tx).LockRegistrationSubmission(ctx, id)
-	if err != nil {
-		return err
-	}
-	if sub.Status == "received" || sub.Status == "awaiting_identity_review" {
-		if err = returnToReview(ctx, tx, id); err != nil {
-			return err
-		}
-	}
-	return tx.Commit(ctx)
-}
 func (s *EmailService) VerifyEmail(ctx context.Context, reference, code string) error {
 	// The public boundary deliberately collapses all rejection/DB details.
 	if len(reference) != 64 || len(code) != 20 {
@@ -212,6 +195,9 @@ func (s *EmailService) verify(ctx context.Context, reference, code string) error
 	defer tx.Rollback(ctx)
 	var id int32
 	if err = tx.QueryRow(ctx, `SELECT submission_id FROM registration_email_verifications WHERE public_reference=$1`, reference).Scan(&id); err != nil {
+		return err
+	}
+	if err = LockDeliveryDecision(ctx, tx, id); err != nil {
 		return err
 	}
 	sub, err := dbsqlc.New(tx).LockRegistrationSubmission(ctx, id)
@@ -275,15 +261,15 @@ func (s *EmailService) verify(ctx context.Context, reference, code string) error
 	return tx.Commit(ctx)
 }
 
-// ExpirePendingVerifications is called by administrative reads, without a worker.
-// Missing usable proofs also recover a dossier after an interrupted compensation.
+// ExpirePendingVerifications is called by administrative reads. Open outbox jobs
+// remain awaiting verification while queued, leased or waiting for retry.
 func ExpirePendingVerifications(ctx context.Context, db *pgxpool.Pool) error {
 	tx, err := db.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	rows, err := tx.Query(ctx, `SELECT s.id FROM registration_submissions s WHERE s.status='awaiting_email_verification' AND NOT EXISTS(SELECT 1 FROM registration_email_verifications v WHERE v.submission_id=s.id AND v.used_at IS NULL AND v.invalidated_at IS NULL AND v.expires_at>clock_timestamp()) ORDER BY s.id FOR UPDATE OF s SKIP LOCKED`)
+	rows, err := tx.Query(ctx, `SELECT s.id FROM registration_submissions s WHERE s.status='awaiting_email_verification' AND NOT EXISTS(SELECT 1 FROM registration_verification_outbox o WHERE o.submission_id=s.id AND o.status IN ('pending','processing')) AND NOT EXISTS(SELECT 1 FROM registration_email_verifications v WHERE v.submission_id=s.id AND v.used_at IS NULL AND v.invalidated_at IS NULL AND v.expires_at>clock_timestamp()) ORDER BY s.id FOR UPDATE OF s SKIP LOCKED`)
 	if err != nil {
 		return err
 	}
@@ -305,7 +291,7 @@ func ExpirePendingVerifications(ctx context.Context, db *pgxpool.Pool) error {
 		// Recheck after acquiring the submission lock with a fresh statement snapshot.
 		// A concurrent preparation may have replaced the previously expired proof.
 		var live bool
-		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM registration_email_verifications WHERE submission_id=$1 AND used_at IS NULL AND invalidated_at IS NULL AND expires_at>clock_timestamp())`, id).Scan(&live); err != nil {
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM registration_email_verifications WHERE submission_id=$1 AND used_at IS NULL AND invalidated_at IS NULL AND expires_at>clock_timestamp()) OR EXISTS(SELECT 1 FROM registration_verification_outbox WHERE submission_id=$1 AND status IN ('pending','processing'))`, id).Scan(&live); err != nil {
 			return err
 		}
 		if live {
