@@ -17,6 +17,7 @@ import (
 	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/grapinou/club-core/internal/minorsafety"
 	"github.com/grapinou/club-core/internal/outbox"
+	"github.com/grapinou/club-core/internal/personalspace"
 	"github.com/grapinou/club-core/internal/registrationapplications"
 	"github.com/grapinou/club-core/internal/router"
 	"github.com/grapinou/club-core/internal/websecurity"
@@ -87,7 +88,9 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, 
 	accountService := accounts.New(db, m, a, sender, runtime.SMTP.From, runtime.BaseURL, permissions)
 	accountService.SetGuardianAccess(guardians)
 	applications.SetGuardianServices(guardians, accountService)
-	handlers.RegisterDashboard(mux, cfg.SiteName, queries, guardians, csrf)
+	personal := personalspace.New(queries, guardians, runtime.Location)
+	handlers.RegisterDashboard(mux, cfg.SiteName, personal, csrf)
+	handlers.RegisterPersonalSpace(mux, cfg.SiteName, personal, csrf)
 	handlers.NewMembershipHandler(cfg.SiteName, runtime.Location, m, accountService, queries, permissions).Register(mux, access, csrf)
 	handlers.NewRegistrationHandler(cfg.SiteName, runtime.Location, reviews, applications).Register(mux, access, csrf)
 	authHandler := handlers.NewAuthHandler(cfg.SiteName, a, login, sessions, runtime.SecureCookies)

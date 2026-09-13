@@ -40,7 +40,7 @@
 <a href="/where" {{if or (eq .CurrentPath "/where") (eq .CurrentPath "/when")}}aria-current="page"{{end}}>Où / Quand</a>
 <a class="btn btn-primary" href="/join">Adhérer</a>
 <a href="/contact" {{if eq .CurrentPath "/contact"}}aria-current="page"{{end}}>Contact</a>
-{{if .Authenticated}}<a href="/dashboard" {{if eq .CurrentPath "/dashboard"}}aria-current="page"{{end}}>Mon espace</a>{{else}}<a href="/login" {{if eq .CurrentPath "/login"}}aria-current="page"{{end}}>Connexion</a>{{end}}
+{{if .Authenticated}}<a href="/dashboard" {{if eq .CurrentPath "/dashboard"}}aria-current="page"{{end}}>Mon espace</a><a href="/me/account" {{if eq .CurrentPath "/me/account"}}aria-current="page"{{end}}>Mon compte</a>{{else}}<a href="/login" {{if eq .CurrentPath "/login"}}aria-current="page"{{end}}>Connexion</a>{{end}}
 </div></nav>
 {{if or .CanReadPersons .CanReadMemberships .CanReviewRegistrations}}<nav class="admin-nav" aria-label="Administration"><div class="container"><span class="small text-body-secondary">Administration</span>
 {{if .CanReadMemberships}}<a href="/memberships">Adhésions</a>{{end}}

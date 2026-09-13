@@ -246,6 +246,12 @@ func completeness(ctx context.Context, tx pgx.Tx, id int32, at time.Time) (Compl
 	return evaluateCompleteness(facts[0], at), nil
 }
 
+// EvaluateCompleteness exposes the existing policy for authorized read projections.
+// Callers must authorize the Membership before loading its facts.
+func EvaluateCompleteness(f dbsqlc.ListMembershipCompletenessFactsRow, at time.Time) Completeness {
+	return evaluateCompleteness(f, at)
+}
+
 // evaluateCompleteness is shared by detail, approval and the batched list.
 func evaluateCompleteness(f dbsqlc.ListMembershipCompletenessFactsRow, at time.Time) Completeness {
 	c := Completeness{BlockingIssues: []string{}, Warnings: []string{}, MissingConsentDefinitionIDs: f.MissingConsentIds}

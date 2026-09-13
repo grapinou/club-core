@@ -5,18 +5,13 @@ import (
 	"html/template"
 	"io"
 
-	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/personalspace"
 )
 
-type DashboardPerson struct {
-	Name        string
-	Memberships []dbsqlc.ListDashboardMembershipsRow
-}
 type DashboardView struct {
 	SecurityData
-	SiteName, Title, Name string
-	Memberships           []dbsqlc.ListDashboardMembershipsRow
-	Children              []DashboardPerson
+	personalspace.Dashboard
+	SiteName, Title string
 }
 
 //go:embed templates/layouts/base.html templates/pages/dashboard.html
