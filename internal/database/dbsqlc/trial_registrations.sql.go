@@ -13,7 +13,7 @@ import (
 
 const createTrial = `-- name: CreateTrial :one
 INSERT INTO trial_registrations (person_id, activity_id, group_id, group_slot_id, trial_date, status, notes)
-VALUES ($1, $2, $3, $4, $5, 'registered', $6) RETURNING id, person_id, activity_id, trial_date, status, created_at, notes, group_id, group_slot_id
+VALUES ($1, $2, $3, $4, $5, 'registered', $6) RETURNING id, person_id, activity_id, trial_date, status, created_at, notes, group_id, group_slot_id, revision
 `
 
 type CreateTrialParams struct {
@@ -46,6 +46,7 @@ func (q *Queries) CreateTrial(ctx context.Context, arg CreateTrialParams) (Trial
 		&i.Notes,
 		&i.GroupID,
 		&i.GroupSlotID,
+		&i.Revision,
 	)
 	return i, err
 }
@@ -394,8 +395,8 @@ func (q *Queries) LockTrialSlot(ctx context.Context, arg LockTrialSlotParams) (L
 }
 
 const rescheduleTrial = `-- name: RescheduleTrial :one
-UPDATE trial_registrations SET activity_id=$2, group_id=$3, group_slot_id=$4, trial_date=$5
-WHERE id=$1 RETURNING id, person_id, activity_id, trial_date, status, created_at, notes, group_id, group_slot_id
+UPDATE trial_registrations SET activity_id=$2, group_id=$3, group_slot_id=$4, trial_date=$5,revision=revision+1
+WHERE id=$1 RETURNING id, person_id, activity_id, trial_date, status, created_at, notes, group_id, group_slot_id, revision
 `
 
 type RescheduleTrialParams struct {
@@ -425,12 +426,13 @@ func (q *Queries) RescheduleTrial(ctx context.Context, arg RescheduleTrialParams
 		&i.Notes,
 		&i.GroupID,
 		&i.GroupSlotID,
+		&i.Revision,
 	)
 	return i, err
 }
 
 const updateTrialNotes = `-- name: UpdateTrialNotes :one
-UPDATE trial_registrations SET notes=$2 WHERE id=$1 RETURNING id, person_id, activity_id, trial_date, status, created_at, notes, group_id, group_slot_id
+UPDATE trial_registrations SET notes=$2,revision=revision+1 WHERE id=$1 RETURNING id, person_id, activity_id, trial_date, status, created_at, notes, group_id, group_slot_id, revision
 `
 
 type UpdateTrialNotesParams struct {
@@ -451,12 +453,13 @@ func (q *Queries) UpdateTrialNotes(ctx context.Context, arg UpdateTrialNotesPara
 		&i.Notes,
 		&i.GroupID,
 		&i.GroupSlotID,
+		&i.Revision,
 	)
 	return i, err
 }
 
 const updateTrialStatus = `-- name: UpdateTrialStatus :one
-UPDATE trial_registrations SET status=$2 WHERE id=$1 RETURNING id, person_id, activity_id, trial_date, status, created_at, notes, group_id, group_slot_id
+UPDATE trial_registrations SET status=$2,revision=revision+1 WHERE id=$1 RETURNING id, person_id, activity_id, trial_date, status, created_at, notes, group_id, group_slot_id, revision
 `
 
 type UpdateTrialStatusParams struct {
@@ -477,6 +480,7 @@ func (q *Queries) UpdateTrialStatus(ctx context.Context, arg UpdateTrialStatusPa
 		&i.Notes,
 		&i.GroupID,
 		&i.GroupSlotID,
+		&i.Revision,
 	)
 	return i, err
 }

@@ -23,6 +23,15 @@ type Activity struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type AdministrativeEvent struct {
+	ID           int64
+	ActorUserID  int32
+	Action       string
+	ResourceType string
+	ResourceID   int32
+	CreatedAt    pgtype.Timestamptz
+}
+
 type ChildRegistrationApplication struct {
 	ApplicationID             int32
 	GuardianClaimID           int32
@@ -302,6 +311,7 @@ type TrialRegistration struct {
 	Notes       pgtype.Text
 	GroupID     pgtype.Int4
 	GroupSlotID pgtype.Int4
+	Revision    int32
 }
 
 type User struct {

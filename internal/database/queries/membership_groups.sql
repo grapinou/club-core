@@ -37,3 +37,12 @@ WHERE mg.group_id = $1 AND m.season_id = $2
   AND mg.joined_at <= CURRENT_DATE
   AND (mg.left_at IS NULL OR mg.left_at > CURRENT_DATE)
 ORDER BY p.last_name, p.first_name, mg.id;
+
+-- name: LockMembershipGroupTarget :one
+SELECT m.status,s.starts_at,s.ends_at FROM memberships m JOIN seasons s ON s.id=m.season_id WHERE m.id=$1 FOR UPDATE OF m;
+-- name: MembershipHasGroupActivity :one
+SELECT EXISTS(SELECT 1 FROM membership_activities WHERE membership_id=$1 AND activity_id=$2)::boolean;
+-- name: MembershipGroupOverlaps :one
+SELECT EXISTS(SELECT 1 FROM membership_groups WHERE membership_id=$1 AND group_id=$2 AND (left_at IS NULL OR left_at>sqlc.arg(joined_at)::date))::boolean;
+-- name: LockMembershipGroupAssignment :one
+SELECT * FROM membership_groups WHERE id=$1 AND membership_id=$2 FOR UPDATE;

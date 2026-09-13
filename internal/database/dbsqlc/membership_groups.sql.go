@@ -227,3 +227,76 @@ func (q *Queries) ListMembershipGroupHistory(ctx context.Context, membershipID i
 	}
 	return items, nil
 }
+
+const lockMembershipGroupAssignment = `-- name: LockMembershipGroupAssignment :one
+SELECT id, membership_id, group_id, joined_at, left_at, created_at FROM membership_groups WHERE id=$1 AND membership_id=$2 FOR UPDATE
+`
+
+type LockMembershipGroupAssignmentParams struct {
+	ID           int32
+	MembershipID int32
+}
+
+func (q *Queries) LockMembershipGroupAssignment(ctx context.Context, arg LockMembershipGroupAssignmentParams) (MembershipGroup, error) {
+	row := q.db.QueryRow(ctx, lockMembershipGroupAssignment, arg.ID, arg.MembershipID)
+	var i MembershipGroup
+	err := row.Scan(
+		&i.ID,
+		&i.MembershipID,
+		&i.GroupID,
+		&i.JoinedAt,
+		&i.LeftAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const lockMembershipGroupTarget = `-- name: LockMembershipGroupTarget :one
+SELECT m.status,s.starts_at,s.ends_at FROM memberships m JOIN seasons s ON s.id=m.season_id WHERE m.id=$1 FOR UPDATE OF m
+`
+
+type LockMembershipGroupTargetRow struct {
+	Status   string
+	StartsAt pgtype.Date
+	EndsAt   pgtype.Date
+}
+
+func (q *Queries) LockMembershipGroupTarget(ctx context.Context, id int32) (LockMembershipGroupTargetRow, error) {
+	row := q.db.QueryRow(ctx, lockMembershipGroupTarget, id)
+	var i LockMembershipGroupTargetRow
+	err := row.Scan(&i.Status, &i.StartsAt, &i.EndsAt)
+	return i, err
+}
+
+const membershipGroupOverlaps = `-- name: MembershipGroupOverlaps :one
+SELECT EXISTS(SELECT 1 FROM membership_groups WHERE membership_id=$1 AND group_id=$2 AND (left_at IS NULL OR left_at>$3::date))::boolean
+`
+
+type MembershipGroupOverlapsParams struct {
+	MembershipID int32
+	GroupID      int32
+	JoinedAt     pgtype.Date
+}
+
+func (q *Queries) MembershipGroupOverlaps(ctx context.Context, arg MembershipGroupOverlapsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, membershipGroupOverlaps, arg.MembershipID, arg.GroupID, arg.JoinedAt)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const membershipHasGroupActivity = `-- name: MembershipHasGroupActivity :one
+SELECT EXISTS(SELECT 1 FROM membership_activities WHERE membership_id=$1 AND activity_id=$2)::boolean
+`
+
+type MembershipHasGroupActivityParams struct {
+	MembershipID int32
+	ActivityID   int32
+}
+
+func (q *Queries) MembershipHasGroupActivity(ctx context.Context, arg MembershipHasGroupActivityParams) (bool, error) {
+	row := q.db.QueryRow(ctx, membershipHasGroupActivity, arg.MembershipID, arg.ActivityID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}

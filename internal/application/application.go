@@ -6,6 +6,7 @@ import (
 
 	"github.com/grapinou/club-core/internal/accounts"
 	"github.com/grapinou/club-core/internal/activation"
+	"github.com/grapinou/club-core/internal/administration"
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/config"
@@ -25,6 +26,7 @@ import (
 )
 
 type Application struct {
+	Administration           *administration.Service
 	SelfService              *accounts.SelfService
 	GuardianAccess           *guardianaccess.Service
 	MinorSafety              *minorsafety.Service
@@ -83,7 +85,10 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, 
 	reviews.SetFinalizer(applications)
 	access.SetRegistrationCounter(reviews)
 	csrf := websecurity.NewCSRF(runtime.SecureCookies)
-	mux := router.New(cfg, queries, access, csrf)
+	office := administration.New(db, permissions, m, runtime.Location)
+	officeHandler := handlers.NewAdministrativeHandler(cfg.SiteName, office, permissions)
+	mux := router.New(cfg, queries, access, csrf, http.HandlerFunc(officeHandler.People))
+	officeHandler.Register(mux, access, csrf)
 	handlers.NewJoinHandler(cfg.SiteName, applications, submissionLimiter).Register(mux, csrf)
 	guardians := guardianaccess.New(db, permissions, runtime.Location)
 	accountService := accounts.New(db, m, a, sender, runtime.SMTP.From, runtime.BaseURL, permissions)
@@ -104,6 +109,7 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, 
 	authHandler.Register(mux)
 	authHandler.RegisterRegistrationVerification(mux, verification)
 	return &Application{
+		Administration:           office,
 		SelfService:              selfService,
 		GuardianAccess:           guardians,
 		MinorSafety:              minorsafety.New(db, runtime.Location),

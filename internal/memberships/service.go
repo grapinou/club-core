@@ -421,3 +421,8 @@ func (s *Service) IsEligibleMinor(birth pgtype.Date) bool {
 	today := time.Now().In(s.location)
 	return birth.Valid && birth.InfinityModifier == pgtype.Finite && birth.Time.Format("2006-01-02") <= today.Format("2006-01-02") && civildate.IsMinor(birth.Time, today)
 }
+
+// CreateRequestTx snapshots current definitions under the existing domain locks.
+func (s *Service) CreateRequestTx(ctx context.Context, tx pgx.Tx, r Request) (dbsqlc.Membership, error) {
+	return s.createRequestTx(ctx, tx, r, nil)
+}

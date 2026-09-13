@@ -5,6 +5,12 @@ type Status struct{ Label, Class string }
 
 func DisplayStatus(code string) Status {
 	switch code {
+	case "registered":
+		return Status{"Programmé", "text-bg-info"}
+	case "attended":
+		return Status{"Présent", "text-bg-success"}
+	case "no_show":
+		return Status{"Absent", "text-bg-secondary"}
 	case "pending":
 		return Status{"En attente", "text-bg-warning"}
 	case "active":

@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -85,4 +86,35 @@ func validate(ctx context.Context, q *dbsqlc.Queries, p dbsqlc.RescheduleTrialPa
 		}
 	}
 	return nil
+}
+
+// ScheduleTx and RescheduleTx compose the same domain rules with an audit transaction.
+func (s *Service) ScheduleTx(ctx context.Context, tx pgx.Tx, p dbsqlc.CreateTrialParams) (dbsqlc.TrialRegistration, error) {
+	q := dbsqlc.New(tx)
+	if _, err := q.LockAdministrativePerson(ctx, p.PersonID); err != nil {
+		return dbsqlc.TrialRegistration{}, err
+	}
+	if err := validate(ctx, q, dbsqlc.RescheduleTrialParams{ActivityID: p.ActivityID, GroupID: p.GroupID, GroupSlotID: p.GroupSlotID, TrialDate: p.TrialDate}); err != nil {
+		return dbsqlc.TrialRegistration{}, err
+	}
+	return q.CreateTrial(ctx, p)
+}
+func (s *Service) RescheduleTx(ctx context.Context, tx pgx.Tx, p dbsqlc.RescheduleTrialParams) (dbsqlc.TrialRegistration, error) {
+	q := dbsqlc.New(tx)
+	if err := validate(ctx, q, p); err != nil {
+		return dbsqlc.TrialRegistration{}, err
+	}
+	return q.RescheduleTrial(ctx, p)
+}
+func ValidStatus(status string) bool {
+	return status == "registered" || status == "attended" || status == "cancelled" || status == "no_show"
+}
+func (s *Service) UpdateStatusTx(ctx context.Context, tx pgx.Tx, p dbsqlc.UpdateTrialStatusParams) (dbsqlc.TrialRegistration, error) {
+	if !ValidStatus(p.Status) {
+		return dbsqlc.TrialRegistration{}, ErrInvalidSchedule
+	}
+	return dbsqlc.New(tx).UpdateTrialStatus(ctx, p)
+}
+func (s *Service) UpdateNotesTx(ctx context.Context, tx pgx.Tx, p dbsqlc.UpdateTrialNotesParams) (dbsqlc.TrialRegistration, error) {
+	return dbsqlc.New(tx).UpdateTrialNotes(ctx, p)
 }

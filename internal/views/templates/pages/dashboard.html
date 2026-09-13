@@ -8,7 +8,7 @@
 {{range .Memberships}}<p>{{.SeasonName}} · <span class="badge {{$.StatusClassFor .Status}}">{{$.StatusLabel .Status}}</span></p><p>{{.MembershipTypeName}}</p><ul>{{range .Activities}}<li>{{.}}</li>{{else}}<li>Aucune activité renseignée.</li>{{end}}</ul><a href="/me/children/{{$childID}}/memberships/{{.ID}}">Consulter cette adhésion</a>
 {{else}}<p>Aucune adhésion enregistrée.</p>{{end}}</div></article>
 {{else}}<div class="empty-state">Vous ne gérez actuellement aucun enfant.</div>{{end}}</section>
-{{if or .CanReadPersons .CanReadMemberships .CanReviewRegistrations}}<section class="section-panel"><h2>Administration</h2><p>Accédez aux dossiers que vous êtes autorisé à traiter.</p><div class="actions">
+{{if or .CanReadPersons .CanReadMemberships .CanReviewRegistrations}}<section class="section-panel"><h2><a href="/admin">Administration</a></h2><p>Accédez aux dossiers que vous êtes autorisé à traiter.</p><div class="actions">
 {{if .CanReadMemberships}}<a class="btn btn-outline-primary" href="/memberships">Adhésions</a>{{end}}
 {{if .CanReviewRegistrations}}<a class="btn btn-outline-primary" href="/registration-reviews">Vérifications ({{.RegistrationReviewCount}})</a>{{end}}
 {{if .CanReadPersons}}<a class="btn btn-outline-primary" href="/persons">Personnes</a>{{end}}</div></section>{{end}}

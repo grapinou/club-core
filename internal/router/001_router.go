@@ -10,7 +10,7 @@ import (
 	"github.com/grapinou/club-core/internal/websecurity"
 )
 
-func New(cfg config.Config, queries database.Queries, access *handlers.Access, csrf *websecurity.CSRF) *http.ServeMux {
+func New(cfg config.Config, queries database.Queries, access *handlers.Access, csrf *websecurity.CSRF, personLists ...http.Handler) *http.ServeMux {
 
 	mux := http.NewServeMux()
 
@@ -21,7 +21,11 @@ func New(cfg config.Config, queries database.Queries, access *handlers.Access, c
 	mux.HandleFunc("GET /when", handlers.WhenHandler(cfg))
 	mux.HandleFunc("GET /rules", handlers.RulesHandler(cfg))
 
-	mux.Handle("GET /persons", access.RequirePermission(authorization.PersonsRead, csrf.Protect(handlers.PersonsListHandler(cfg, queries))))
+	var personList http.Handler = handlers.PersonsListHandler(cfg, queries)
+	if len(personLists) > 0 {
+		personList = personLists[0]
+	}
+	mux.Handle("GET /persons", access.RequirePermission(authorization.PersonsRead, csrf.Protect(personList)))
 	mux.Handle("GET /persons/new", access.RequirePermission(authorization.PersonsWrite, csrf.Protect(handlers.PersonFormHandler(cfg))))
 	mux.Handle("POST /persons", access.RequirePermission(authorization.PersonsWrite, csrf.Protect(handlers.PostPersonHandler(queries))))
 	mux.Handle("GET /persons/{id}/edit", access.RequirePermission(authorization.PersonsWrite, csrf.Protect(handlers.UpdatePersonFormHandler(cfg, queries))))

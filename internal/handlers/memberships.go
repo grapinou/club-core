@@ -126,6 +126,7 @@ type membershipNotice struct{ text, class string }
 // Only fixed, non-personal result markers appear in PRG URLs. The current dossier
 // state, not the marker, determines available actions and completeness.
 var membershipNotices = map[string]membershipNotice{
+	"requested":            {"La demande d’adhésion a été enregistrée.", "alert-success"},
 	"approved":             {"Adhésion validée.", "alert-success"},
 	"approved_sent":        {"Adhésion validée et email d'activation envoyé.", "alert-success"},
 	"approved_no_channel":  {"Adhésion validée. Aucun email d'activation n'est disponible.", "alert-warning"},

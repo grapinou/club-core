@@ -39,6 +39,7 @@ type AccountView struct {
 	Username, Label                            string
 }
 type MembershipDetailView struct {
+	CanManage bool
 	SecurityData
 	SiteName, Title, Notice, NoticeClass                                                      string
 	ID                                                                                        int32
@@ -184,6 +185,7 @@ func MembershipDetail(d memberships.Details, loc *time.Location, approve, resend
 		v.Consents = append(v.Consents, ConsentView{Title: c.Title, Description: c.Description, Version: c.Version, Decision: decision, Class: class, Giver: textOrDash(strings.TrimSpace(c.GiverFirstName.String + " " + c.GiverLastName.String)), RecordedAt: timestamp(c.RecordedAt, loc)})
 	}
 	v.Account = AccountView{Exists: d.Account.Exists, Active: d.Account.IsActive, Activated: d.Account.IsActivated, NeedsActivation: d.Account.NeedsActivation, ID: row.UserID.Int32, Username: row.Username.String, Label: accountLabel(d.Account)}
+	v.CanManage = approve
 	v.CanApprove = approve && v.Pending
 	v.CanResend = resend && d.Account.Exists && d.Account.IsActive && d.Account.NeedsActivation
 	return v

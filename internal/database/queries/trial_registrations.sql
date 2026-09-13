@@ -4,14 +4,14 @@ INSERT INTO trial_registrations (person_id, activity_id, group_id, group_slot_id
 VALUES ($1, $2, $3, $4, $5, 'registered', $6) RETURNING *;
 
 -- name: RescheduleTrial :one
-UPDATE trial_registrations SET activity_id=$2, group_id=$3, group_slot_id=$4, trial_date=$5
+UPDATE trial_registrations SET activity_id=$2, group_id=$3, group_slot_id=$4, trial_date=$5,revision=revision+1
 WHERE id=$1 RETURNING *;
 
 -- name: UpdateTrialStatus :one
-UPDATE trial_registrations SET status=$2 WHERE id=$1 RETURNING *;
+UPDATE trial_registrations SET status=$2,revision=revision+1 WHERE id=$1 RETURNING *;
 
 -- name: UpdateTrialNotes :one
-UPDATE trial_registrations SET notes=$2 WHERE id=$1 RETURNING *;
+UPDATE trial_registrations SET notes=$2,revision=revision+1 WHERE id=$1 RETURNING *;
 
 -- name: GetTrial :one
 SELECT t.id AS trial_id, t.trial_date, t.status, t.notes,
