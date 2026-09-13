@@ -38,8 +38,8 @@ func New(q *dbsqlc.Queries, guardians GuardianAccess, location *time.Location) *
 // DTOs intentionally exclude administrative notes, identity candidates, credentials,
 // other people's contact details and consent giver identity. IDs serve links only.
 type Account struct {
-	FirstName, LastName, Username, Email, Phone string
-	Functions                                   []string
+	FirstName, LastName, Username, Email, Phone, Address, BirthDate string
+	Functions                                                       []string
 }
 type Summary struct {
 	ID                                     int32
@@ -104,7 +104,10 @@ func (s *Service) GetMyAccount(ctx context.Context) (Account, error) {
 	if err != nil {
 		return Account{}, err
 	}
-	account := Account{FirstName: a.FirstName, LastName: a.LastName, Username: a.Username, Email: a.Email.String, Phone: a.PhoneNumber.String}
+	account := Account{FirstName: a.FirstName, LastName: a.LastName, Username: a.Username, Email: a.Email.String, Phone: a.PhoneNumber.String, Address: a.Address.String}
+	if a.BirthDate.Valid {
+		account.BirthDate = a.BirthDate.Time.Format("02/01/2006")
+	}
 	labels := map[string]string{"president": "Présidence", "secretary": "Secrétariat", "treasurer": "Trésorerie", "coach": "Encadrement sportif"}
 	for _, role := range roles {
 		if label, ok := labels[role.Name]; ok {

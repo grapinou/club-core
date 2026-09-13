@@ -1,7 +1,7 @@
 -- Safe read projections only. Resource ownership is supplied by personalspace
 -- after deriving the caller's Person or checking GuardianAccess.
 -- name: GetPersonalAccount :one
-SELECT p.id AS person_id, p.first_name, p.last_name, p.email, p.phone_number, u.username
+SELECT p.id AS person_id, p.first_name, p.last_name, p.email, p.phone_number, p.address, p.birth_date, u.username
 FROM users u JOIN persons p ON p.id=u.person_id
 WHERE u.id=$1 AND u.is_active AND u.activated_at IS NOT NULL
  AND u.password_hash IS NOT NULL AND p.archived_at IS NULL;

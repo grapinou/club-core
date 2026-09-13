@@ -413,3 +413,9 @@ func (s *ReviewService) RetryApplication(ctx context.Context, actor, id int32) e
 	s.afterResolution(ctx, id)
 	return nil
 }
+
+// NormalizePhone shares the existing matching normalization with contact updates.
+// Empty means absent or invalid; callers distinguish these using their raw input.
+func NormalizePhone(value string) string {
+	return normalizedPhone(pgtype.Text{String: value, Valid: true})
+}

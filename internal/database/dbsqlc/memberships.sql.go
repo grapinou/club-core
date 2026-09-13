@@ -37,7 +37,7 @@ func (q *Queries) GetMembership(ctx context.Context, id int32) (Membership, erro
 }
 
 const getMembershipDetails = `-- name: GetMembershipDetails :one
-SELECT m.id, m.person_id, m.season_id, m.membership_type_id, m.status, m.joined_at, m.ended_at, m.created_at, m.updated_at, m.requested_at, m.approved_at, m.approved_by_user_id, m.admin_note, p.id, p.first_name, p.last_name, p.birth_date, p.phone_number, p.email, p.address, p.created_at, p.archived_at, p.notes, s.id, s.name, s.starts_at, s.ends_at, s.is_active, s.created_at, t.id, t.name, t.is_active, t.created_at,
+SELECT m.id, m.person_id, m.season_id, m.membership_type_id, m.status, m.joined_at, m.ended_at, m.created_at, m.updated_at, m.requested_at, m.approved_at, m.approved_by_user_id, m.admin_note, p.id, p.first_name, p.last_name, p.birth_date, p.phone_number, p.email, p.address, p.created_at, p.archived_at, p.notes, p.updated_at, s.id, s.name, s.starts_at, s.ends_at, s.is_active, s.created_at, t.id, t.name, t.is_active, t.created_at,
        u.id AS user_id, u.username, u.is_active AS user_is_active, u.activated_at,
        approver.username AS approver_username
 FROM memberships m
@@ -88,6 +88,7 @@ func (q *Queries) GetMembershipDetails(ctx context.Context, id int32) (GetMember
 		&i.Person.CreatedAt,
 		&i.Person.ArchivedAt,
 		&i.Person.Notes,
+		&i.Person.UpdatedAt,
 		&i.Season.ID,
 		&i.Season.Name,
 		&i.Season.StartsAt,

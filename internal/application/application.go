@@ -25,6 +25,7 @@ import (
 )
 
 type Application struct {
+	SelfService              *accounts.SelfService
 	GuardianAccess           *guardianaccess.Service
 	MinorSafety              *minorsafety.Service
 	Handler                  http.Handler
@@ -91,12 +92,19 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, 
 	personal := personalspace.New(queries, guardians, runtime.Location)
 	handlers.RegisterDashboard(mux, cfg.SiteName, personal, csrf)
 	handlers.RegisterPersonalSpace(mux, cfg.SiteName, personal, csrf)
+	ttl := runtime.EmailChangeTTL
+	if ttl == 0 {
+		ttl = config.DefaultEmailChangeTTL
+	}
+	selfService := accounts.NewSelfService(db, sender, runtime.SMTP.From, ttl)
+	handlers.RegisterSelfServiceAccount(mux, cfg.SiteName, selfService, personal, sessions, csrf)
 	handlers.NewMembershipHandler(cfg.SiteName, runtime.Location, m, accountService, queries, permissions).Register(mux, access, csrf)
 	handlers.NewRegistrationHandler(cfg.SiteName, runtime.Location, reviews, applications).Register(mux, access, csrf)
 	authHandler := handlers.NewAuthHandler(cfg.SiteName, a, login, sessions, runtime.SecureCookies)
 	authHandler.Register(mux)
 	authHandler.RegisterRegistrationVerification(mux, verification)
 	return &Application{
+		SelfService:              selfService,
 		GuardianAccess:           guardians,
 		MinorSafety:              minorsafety.New(db, runtime.Location),
 		Handler:                  sessions.Middleware(login, access.Navigation(mux)),

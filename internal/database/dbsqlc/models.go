@@ -8,6 +8,14 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AccountSecurityEvent struct {
+	ID        int64
+	UserID    int32
+	PersonID  int32
+	Event     string
+	CreatedAt pgtype.Timestamptz
+}
+
 type Activity struct {
 	ID        int32
 	Name      string
@@ -165,6 +173,7 @@ type Person struct {
 	CreatedAt   pgtype.Timestamptz
 	ArchivedAt  pgtype.Timestamptz
 	Notes       pgtype.Text
+	UpdatedAt   pgtype.Timestamptz
 }
 
 type PersonEmergencyContact struct {
@@ -314,6 +323,20 @@ type UserActivationCode struct {
 	UsedAt        pgtype.Timestamptz
 	InvalidatedAt pgtype.Timestamptz
 	CreatedAt     pgtype.Timestamptz
+}
+
+type UserEmailChangeRequest struct {
+	ID                 int64
+	UserID             int32
+	PersonID           int32
+	NewEmail           string
+	NewEmailNormalized string
+	NewEmailHash       []byte
+	CodeHash           []byte
+	ExpiresAt          pgtype.Timestamptz
+	UsedAt             pgtype.Timestamptz
+	InvalidatedAt      pgtype.Timestamptz
+	CreatedAt          pgtype.Timestamptz
 }
 
 type UserRole struct {

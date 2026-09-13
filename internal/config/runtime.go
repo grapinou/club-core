@@ -13,8 +13,10 @@ import (
 )
 
 const DefaultRegistrationVerificationTTL = time.Hour
+const DefaultEmailChangeTTL = time.Hour
 
 type Runtime struct {
+	EmailChangeTTL              time.Duration
 	RegistrationVerificationTTL time.Duration
 	BaseURL                     string
 	EmailTransport              string
@@ -53,6 +55,13 @@ func loadRuntime(env func(string) string) (Runtime, error) {
 		c.ActivationValidity, err = time.ParseDuration(raw)
 		if err != nil || c.ActivationValidity <= 0 {
 			return c, errors.New("invalid ACTIVATION_CODE_TTL")
+		}
+	}
+	c.EmailChangeTTL = DefaultEmailChangeTTL
+	if raw := env("EMAIL_CHANGE_TTL"); raw != "" {
+		c.EmailChangeTTL, err = time.ParseDuration(raw)
+		if err != nil || c.EmailChangeTTL <= 0 {
+			return c, errors.New("invalid EMAIL_CHANGE_TTL")
 		}
 	}
 	c.RegistrationVerificationTTL = DefaultRegistrationVerificationTTL

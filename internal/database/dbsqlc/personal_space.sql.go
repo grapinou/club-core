@@ -12,7 +12,7 @@ import (
 )
 
 const getPersonalAccount = `-- name: GetPersonalAccount :one
-SELECT p.id AS person_id, p.first_name, p.last_name, p.email, p.phone_number, u.username
+SELECT p.id AS person_id, p.first_name, p.last_name, p.email, p.phone_number, p.address, p.birth_date, u.username
 FROM users u JOIN persons p ON p.id=u.person_id
 WHERE u.id=$1 AND u.is_active AND u.activated_at IS NOT NULL
  AND u.password_hash IS NOT NULL AND p.archived_at IS NULL
@@ -24,6 +24,8 @@ type GetPersonalAccountRow struct {
 	LastName    string
 	Email       pgtype.Text
 	PhoneNumber pgtype.Text
+	Address     pgtype.Text
+	BirthDate   pgtype.Date
 	Username    string
 }
 
@@ -38,6 +40,8 @@ func (q *Queries) GetPersonalAccount(ctx context.Context, id int32) (GetPersonal
 		&i.LastName,
 		&i.Email,
 		&i.PhoneNumber,
+		&i.Address,
+		&i.BirthDate,
 		&i.Username,
 	)
 	return i, err

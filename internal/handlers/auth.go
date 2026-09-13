@@ -80,12 +80,12 @@ func (h *AuthHandler) getLogin(w http.ResponseWriter, r *http.Request) {
 	h.render(w, r, false, message)
 }
 func (h *AuthHandler) postLogin(w http.ResponseWriter, r *http.Request) {
-	id, err := h.auth.Authenticate(r.Context(), strings.TrimSpace(r.PostForm.Get("username")), r.PostForm.Get("password"))
+	id, credential, err := h.auth.AuthenticateSession(r.Context(), strings.TrimSpace(r.PostForm.Get("username")), r.PostForm.Get("password"))
 	if err != nil {
 		http.Redirect(w, r, "/login?error=1", http.StatusSeeOther)
 		return
 	}
-	if err = h.sessions.Create(w, r, id); err != nil {
+	if err = h.sessions.CreateAuthenticated(w, r, id, credential); err != nil {
 		http.Error(w, "Connexion temporairement indisponible.", http.StatusServiceUnavailable)
 		return
 	}

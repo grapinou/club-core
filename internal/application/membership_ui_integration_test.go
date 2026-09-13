@@ -7,6 +7,7 @@ import (
 	"html"
 	"net/url"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -28,8 +29,10 @@ func resendPath(id int32) string  { return fmt.Sprintf("/users/%d/resend-activat
 func (f *fixture) assertNoDeliverySecrets(body string) {
 	f.t.Helper()
 	for _, message := range f.mail.messages {
-		if strings.Contains(body, codeFrom(f.t, message)) {
-			f.t.Fatal("plaintext activation code leaked")
+		for _, code := range regexp.MustCompile(`[0-9]{20}`).FindAllString(message.Text, -1) {
+			if strings.Contains(body, code) {
+				f.t.Fatal("plaintext delivery code leaked")
+			}
 		}
 	}
 	for _, secret := range []string{"password_hash", "$2a$", "$2b$", "a secure password"} {

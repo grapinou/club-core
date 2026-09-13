@@ -2,14 +2,18 @@
 <div class="content-readable">
 <a href="/dashboard">Retour à mon espace</a>
 {{if .Account}}{{with .Account}}
-<header class="page-header mt-3"><h1>Mon compte</h1><p>Les informations de votre compte au club.</p></header>
-<section class="section-panel"><h2>Vos informations</h2><dl>
+<header class="page-header mt-3"><h1>Mon compte</h1><p>Vos informations et la sécurité de votre compte.</p></header>
+<section class="section-panel"><h2>Identité</h2><dl>
 <dt>Prénom</dt><dd>{{.FirstName}}</dd><dt>Nom</dt><dd>{{.LastName}}</dd>
-<dt>Nom d’utilisateur</dt><dd>{{.Username}}</dd><dt>État du compte</dt><dd>Actif</dd>
+<dt>Date de naissance</dt><dd>{{if .BirthDate}}{{.BirthDate}}{{else}}Non renseignée{{end}}</dd>
+<dt>Nom d’utilisateur</dt><dd>{{.Username}}</dd></dl><p class="text-body-secondary">Pour corriger votre identité, <a href="/contact">contactez le club</a>.</p></section>
+<section class="section-panel"><h2>Coordonnées</h2><dl>
 <dt>Email</dt><dd>{{if .Email}}{{.Email}}{{else}}Non renseigné{{end}}</dd>
-{{if .Phone}}<dt>Téléphone</dt><dd>{{.Phone}}</dd>{{end}}
-{{if .Functions}}<dt>Fonctions au club</dt><dd><ul>{{range .Functions}}<li>{{.}}</li>{{end}}</ul></dd>{{end}}
-</dl></section>
+<dt>Téléphone</dt><dd>{{if .Phone}}{{.Phone}}{{else}}Non renseigné{{end}}</dd>
+<dt>Adresse</dt><dd class="reading-text">{{if .Address}}{{.Address}}{{else}}Non renseignée{{end}}</dd></dl>
+<div class="actions"><a class="btn btn-primary" href="/me/account/profile">Modifier mes coordonnées</a><a href="/me/account/email">Changer mon email</a></div></section>
+<section class="section-panel"><h2>Connexion et sécurité</h2><p>État du compte : Actif</p><a class="btn btn-outline-primary" href="/me/account/password">Changer mon mot de passe</a></section>
+{{if .Functions}}<section class="section-panel"><h2>Fonctions au club</h2><ul>{{range .Functions}}<li>{{.}}</li>{{end}}</ul></section>{{end}}
 {{end}}{{end}}
 {{if .Child}}{{with .Child}}
 <header class="page-header mt-3"><h1>{{.Name}}</h1><p>Le suivi de ses adhésions au club.</p></header>
@@ -39,6 +43,6 @@
 {{if .RecordedAt}}<p>Le {{.RecordedAt}}</p><p>{{if .GivenByViewer}}Décision enregistrée par vous.{{else}}Décision enregistrée par un responsable.{{end}}</p>{{end}}
 </div></article>{{else}}<div class="empty-state">Aucun consentement n’est enregistré pour cette adhésion.</div>{{end}}</section>
 {{end}}{{end}}
-<p class="text-body-secondary">Cet espace est en lecture seule. Pour toute question sur votre dossier, <a href="/contact">contactez le club</a>.</p>
+{{if not .Account}}<p class="text-body-secondary">Cet espace est en lecture seule. Pour toute question sur votre dossier, <a href="/contact">contactez le club</a>.</p>{{end}}
 </div>
 {{end}}

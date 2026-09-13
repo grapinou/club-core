@@ -12,8 +12,9 @@ import (
 )
 
 type session struct {
-	userID  int32
-	expires time.Time
+	credential [32]byte
+	userID     int32
+	expires    time.Time
 }
 type Sessions struct {
 	mu      sync.Mutex
@@ -42,6 +43,19 @@ func (s *Sessions) cookie(value string, maxAge int) *http.Cookie {
 	return &http.Cookie{Name: s.CookieName(), Value: value, Path: "/", HttpOnly: true, Secure: s.secure, SameSite: http.SameSiteLaxMode, MaxAge: maxAge}
 }
 func (s *Sessions) Create(w http.ResponseWriter, r *http.Request, userID int32) error {
+	return s.create(w, r, userID, [32]byte{}, false)
+}
+
+func (s *Sessions) CreateAuthenticated(w http.ResponseWriter, r *http.Request, userID int32, credential [32]byte) error {
+	return s.create(w, r, userID, credential, false)
+}
+
+// RotateAccount removes every local session before installing a fresh token.
+// Credential binding also rejects late logins checked against an obsolete hash.
+func (s *Sessions) RotateAccount(w http.ResponseWriter, r *http.Request, userID int32, credential [32]byte) error {
+	return s.create(w, r, userID, credential, true)
+}
+func (s *Sessions) create(w http.ResponseWriter, r *http.Request, userID int32, credential [32]byte, revoke bool) error {
 	token, err := RandomToken()
 	if err != nil {
 		return err
@@ -50,7 +64,7 @@ func (s *Sessions) Create(w http.ResponseWriter, r *http.Request, userID int32) 
 	defer s.mu.Unlock()
 	now := s.now()
 	for key, entry := range s.entries {
-		if !now.Before(entry.expires) {
+		if !now.Before(entry.expires) || (revoke && entry.userID == userID) {
 			delete(s.entries, key)
 		}
 	}
@@ -61,27 +75,31 @@ func (s *Sessions) Create(w http.ResponseWriter, r *http.Request, userID int32) 
 	if old, e := r.Cookie(s.CookieName()); e == nil {
 		delete(s.entries, sha256.Sum256([]byte(old.Value)))
 	}
-	s.entries[sha256.Sum256([]byte(token))] = session{userID: userID, expires: now.Add(12 * time.Hour)}
+	s.entries[sha256.Sum256([]byte(token))] = session{credential: credential, userID: userID, expires: now.Add(12 * time.Hour)}
 	http.SetCookie(w, s.cookie(token, 12*60*60))
 	return nil
 }
 func (s *Sessions) UserID(r *http.Request) (int32, bool) {
+	entry, ok := s.lookup(r)
+	return entry.userID, ok
+}
+func (s *Sessions) lookup(r *http.Request) (session, bool) {
 	cookie, err := r.Cookie(s.CookieName())
 	if err != nil {
-		return 0, false
+		return session{}, false
 	}
 	key := sha256.Sum256([]byte(cookie.Value))
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entry, ok := s.entries[key]
 	if !ok {
-		return 0, false
+		return session{}, false
 	}
 	if !s.now().Before(entry.expires) {
 		delete(s.entries, key)
-		return 0, false
+		return session{}, false
 	}
-	return entry.userID, true
+	return entry, true
 }
 func (s *Sessions) Delete(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(s.CookieName()); err == nil {
@@ -99,8 +117,9 @@ func UserID(ctx context.Context) (int32, bool) { id, ok := ctx.Value(userKey{}).
 // Middleware loads and revalidates a session; it grants no administrative rights.
 func (s *Sessions) Middleware(service *Service, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if id, ok := s.UserID(r); ok {
-			if service.SessionUser(r.Context(), id) {
+		if entry, ok := s.lookup(r); ok {
+			id := entry.userID
+			if service.sessionCredential(r.Context(), id, entry.credential) {
 				r = r.WithContext(context.WithValue(r.Context(), userKey{}, id))
 			} else {
 				s.Delete(w, r)

@@ -11,10 +11,10 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/crypto/bcrypt"
 )
 
 var ErrInvalidCode = errors.New("invalid or unavailable activation code")
@@ -66,17 +66,12 @@ func (s *Service) prepareTx(ctx context.Context, tx pgx.Tx, userID int32, person
 	if !active {
 		return nil, ErrInvalidCode
 	}
-	// 20 decimal digits provide over 66 bits of cryptographic entropy.
-	code := make([]byte, 20)
-	for i := range code {
-		n, e := rand.Int(rand.Reader, big.NewInt(10))
-		if e != nil {
-			return nil, e
-		}
-		code[i] = byte(n.Int64()) + '0'
+	code, err := GenerateCode()
+	if err != nil {
+		return nil, err
 	}
-	d.PlaintextCode = string(code)
-	hash := sha256.Sum256(code)
+	d.PlaintextCode = code
+	hash := sha256.Sum256([]byte(code))
 	_, err = tx.Exec(ctx, "UPDATE user_activation_codes SET invalidated_at=clock_timestamp() WHERE user_id=$1 AND used_at IS NULL AND invalidated_at IS NULL", userID)
 	if err != nil {
 		return nil, err
@@ -103,10 +98,10 @@ func (s *Service) prepareTx(ctx context.Context, tx pgx.Tx, userID int32, person
 // Activate atomically consumes a code; passwords use bcrypt with the standard cost.
 func (s *Service) Activate(ctx context.Context, username, code, password string) (dbsqlc.User, error) {
 	var zero dbsqlc.User
-	if len(password) < 12 || len(password) > 72 {
+	if !auth.ValidPassword(password) {
 		return zero, ErrInvalidPassword
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := auth.HashPassword(password)
 	if err != nil {
 		return zero, err
 	}
@@ -160,4 +155,18 @@ func (s *Service) Activate(ctx context.Context, username, code, password string)
 		return zero, err
 	}
 	return user, nil
+}
+
+// GenerateCode returns 20 crypto/rand decimal digits (over 66 bits of entropy).
+// The plaintext is delivery-only and must never be logged or persisted.
+func GenerateCode() (string, error) {
+	code := make([]byte, 20)
+	for i := range code {
+		n, err := rand.Int(rand.Reader, big.NewInt(10))
+		if err != nil {
+			return "", err
+		}
+		code[i] = byte(n.Int64()) + '0'
+	}
+	return string(code), nil
 }

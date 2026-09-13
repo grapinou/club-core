@@ -101,3 +101,71 @@ Lecture seule intégrale. Pas de gestion de profil, compte mineur, guardian, con
 - `internal/views/templates/pages/personal_space.html`
 
 Dernier `git diff --check` après finalisation du rapport : réussi. Aucun commit ni push. Aucun changement local trouvé à la reprise abandonné.
+
+## Nouvel audit de reprise — état réel après le commit familial
+
+Cette section complète la transmission précédente sans remplacer son historique.
+
+### État Git et distinction des chantiers
+
+Les cinq commandes de reprise ont été exécutées et examinées avant modification : status, diff stat, diff check, diff intégral, log. HEAD est désormais `acc4ce8 Add personal and family space` : le chantier décrit plus haut est committé. À cette nouvelle reprise, 17 fichiers suivis modifiés (159 insertions, 49 suppressions) et 11 fichiers nouveaux appartiennent à la demande intermédiaire de **gestion personnelle du compte**, documentée dans [son rapport distinct](2026-09-13-self-service-account-management.md).
+
+Écart réel par rapport à la transmission : le répertoire courant n’est pas exclusivement une version en lecture seule. Il contient déjà la migration 0024, les routes profile/email/verify/password, leur service, leurs tests et les adaptations de sessions. Ces modifications ont été réalisées à la demande précédente de l’utilisateur, avant sa nouvelle consigne de reprise familiale. Elles sont préservées intégralement ; aucune fonctionnalité de gestion du compte n’est ajoutée ou étendue dans ce nouvel audit. Aucun retour arrière, suppression, stash, commit ou push. Aucun chantier administratif commencé.
+
+### Comparaison du code au rapport
+
+Les six routes GET familiales sont présentes ; /me reste une redirection 303 vers /dashboard. Les handlers personnels/familiaux, les tests personal_space_integration_test.go, le dashboard, GuardianAccess et la politique de complétude Membership ne présentent aucune modification locale par rapport au commit familial. Les méthodes GetDashboard/GetMyMembership/GetManagedChild/GetManagedChildMembership sont conservées. La seule extension locale du DTO/projection de compte concerne sa propre adresse et sa date de naissance, pour la gestion du compte distincte.
+
+Vérifications : autorisation enfant recalculée, aucune dérogation admin, contrôle SQL ID + person_id, 404 uniforme, historique sans filtre de saison courante, consentements liés aux exigences historiques et auteur anonymisé, refus valide, groupes et créneaux selon dates métier, une seule liste de Memberships pour les Persons autorisées du dashboard. Aucun DTO administratif complet transmis aux vues personnelles, aucune coordonnée de guardian/contact tiers ajoutée. Les pages enfant et Membership restent lecture seule.
+
+Aucun défaut fonctionnel familial, test manquant directement lié à son périmètre ou TODO bloquant identifié. Aucun refactor ni correction de code métier familial nécessaire. La génération sqlc a été comparée par empreinte avant/après : fichiers strictement identiques, aucun généré obsolète. Les modifications générées visibles dans Git proviennent de la migration/extension de compte locale, pas d’un décalage de génération.
+
+### Validation sur l’état courant
+
+La suite réelle `go test ./...` lancée sur ces changements a réussi : application 192,330 s, database 27,351 s, autres packages verts ou sans tests. Après la nouvelle commande sqlc generate et gofmt sur tous les fichiers Go concernés, `go test ./...` réussit également (cache). `git diff --check` sans erreur.
+
+Le contrôle race inclut les cinq packages demandés (application, guardianaccess, memberships, accounts, personalspace) et les packages également modifiés par la gestion du compte (auth, activation, identityresolution, config, handlers, views). Résultat : succès, application 345,556 s, aucune course détectée ; journal `/tmp/club-account-family-resume-race.log`.
+
+Aucune modification d’interface dans ce nouvel audit : pas de nouveau contrôle visuel nécessaire. Les contrôles familiaux historiques restent documentés plus haut. Le compte et ses formulaires locaux ont également été contrôlés sur serveur réel pendant la demande intermédiaire : 28 captures à 390 et 1365 px, JavaScript désactivé, erreurs/succès, aucun débordement, labels présents ; preuves dans `/tmp/club-account-visual/`. Ces captures correspondent au code courant, qui n’a pas changé depuis.
+
+### Modifications de cette reprise et limites
+
+Mise à jour documentaire de ce rapport et des résultats du rapport de gestion du compte ; génération/formatage revérifiés sans nouvelle modification fonctionnelle. Le travail local antérieur reste conservé. L’espace familial est validé ; le répertoire contient en plus le chantier séparé de gestion du compte. Reconstituer une livraison exclusivement en lecture seule supposerait de sélectionner/isoler ce second chantier, ce qui n’a pas été fait ici afin de respecter la conservation des changements.
+
+Aucun ajout de profil/email/guardian/compte enfant/paiement/documents/notifications générales/messagerie/agenda/CMS/admin durant cette reprise. Le futur parcours administratif reste hors périmètre. L’inventaire final Git ci-dessous distingue les changements conservés des deux rapports complétés pendant l’audit.
+
+État final constaté après validation race (inchangé hors rapports pendant cet audit) : 18 fichiers suivis modifiés et 11 nouveaux, tous non committés.
+
+```text
+ M .env.example
+ M docs/reports/2026-09-13-personal-family-space.md
+ M internal/activation/service.go
+ M internal/application/application.go
+ M internal/application/membership_ui_integration_test.go
+ M internal/auth/service.go
+ M internal/auth/sessions.go
+ M internal/config/runtime.go
+ M internal/config/runtime_test.go
+ M internal/database/dbsqlc/memberships.sql.go
+ M internal/database/dbsqlc/models.go
+ M internal/database/dbsqlc/personal_space.sql.go
+ M internal/database/dbsqlc/persons.sql.go
+ M internal/database/queries/personal_space.sql
+ M internal/handlers/auth.go
+ M internal/identityresolution/service.go
+ M internal/personalspace/service.go
+ M internal/views/templates/pages/personal_space.html
+?? docs/reports/2026-09-13-self-service-account-management.md
+?? internal/accounts/self_service.go
+?? internal/application/self_service_account_integration_test.go
+?? internal/auth/credential_sessions_test.go
+?? internal/auth/password.go
+?? internal/database/dbsqlc/self_service_account.sql.go
+?? internal/database/queries/self_service_account.sql
+?? internal/handlers/self_service_account.go
+?? internal/views/account_form.go
+?? internal/views/templates/pages/account_form.html
+?? migrations/0024_self_service_account.sql
+```
+
+Validation finale de cette reprise : race réussi sur tous les packages listés, `git diff --check` réussi ; état Git conforme à l’inventaire ci-dessus. Aucun fichier local supprimé, aucun commit, aucun push.
