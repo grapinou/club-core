@@ -1,10 +1,10 @@
 -- name: CreateGroupSlot :one
-INSERT INTO group_slots (group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *;
+INSERT INTO group_slots (group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, location_id, practice_label)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *;
 
 -- name: UpdateGroupSlot :one
 UPDATE group_slots
-SET weekday = $2, start_time = $3, end_time = $4, location = $5,
+SET weekday = $2, start_time = $3, end_time = $4, location = $5, location_id = $9, practice_label = $10,
     valid_from = $6, valid_until = $7, is_active = $8, updated_at = NOW()
 WHERE id = $1 RETURNING *;
 

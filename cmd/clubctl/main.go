@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -9,6 +10,8 @@ import (
 	"github.com/grapinou/club-core/internal/clubctl"
 	"github.com/grapinou/club-core/internal/database"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/demodata"
+	"github.com/grapinou/club-core/internal/organization"
 )
 
 func main() {
@@ -32,5 +35,27 @@ func run() error {
 		return fmt.Errorf("connexion PostgreSQL impossible")
 	}
 	defer db.Close()
+	if os.Args[1] == "describe-club" {
+		if len(os.Args) != 3 {
+			return fmt.Errorf("usage: clubctl describe-club <saison>")
+		}
+		catalogue, err := organization.New(db).Catalogue(ctx, os.Args[2])
+		if err != nil {
+			return fmt.Errorf("lecture du club ou de la saison impossible")
+		}
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(catalogue)
+	}
+	if os.Args[1] == "seed-budokan" {
+		if len(os.Args) != 3 || os.Args[2] != "--confirm-empty-demo" {
+			return demodata.ErrGuard
+		}
+		if err := demodata.SeedBudokan(ctx, db, true); err != nil {
+			return err
+		}
+		fmt.Fprintln(os.Stdout, "Démonstration Budokan créée : 1 organisation, 1 lieu, 3 activités, 6 groupes, 16 créneaux.")
+		return nil
+	}
 	return clubctl.Run(ctx, dbsqlc.New(db), os.Args[1:], os.Stdout)
 }

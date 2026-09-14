@@ -40,7 +40,7 @@ WHERE r.membership_id=sqlc.arg(membership_id) ORDER BY d.code,d.version;
 -- name: ListPersonalGroups :many
 SELECT g.name AS group_name,a.name AS activity_name,gs.weekday,
  COALESCE(to_char(gs.start_time,'HH24:MI'),'')::text AS start_time,
- COALESCE(to_char(gs.end_time,'HH24:MI'),'')::text AS end_time,gs.location
+ COALESCE(to_char(gs.end_time,'HH24:MI'),'')::text AS end_time,COALESCE((SELECT l.name FROM locations l WHERE l.id=gs.location_id),gs.location) AS location
 FROM membership_groups mg JOIN memberships m ON m.id=mg.membership_id
 JOIN groups g ON g.id=mg.group_id AND g.is_active
 JOIN activities a ON a.id=g.activity_id

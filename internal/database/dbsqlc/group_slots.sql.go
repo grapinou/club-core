@@ -13,7 +13,7 @@ import (
 
 const closeGroupSlot = `-- name: CloseGroupSlot :one
 UPDATE group_slots SET valid_until = $2::date, updated_at = NOW()
-WHERE id = $1 RETURNING id, group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, created_at, updated_at
+WHERE id = $1 RETURNING id, group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, created_at, updated_at, location_id, practice_label
 `
 
 type CloseGroupSlotParams struct {
@@ -37,25 +37,29 @@ func (q *Queries) CloseGroupSlot(ctx context.Context, arg CloseGroupSlotParams) 
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LocationID,
+		&i.PracticeLabel,
 	)
 	return i, err
 }
 
 const createGroupSlot = `-- name: CreateGroupSlot :one
-INSERT INTO group_slots (group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, created_at, updated_at
+INSERT INTO group_slots (group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, location_id, practice_label)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id, group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, created_at, updated_at, location_id, practice_label
 `
 
 type CreateGroupSlotParams struct {
-	GroupID    int32
-	SeasonID   int32
-	Weekday    int16
-	StartTime  pgtype.Time
-	EndTime    pgtype.Time
-	Location   pgtype.Text
-	ValidFrom  pgtype.Date
-	ValidUntil pgtype.Date
-	IsActive   bool
+	GroupID       int32
+	SeasonID      int32
+	Weekday       int16
+	StartTime     pgtype.Time
+	EndTime       pgtype.Time
+	Location      pgtype.Text
+	ValidFrom     pgtype.Date
+	ValidUntil    pgtype.Date
+	IsActive      bool
+	LocationID    pgtype.Int4
+	PracticeLabel pgtype.Text
 }
 
 func (q *Queries) CreateGroupSlot(ctx context.Context, arg CreateGroupSlotParams) (GroupSlot, error) {
@@ -69,6 +73,8 @@ func (q *Queries) CreateGroupSlot(ctx context.Context, arg CreateGroupSlotParams
 		arg.ValidFrom,
 		arg.ValidUntil,
 		arg.IsActive,
+		arg.LocationID,
+		arg.PracticeLabel,
 	)
 	var i GroupSlot
 	err := row.Scan(
@@ -84,13 +90,15 @@ func (q *Queries) CreateGroupSlot(ctx context.Context, arg CreateGroupSlotParams
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LocationID,
+		&i.PracticeLabel,
 	)
 	return i, err
 }
 
 const deactivateGroupSlot = `-- name: DeactivateGroupSlot :one
 UPDATE group_slots SET is_active = FALSE, updated_at = NOW()
-WHERE id = $1 RETURNING id, group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, created_at, updated_at
+WHERE id = $1 RETURNING id, group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, created_at, updated_at, location_id, practice_label
 `
 
 func (q *Queries) DeactivateGroupSlot(ctx context.Context, id int32) (GroupSlot, error) {
@@ -109,12 +117,14 @@ func (q *Queries) DeactivateGroupSlot(ctx context.Context, id int32) (GroupSlot,
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LocationID,
+		&i.PracticeLabel,
 	)
 	return i, err
 }
 
 const listCurrentGroupSlots = `-- name: ListCurrentGroupSlots :many
-SELECT gs.id, gs.group_id, gs.season_id, gs.weekday, gs.start_time, gs.end_time, gs.location, gs.valid_from, gs.valid_until, gs.is_active, gs.created_at, gs.updated_at, g.name AS group_name, s.name AS season_name
+SELECT gs.id, gs.group_id, gs.season_id, gs.weekday, gs.start_time, gs.end_time, gs.location, gs.valid_from, gs.valid_until, gs.is_active, gs.created_at, gs.updated_at, gs.location_id, gs.practice_label, g.name AS group_name, s.name AS season_name
 FROM group_slots gs
 JOIN groups g ON g.id = gs.group_id
 JOIN seasons s ON s.id = gs.season_id
@@ -130,20 +140,22 @@ type ListCurrentGroupSlotsParams struct {
 }
 
 type ListCurrentGroupSlotsRow struct {
-	ID         int32
-	GroupID    int32
-	SeasonID   int32
-	Weekday    int16
-	StartTime  pgtype.Time
-	EndTime    pgtype.Time
-	Location   pgtype.Text
-	ValidFrom  pgtype.Date
-	ValidUntil pgtype.Date
-	IsActive   bool
-	CreatedAt  pgtype.Timestamptz
-	UpdatedAt  pgtype.Timestamptz
-	GroupName  string
-	SeasonName string
+	ID            int32
+	GroupID       int32
+	SeasonID      int32
+	Weekday       int16
+	StartTime     pgtype.Time
+	EndTime       pgtype.Time
+	Location      pgtype.Text
+	ValidFrom     pgtype.Date
+	ValidUntil    pgtype.Date
+	IsActive      bool
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	LocationID    pgtype.Int4
+	PracticeLabel pgtype.Text
+	GroupName     string
+	SeasonName    string
 }
 
 func (q *Queries) ListCurrentGroupSlots(ctx context.Context, arg ListCurrentGroupSlotsParams) ([]ListCurrentGroupSlotsRow, error) {
@@ -168,6 +180,8 @@ func (q *Queries) ListCurrentGroupSlots(ctx context.Context, arg ListCurrentGrou
 			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.LocationID,
+			&i.PracticeLabel,
 			&i.GroupName,
 			&i.SeasonName,
 		); err != nil {
@@ -182,7 +196,7 @@ func (q *Queries) ListCurrentGroupSlots(ctx context.Context, arg ListCurrentGrou
 }
 
 const listGroupSlots = `-- name: ListGroupSlots :many
-SELECT gs.id, gs.group_id, gs.season_id, gs.weekday, gs.start_time, gs.end_time, gs.location, gs.valid_from, gs.valid_until, gs.is_active, gs.created_at, gs.updated_at, g.name AS group_name, s.name AS season_name
+SELECT gs.id, gs.group_id, gs.season_id, gs.weekday, gs.start_time, gs.end_time, gs.location, gs.valid_from, gs.valid_until, gs.is_active, gs.created_at, gs.updated_at, gs.location_id, gs.practice_label, g.name AS group_name, s.name AS season_name
 FROM group_slots gs
 JOIN groups g ON g.id = gs.group_id
 JOIN seasons s ON s.id = gs.season_id
@@ -191,20 +205,22 @@ ORDER BY gs.weekday, gs.start_time, gs.valid_from, gs.id
 `
 
 type ListGroupSlotsRow struct {
-	ID         int32
-	GroupID    int32
-	SeasonID   int32
-	Weekday    int16
-	StartTime  pgtype.Time
-	EndTime    pgtype.Time
-	Location   pgtype.Text
-	ValidFrom  pgtype.Date
-	ValidUntil pgtype.Date
-	IsActive   bool
-	CreatedAt  pgtype.Timestamptz
-	UpdatedAt  pgtype.Timestamptz
-	GroupName  string
-	SeasonName string
+	ID            int32
+	GroupID       int32
+	SeasonID      int32
+	Weekday       int16
+	StartTime     pgtype.Time
+	EndTime       pgtype.Time
+	Location      pgtype.Text
+	ValidFrom     pgtype.Date
+	ValidUntil    pgtype.Date
+	IsActive      bool
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	LocationID    pgtype.Int4
+	PracticeLabel pgtype.Text
+	GroupName     string
+	SeasonName    string
 }
 
 func (q *Queries) ListGroupSlots(ctx context.Context, groupID int32) ([]ListGroupSlotsRow, error) {
@@ -229,6 +245,8 @@ func (q *Queries) ListGroupSlots(ctx context.Context, groupID int32) ([]ListGrou
 			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.LocationID,
+			&i.PracticeLabel,
 			&i.GroupName,
 			&i.SeasonName,
 		); err != nil {
@@ -243,7 +261,7 @@ func (q *Queries) ListGroupSlots(ctx context.Context, groupID int32) ([]ListGrou
 }
 
 const listGroupSlotsForSeason = `-- name: ListGroupSlotsForSeason :many
-SELECT gs.id, gs.group_id, gs.season_id, gs.weekday, gs.start_time, gs.end_time, gs.location, gs.valid_from, gs.valid_until, gs.is_active, gs.created_at, gs.updated_at, g.name AS group_name, s.name AS season_name
+SELECT gs.id, gs.group_id, gs.season_id, gs.weekday, gs.start_time, gs.end_time, gs.location, gs.valid_from, gs.valid_until, gs.is_active, gs.created_at, gs.updated_at, gs.location_id, gs.practice_label, g.name AS group_name, s.name AS season_name
 FROM group_slots gs
 JOIN groups g ON g.id = gs.group_id
 JOIN seasons s ON s.id = gs.season_id
@@ -257,20 +275,22 @@ type ListGroupSlotsForSeasonParams struct {
 }
 
 type ListGroupSlotsForSeasonRow struct {
-	ID         int32
-	GroupID    int32
-	SeasonID   int32
-	Weekday    int16
-	StartTime  pgtype.Time
-	EndTime    pgtype.Time
-	Location   pgtype.Text
-	ValidFrom  pgtype.Date
-	ValidUntil pgtype.Date
-	IsActive   bool
-	CreatedAt  pgtype.Timestamptz
-	UpdatedAt  pgtype.Timestamptz
-	GroupName  string
-	SeasonName string
+	ID            int32
+	GroupID       int32
+	SeasonID      int32
+	Weekday       int16
+	StartTime     pgtype.Time
+	EndTime       pgtype.Time
+	Location      pgtype.Text
+	ValidFrom     pgtype.Date
+	ValidUntil    pgtype.Date
+	IsActive      bool
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	LocationID    pgtype.Int4
+	PracticeLabel pgtype.Text
+	GroupName     string
+	SeasonName    string
 }
 
 func (q *Queries) ListGroupSlotsForSeason(ctx context.Context, arg ListGroupSlotsForSeasonParams) ([]ListGroupSlotsForSeasonRow, error) {
@@ -295,6 +315,8 @@ func (q *Queries) ListGroupSlotsForSeason(ctx context.Context, arg ListGroupSlot
 			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.LocationID,
+			&i.PracticeLabel,
 			&i.GroupName,
 			&i.SeasonName,
 		); err != nil {
@@ -310,20 +332,22 @@ func (q *Queries) ListGroupSlotsForSeason(ctx context.Context, arg ListGroupSlot
 
 const updateGroupSlot = `-- name: UpdateGroupSlot :one
 UPDATE group_slots
-SET weekday = $2, start_time = $3, end_time = $4, location = $5,
+SET weekday = $2, start_time = $3, end_time = $4, location = $5, location_id = $9, practice_label = $10,
     valid_from = $6, valid_until = $7, is_active = $8, updated_at = NOW()
-WHERE id = $1 RETURNING id, group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, created_at, updated_at
+WHERE id = $1 RETURNING id, group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, created_at, updated_at, location_id, practice_label
 `
 
 type UpdateGroupSlotParams struct {
-	ID         int32
-	Weekday    int16
-	StartTime  pgtype.Time
-	EndTime    pgtype.Time
-	Location   pgtype.Text
-	ValidFrom  pgtype.Date
-	ValidUntil pgtype.Date
-	IsActive   bool
+	ID            int32
+	Weekday       int16
+	StartTime     pgtype.Time
+	EndTime       pgtype.Time
+	Location      pgtype.Text
+	ValidFrom     pgtype.Date
+	ValidUntil    pgtype.Date
+	IsActive      bool
+	LocationID    pgtype.Int4
+	PracticeLabel pgtype.Text
 }
 
 func (q *Queries) UpdateGroupSlot(ctx context.Context, arg UpdateGroupSlotParams) (GroupSlot, error) {
@@ -336,6 +360,8 @@ func (q *Queries) UpdateGroupSlot(ctx context.Context, arg UpdateGroupSlotParams
 		arg.ValidFrom,
 		arg.ValidUntil,
 		arg.IsActive,
+		arg.LocationID,
+		arg.PracticeLabel,
 	)
 	var i GroupSlot
 	err := row.Scan(
@@ -351,6 +377,8 @@ func (q *Queries) UpdateGroupSlot(ctx context.Context, arg UpdateGroupSlotParams
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LocationID,
+		&i.PracticeLabel,
 	)
 	return i, err
 }

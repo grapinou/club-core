@@ -17,12 +17,16 @@ import (
 // newTestDatabase fournit une base isolée et migrée, nettoyée à la fin du test.
 func newTestDatabase(t *testing.T) *pgxpool.Pool {
 	t.Helper()
+	return newTestDatabaseNamed(t, "club_manager_test")
+}
 
+func newTestDatabaseNamed(t *testing.T, name string) *pgxpool.Pool {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
 
 	container, err := postgres.Run(ctx, "postgres:16-alpine",
-		postgres.WithDatabase("club_manager_test"),
+		postgres.WithDatabase(name),
 		postgres.WithUsername("club_manager"),
 		postgres.WithPassword("test_password"),
 		postgres.BasicWaitStrategies(),

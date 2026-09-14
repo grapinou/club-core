@@ -17,6 +17,7 @@ import (
 	"github.com/grapinou/club-core/internal/mailer"
 	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/grapinou/club-core/internal/minorsafety"
+	"github.com/grapinou/club-core/internal/organization"
 	"github.com/grapinou/club-core/internal/outbox"
 	"github.com/grapinou/club-core/internal/personalspace"
 	"github.com/grapinou/club-core/internal/registrationapplications"
@@ -26,6 +27,7 @@ import (
 )
 
 type Application struct {
+	Organization             *organization.Service
 	Administration           *administration.Service
 	SelfService              *accounts.SelfService
 	GuardianAccess           *guardianaccess.Service
@@ -109,6 +111,7 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, 
 	authHandler.Register(mux)
 	authHandler.RegisterRegistrationVerification(mux, verification)
 	return &Application{
+		Organization:             organization.New(db),
 		Administration:           office,
 		SelfService:              selfService,
 		GuardianAccess:           guardians,

@@ -56,7 +56,7 @@ SELECT t.id AS trial_id, t.trial_date, t.status, t.notes,
        p.id AS person_id, p.first_name, p.last_name, p.birth_date, p.phone_number,
        a.id AS activity_id, a.name AS activity_name,
        t.group_id, g.name AS group_name, t.group_slot_id,
-       gs.weekday, gs.start_time, gs.end_time, gs.location
+       gs.weekday, gs.start_time, gs.end_time, COALESCE((SELECT l.name FROM locations l WHERE l.id=gs.location_id),gs.location) AS location
 FROM trial_registrations t
 JOIN persons p ON p.id = t.person_id
 JOIN activities a ON a.id = t.activity_id
@@ -118,7 +118,7 @@ SELECT t.id AS trial_id, t.trial_date, t.status, t.notes,
        p.id AS person_id, p.first_name, p.last_name, p.birth_date, p.phone_number,
        a.id AS activity_id, a.name AS activity_name,
        t.group_id, g.name AS group_name, t.group_slot_id,
-       gs.weekday, gs.start_time, gs.end_time, gs.location
+       gs.weekday, gs.start_time, gs.end_time, COALESCE((SELECT l.name FROM locations l WHERE l.id=gs.location_id),gs.location) AS location
 FROM trial_registrations t
 JOIN persons p ON p.id = t.person_id
 JOIN activities a ON a.id = t.activity_id
@@ -193,7 +193,7 @@ SELECT t.id AS trial_id, t.trial_date, t.status, t.notes,
        p.id AS person_id, p.first_name, p.last_name, p.birth_date, p.phone_number,
        a.id AS activity_id, a.name AS activity_name,
        t.group_id, g.name AS group_name, t.group_slot_id,
-       gs.weekday, gs.start_time, gs.end_time, gs.location
+       gs.weekday, gs.start_time, gs.end_time, COALESCE((SELECT l.name FROM locations l WHERE l.id=gs.location_id),gs.location) AS location
 FROM trial_registrations t
 JOIN persons p ON p.id = t.person_id
 JOIN activities a ON a.id = t.activity_id
@@ -268,7 +268,7 @@ SELECT t.id AS trial_id, t.trial_date, t.status, t.notes,
        p.id AS person_id, p.first_name, p.last_name, p.birth_date, p.phone_number,
        a.id AS activity_id, a.name AS activity_name,
        t.group_id, g.name AS group_name, t.group_slot_id,
-       gs.weekday, gs.start_time, gs.end_time, gs.location
+       gs.weekday, gs.start_time, gs.end_time, COALESCE((SELECT l.name FROM locations l WHERE l.id=gs.location_id),gs.location) AS location
 FROM trial_registrations t
 JOIN persons p ON p.id = t.person_id
 JOIN activities a ON a.id = t.activity_id

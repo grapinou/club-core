@@ -27,7 +27,7 @@ ORDER BY p.last_name,p.first_name,r.id;
 -- name: AdministrativeTrials :many
 SELECT t.id,t.person_id,p.first_name,p.last_name,t.activity_id,a.name AS activity_name,t.group_id,coalesce(g.name,'')::text AS group_name,
  t.group_slot_id,coalesce(to_char(gs.start_time,'HH24:MI'),'')::text AS start_time,coalesce(to_char(gs.end_time,'HH24:MI'),'')::text AS end_time,
- coalesce(gs.location,'')::text AS location,t.trial_date,t.status,t.notes,t.revision
+ coalesce((SELECT l.name FROM locations l WHERE l.id=gs.location_id),gs.location,'')::text AS location,t.trial_date,t.status,t.notes,t.revision
 FROM trial_registrations t JOIN persons p ON p.id=t.person_id JOIN activities a ON a.id=t.activity_id
 LEFT JOIN groups g ON g.id=t.group_id LEFT JOIN group_slots gs ON gs.id=t.group_slot_id
 WHERE (sqlc.arg(person_id)::integer=0 OR t.person_id=sqlc.arg(person_id))
@@ -50,7 +50,7 @@ SELECT id,name FROM seasons WHERE is_active ORDER BY starts_at DESC,id;
 SELECT id,name FROM membership_types WHERE is_active ORDER BY name,id;
 -- name: AdministrativeSlots :many
 SELECT gs.id,g.name AS group_name,s.name AS season_name,gs.weekday,to_char(gs.start_time,'HH24:MI')::text AS start_time,
- to_char(gs.end_time,'HH24:MI')::text AS end_time,coalesce(gs.location,'')::text AS location
+ to_char(gs.end_time,'HH24:MI')::text AS end_time,coalesce((SELECT l.name FROM locations l WHERE l.id=gs.location_id),gs.location,'')::text AS location
 FROM group_slots gs JOIN groups g ON g.id=gs.group_id JOIN seasons s ON s.id=gs.season_id WHERE gs.is_active AND g.is_active ORDER BY g.name,s.starts_at DESC,gs.weekday,gs.start_time;
 
 -- name: LockAdministrativePerson :one

@@ -70,6 +70,7 @@ type GroupSlot struct {
 	Weekday   int16
 	StartTime pgtype.Time
 	EndTime   pgtype.Time
+	// Legacy free text; mutually exclusive with location_id. New reference data uses locations.
 	Location  pgtype.Text
 	ValidFrom pgtype.Date
 	// Inclusive last date of validity
@@ -77,6 +78,9 @@ type GroupSlot struct {
 	IsActive   bool
 	CreatedAt  pgtype.Timestamptz
 	UpdatedAt  pgtype.Timestamptz
+	LocationID pgtype.Int4
+	// Optional session designation, not an activity or eligibility rule.
+	PracticeLabel pgtype.Text
 }
 
 type GuardianAccessGrant struct {
@@ -116,6 +120,16 @@ type GuardianIdentityClaimCandidate struct {
 	MatchedEmail     bool
 	MatchedPhone     bool
 	DetectedAt       pgtype.Timestamptz
+}
+
+type Location struct {
+	ID             int32
+	OrganizationID int32
+	Name           string
+	Address        string
+	IsActive       bool
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
 }
 
 type Membership struct {
@@ -169,6 +183,32 @@ type MembershipType struct {
 	Name      string
 	IsActive  bool
 	CreatedAt pgtype.Timestamptz
+}
+
+type Organization struct {
+	ID                    int32
+	Name                  string
+	ShortName             pgtype.Text
+	Description           pgtype.Text
+	PublicEmail           pgtype.Text
+	PublicPhone           pgtype.Text
+	CorrespondenceAddress pgtype.Text
+	WebsiteUrl            pgtype.Text
+	IsActive              bool
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+}
+
+type OrganizationLink struct {
+	ID             int32
+	OrganizationID int32
+	Kind           string
+	Label          string
+	Url            string
+	Position       int32
+	IsActive       bool
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
 }
 
 type Person struct {

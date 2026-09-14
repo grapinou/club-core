@@ -271,7 +271,13 @@ Le projet constitue également un support pour étudier et mettre en pratique de
 * autorisation ;
 * séparation des responsabilités.
 
+## Données métier et démonstration Budokan
 
+Le référentiel d’organisation, les lieux et le planning de démonstration sont stockés en PostgreSQL. Sur une base vide migrée dont le nom se termine par `_demo`, avec `DATABASE_URL` fourni localement :
 
+```bash
+go run ./cmd/clubctl seed-budokan --confirm-empty-demo
+go run ./cmd/clubctl describe-club 2026/2027
+```
 
-
+Le seed refuse toute base métier déjà peuplée, y compris une seconde exécution. Voir le [rapport et les instructions de migration](docs/reports/2026-09-14-organization-data-and-budokan-seed.md) pour les garde-fous, la provenance et les interprétations provisoires du planning. Les pages publiques historiques ne sont pas encore raccordées à ce catalogue.
