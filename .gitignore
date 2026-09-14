@@ -32,3 +32,6 @@ docs/.obsidian/graph.json
 
 # review diff
 review.diff
+
+# Campagne locale : identités, mots de passe, connexions, captures et boîte mail
+/runtime/multi-user/
