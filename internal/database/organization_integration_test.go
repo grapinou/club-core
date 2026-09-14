@@ -1,17 +1,21 @@
 package database
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/demodata"
+	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/grapinou/club-core/internal/organization"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func TestBudokanSeedPostgres(t *testing.T) {
@@ -50,9 +54,18 @@ func TestBudokanSeedPostgres(t *testing.T) {
 	}
 	inspect := exec.CommandContext(ctx, "go", "run", "../../cmd/clubctl", "describe-club", "2026/2027")
 	inspect.Env = append(os.Environ(), "DATABASE_URL="+db.Config().ConnString())
-	if out, err := inspect.CombinedOutput(); err != nil || !strings.Contains(string(out), "Budokan Sud Oise") || !strings.Contains(string(out), "JJB No-Gi") {
+	out, err := inspect.CombinedOutput()
+	if err != nil {
 		t.Fatalf("describe CLI: %s %v", out, err)
 	}
+	var cliCatalogue organization.Catalogue
+	if err = json.Unmarshal(out, &cliCatalogue); err != nil {
+		t.Fatalf("describe JSON: %v", err)
+	}
+	if cliCatalogue.Identity.Organization.Name != "Budokan Sud Oise" || len(cliCatalogue.Identity.Locations) != 1 || len(cliCatalogue.Activities) != 3 || len(cliCatalogue.Groups) != 6 || cliCatalogue.Season.Name != "2026/2027" || len(cliCatalogue.Schedule) != 16 || len(cliCatalogue.MembershipTypes) != 3 || len(cliCatalogue.Consents) != 1 {
+		t.Fatalf("describe catalogue: %+v", cliCatalogue)
+	}
+	assertBudokanPracticeGroups(t, cliCatalogue)
 	service := organization.New(db)
 	identity, err := service.Identity(ctx)
 	if err != nil {
@@ -69,6 +82,7 @@ func TestBudokanSeedPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertBudokanPracticeGroups(t, catalogue)
 	var activityNames, typeNames []string
 	for _, a := range catalogue.Activities {
 		activityNames = append(activityNames, a.Name)
@@ -142,6 +156,43 @@ func TestBudokanSeedPostgres(t *testing.T) {
 	if n != 16 {
 		t.Fatal(n)
 	}
+	// Exercise the existing assignment domain with children outside the named
+	// ranges. All synthetic personal data stays in this rolled-back transaction.
+	t.Run("pedagogical ages allow teacher discretion", func(t *testing.T) {
+		tx, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		svc, err := memberships.New(db, 24*time.Hour, time.UTC)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, child := range []struct{ birth, groupSuffix string }{{"2015-09-01", "7–10 ans"}, {"2017-09-01", "10–14 ans"}} {
+			var personID, membershipID int32
+			if err = tx.QueryRow(ctx, "INSERT INTO persons(first_name,last_name,birth_date) VALUES ('Enfant','Test pédagogique',$1) RETURNING id", child.birth).Scan(&personID); err != nil {
+				t.Fatal(err)
+			}
+			if err = tx.QueryRow(ctx, "INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES ($1,$2,(SELECT id FROM membership_types WHERE name='Enfant'),'pending') RETURNING id", personID, catalogue.Season.ID).Scan(&membershipID); err != nil {
+				t.Fatal(err)
+			}
+			for _, g := range catalogue.Groups {
+				if !strings.HasSuffix(g.Name, child.groupSuffix) {
+					continue
+				}
+				if _, err = tx.Exec(ctx, "INSERT INTO membership_activities(membership_id,activity_id) VALUES ($1,$2)", membershipID, g.ActivityID); err != nil {
+					t.Fatal(err)
+				}
+				if err = svc.AssignGroupTx(ctx, tx, dbsqlc.AssignMembershipGroupParams{MembershipID: membershipID, GroupID: g.ID, JoinedAt: pgtype.Date{Time: time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC), Valid: true}}); err != nil {
+					t.Fatalf("pedagogical assignment %s / %s: %v", child.birth, g.Name, err)
+				}
+			}
+		}
+		var count int
+		if err = tx.QueryRow(ctx, "SELECT count(*) FROM membership_groups").Scan(&count); err != nil || count != 4 {
+			t.Fatalf("assignments: %d %v", count, err)
+		}
+	})
 	// Canonical location changes flow through existing administrative reads.
 	if _, err = db.Exec(ctx, "UPDATE locations SET name='Dojo renommé' WHERE id=$1", identity.Locations[0].ID); err != nil {
 		t.Fatal(err)
@@ -263,5 +314,53 @@ func TestBudokanConcurrentSeedAndExistingReferences(t *testing.T) {
 	links, err := dbsqlc.New(db).ListOrganizationLinks(ctx, 1)
 	if err != nil || len(links) != 1 || links[0].IsActive {
 		t.Fatalf("deactivated link: %v %v", links, err)
+	}
+}
+
+// Check both the real CLI JSON and direct PostgreSQL catalogue. A label alone
+// must not hide a regression in the group foreign key.
+func assertBudokanPracticeGroups(t *testing.T, c organization.Catalogue) {
+	t.Helper()
+	expected := map[string]bool{
+		"JJB enfants 7–10 ans": true, "JJB enfants 10–14 ans": true, "JJB Adolescents et Adultes": true,
+		"Jiu-Jitsu Traditionnel / Combat enfants 7–10 ans": true, "Jiu-Jitsu Traditionnel / Combat enfants 10–14 ans": true, "JJB pratiques spécifiques": true,
+	}
+	if len(c.Groups) != len(expected) {
+		t.Fatalf("groups: %+v", c.Groups)
+	}
+	var adultID, technicalID int32
+	for _, g := range c.Groups {
+		if !expected[g.Name] {
+			t.Fatalf("unexpected group (no No-Gi/Libre groups): %s", g.Name)
+		}
+		delete(expected, g.Name)
+		if g.Name == "JJB Adolescents et Adultes" {
+			adultID = g.ID
+		}
+		if g.Name == "JJB pratiques spécifiques" {
+			technicalID = g.ID
+			if !strings.Contains(g.Description.String, "lundi uniquement") || !strings.Contains(g.Description.String, "public à confirmer") {
+				t.Fatal(g.Description)
+			}
+		}
+	}
+	technicalSlots, modalities := 0, 0
+	for _, slot := range c.Schedule {
+		if slot.GroupID == technicalID {
+			technicalSlots++
+			if slot.Weekday != 1 || slot.StartTime != "20:15" || slot.EndTime != "22:00" || slot.PracticeLabel.String != "Préparation physique / Jiu-Jitsu Brésilien" {
+				t.Fatalf("technical group used beyond Monday: %+v", slot)
+			}
+		}
+		switch slot.PracticeLabel.String {
+		case "JJB No-Gi", "JJB libre", "Préparation physique / JJB — Adolescents et Adultes":
+			modalities++
+			if slot.GroupID != adultID || slot.GroupName != "JJB Adolescents et Adultes" {
+				t.Fatalf("modality assigned to wrong group: %+v", slot)
+			}
+		}
+	}
+	if technicalSlots != 1 || modalities != 3 {
+		t.Fatalf("technical slots/modalities: %d/%d", technicalSlots, modalities)
 	}
 }
