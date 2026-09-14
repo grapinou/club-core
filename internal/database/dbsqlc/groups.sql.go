@@ -13,7 +13,7 @@ import (
 
 const createGroup = `-- name: CreateGroup :one
 INSERT INTO groups (activity_id, name, description, is_active)
-VALUES ($1, $2, $3, $4) RETURNING id, activity_id, name, description, is_active, created_at, updated_at
+VALUES ($1, $2, $3, $4) RETURNING id, activity_id, name, description, is_active, created_at, updated_at, show_name_publicly
 `
 
 type CreateGroupParams struct {
@@ -39,25 +39,27 @@ func (q *Queries) CreateGroup(ctx context.Context, arg CreateGroupParams) (Group
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ShowNamePublicly,
 	)
 	return i, err
 }
 
 const getGroup = `-- name: GetGroup :one
-SELECT g.id, g.activity_id, g.name, g.description, g.is_active, g.created_at, g.updated_at, a.name AS activity_name
+SELECT g.id, g.activity_id, g.name, g.description, g.is_active, g.created_at, g.updated_at, g.show_name_publicly, a.name AS activity_name
 FROM groups g JOIN activities a ON a.id = g.activity_id
 WHERE g.id = $1
 `
 
 type GetGroupRow struct {
-	ID           int32
-	ActivityID   int32
-	Name         string
-	Description  pgtype.Text
-	IsActive     bool
-	CreatedAt    pgtype.Timestamptz
-	UpdatedAt    pgtype.Timestamptz
-	ActivityName string
+	ID               int32
+	ActivityID       int32
+	Name             string
+	Description      pgtype.Text
+	IsActive         bool
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	ShowNamePublicly bool
+	ActivityName     string
 }
 
 func (q *Queries) GetGroup(ctx context.Context, id int32) (GetGroupRow, error) {
@@ -71,27 +73,29 @@ func (q *Queries) GetGroup(ctx context.Context, id int32) (GetGroupRow, error) {
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ShowNamePublicly,
 		&i.ActivityName,
 	)
 	return i, err
 }
 
 const listActiveGroups = `-- name: ListActiveGroups :many
-SELECT g.id, g.activity_id, g.name, g.description, g.is_active, g.created_at, g.updated_at, a.name AS activity_name
+SELECT g.id, g.activity_id, g.name, g.description, g.is_active, g.created_at, g.updated_at, g.show_name_publicly, a.name AS activity_name
 FROM groups g JOIN activities a ON a.id = g.activity_id
 WHERE g.is_active
 ORDER BY a.name, g.name, g.id
 `
 
 type ListActiveGroupsRow struct {
-	ID           int32
-	ActivityID   int32
-	Name         string
-	Description  pgtype.Text
-	IsActive     bool
-	CreatedAt    pgtype.Timestamptz
-	UpdatedAt    pgtype.Timestamptz
-	ActivityName string
+	ID               int32
+	ActivityID       int32
+	Name             string
+	Description      pgtype.Text
+	IsActive         bool
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	ShowNamePublicly bool
+	ActivityName     string
 }
 
 func (q *Queries) ListActiveGroups(ctx context.Context) ([]ListActiveGroupsRow, error) {
@@ -111,6 +115,7 @@ func (q *Queries) ListActiveGroups(ctx context.Context) ([]ListActiveGroupsRow, 
 			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ShowNamePublicly,
 			&i.ActivityName,
 		); err != nil {
 			return nil, err
@@ -124,20 +129,21 @@ func (q *Queries) ListActiveGroups(ctx context.Context) ([]ListActiveGroupsRow, 
 }
 
 const listGroups = `-- name: ListGroups :many
-SELECT g.id, g.activity_id, g.name, g.description, g.is_active, g.created_at, g.updated_at, a.name AS activity_name
+SELECT g.id, g.activity_id, g.name, g.description, g.is_active, g.created_at, g.updated_at, g.show_name_publicly, a.name AS activity_name
 FROM groups g JOIN activities a ON a.id = g.activity_id
 ORDER BY a.name, g.name, g.id
 `
 
 type ListGroupsRow struct {
-	ID           int32
-	ActivityID   int32
-	Name         string
-	Description  pgtype.Text
-	IsActive     bool
-	CreatedAt    pgtype.Timestamptz
-	UpdatedAt    pgtype.Timestamptz
-	ActivityName string
+	ID               int32
+	ActivityID       int32
+	Name             string
+	Description      pgtype.Text
+	IsActive         bool
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	ShowNamePublicly bool
+	ActivityName     string
 }
 
 func (q *Queries) ListGroups(ctx context.Context) ([]ListGroupsRow, error) {
@@ -157,6 +163,7 @@ func (q *Queries) ListGroups(ctx context.Context) ([]ListGroupsRow, error) {
 			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ShowNamePublicly,
 			&i.ActivityName,
 		); err != nil {
 			return nil, err
@@ -171,7 +178,7 @@ func (q *Queries) ListGroups(ctx context.Context) ([]ListGroupsRow, error) {
 
 const updateGroup = `-- name: UpdateGroup :one
 UPDATE groups SET name = $2, description = $3, is_active = $4, updated_at = NOW()
-WHERE id = $1 RETURNING id, activity_id, name, description, is_active, created_at, updated_at
+WHERE id = $1 RETURNING id, activity_id, name, description, is_active, created_at, updated_at, show_name_publicly
 `
 
 type UpdateGroupParams struct {
@@ -197,6 +204,7 @@ func (q *Queries) UpdateGroup(ctx context.Context, arg UpdateGroupParams) (Group
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ShowNamePublicly,
 	)
 	return i, err
 }

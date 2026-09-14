@@ -15,7 +15,7 @@ func TestUXDashboardScopeAndComposition(t *testing.T) {
 	f := newFixture(t)
 	anon := newBrowser(f.app.Handler)
 	page := anon.call("GET", "/", nil)
-	for _, label := range []string{"Accueil", "Le club", "Où / Quand", "Adhérer", "Contact", "Connexion"} {
+	for _, label := range []string{"Accueil", "Horaires", "Adhésions et tarifs", "Essayer", "Adhérer", "Contact", "Connexion"} {
 		if !strings.Contains(page.Body.String(), label) {
 			t.Fatal("public navigation", label)
 		}

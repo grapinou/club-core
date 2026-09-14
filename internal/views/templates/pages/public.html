@@ -1,0 +1,53 @@
+{{define "content"}}
+<div class="public-content">
+<header class="page-header {{if eq .Kind "/"}}public-hero{{end}}">
+{{if and (eq .Kind "/") .Club.ShortName}}<p class="eyebrow">{{.Club.ShortName}}</p>{{end}}
+<h1>{{.Heading}}</h1>
+{{if eq .Kind "/"}}
+{{if .Club.Description}}<p class="reading-text">{{.Club.Description}}</p>{{else if .Club.Name}}<p>Découvrez les activités du club et trouvez votre prochain rendez-vous.</p>{{end}}
+<div class="actions"><a class="btn btn-primary" href="/horaires">Voir les horaires</a><a class="btn btn-outline-primary" href="/essai">Faire un essai</a><a href="/contact">Nous contacter</a></div>
+{{end}}
+</header>
+{{if not .Club.Name}}<p class="empty-state">Les informations du club seront bientôt disponibles.</p>
+{{else}}
+{{if eq .Kind "/"}}
+<section aria-labelledby="activities-title"><h2 id="activities-title">À pratiquer au club</h2>
+{{if .Activities}}<ul class="public-cards list-unstyled">{{range .Activities}}<li class="card"><div class="card-body"><h3>{{.}}</h3><a href="/horaires">Consulter les créneaux</a></div></li>{{end}}</ul>{{else}}<p class="empty-state">Les activités seront annoncées prochainement.</p>{{end}}</section>
+<div class="public-columns"><section class="section-panel" aria-labelledby="home-location-title"><h2 id="home-location-title">Où nous retrouver</h2>{{template "public-locations" .Club}}<p><a href="/contact#lieux">Toutes les informations pratiques</a></p></section>
+<section class="section-panel" aria-labelledby="home-contact-title"><h2 id="home-contact-title">Une question avant de venir ?</h2><p>L’équipe du club vous aide à choisir un groupe et à préparer votre première visite.</p>{{template "public-contact" .Club}}<div class="actions"><a href="/tarifs">Adhésions et tarifs</a></div></section></div>
+{{else if eq .Kind "/horaires"}}
+{{if .Season}}<p class="page-intro">Saison <strong>{{.Season}}</strong> · Planning hebdomadaire en vigueur.</p>
+<p class="page-intro">Les âges indiqués sont des repères pédagogiques. L’équipe peut orienter chaque enfant selon son âge, son gabarit et sa maturité.</p>
+<nav class="day-navigation" aria-label="Jours du planning">{{range .Days}}<a href="#jour-{{.Name}}">{{.Name}}</a>{{end}}</nav>
+<div class="schedule-days">{{range .Days}}<section class="section-panel" aria-labelledby="jour-{{.Name}}"><h2 id="jour-{{.Name}}">{{.Name}}</h2>
+{{if .Slots}}<ul class="list-unstyled schedule-slots">{{range .Slots}}<li class="public-slot">
+<p class="slot-time"><time>{{.Start}}</time>–<time>{{.End}}</time></p>
+<div><p class="slot-title">{{if .Practice}}{{.Practice}}{{else}}{{.Group}}{{end}}</p>
+{{if and .Practice .Group}}<p class="slot-group">{{.Group}}</p>{{end}}
+<p class="small text-body-secondary mb-1">{{.Activity}}</p>
+{{if .Location}}<p class="slot-location">{{.Location}}{{if .Address}}<br><span class="small">{{.Address}}</span>{{end}}</p>{{else}}<p class="small">Lieu à confirmer auprès du club.</p>{{end}}</div>
+</li>{{end}}</ul>{{else}}<p class="text-body-secondary mb-0">Aucun créneau annoncé.</p>{{end}}
+</section>{{end}}</div>
+{{else}}<p class="empty-state">Aucun planning de saison courante n’est disponible pour le moment.</p>{{end}}
+<div class="actions"><a class="btn btn-primary" href="/essai">Préparer un essai</a><a href="/contact">Contacter le club</a></div>
+{{else if eq .Kind "/tarifs"}}
+<section class="section-panel"><h2>Types d’adhésion</h2>{{if .MembershipTypes}}<ul>{{range .MembershipTypes}}<li>{{.}}</li>{{end}}</ul>{{else}}<p>Aucun type d’adhésion n’est annoncé pour le moment.</p>{{end}}
+<p>Les montants ne sont pas encore affichés sur ce site. Contactez le club pour connaître le tarif et les modalités adaptés à votre situation.</p>
+<div class="actions"><a class="btn btn-primary" href="/contact">Demander les tarifs</a><a href="/join">Demander une adhésion</a></div></section>
+{{else if eq .Kind "/contact"}}
+<div class="public-columns"><section class="section-panel"><h2>Joindre le club</h2>{{template "public-contact" .Club}}
+{{if .Club.Website}}<p><a href="{{.Club.Website}}">Site principal du club</a></p>{{end}}
+{{if .Club.Links}}<h3>Retrouvez-nous aussi</h3><ul>{{range .Club.Links}}<li><a href="{{.URL}}">{{.Label}}</a></li>{{end}}</ul>{{end}}
+</section><section id="lieux" class="section-panel"><h2>Lieux de pratique</h2>{{template "public-locations" .Club}}<a href="/horaires">Voir les horaires</a></section></div>
+{{else if eq .Kind "/essai"}}
+<section class="section-panel content-readable"><h2>Préparer votre première séance</h2><p>Repérez une activité et un horaire, puis contactez le club pour organiser votre venue et connaître les conditions d’essai.</p><p>L’équipe pourra vous conseiller sur le groupe et la tenue à prévoir. Une prise de contact ne réserve pas automatiquement une place.</p>
+<div class="actions"><a class="btn btn-primary" href="/horaires">Choisir un horaire</a><a class="btn btn-outline-primary" href="/contact">Contacter le club pour un essai</a></div></section>
+{{else if eq .Kind "/rules"}}
+<section class="section-panel content-readable">{{if .Editorial}}<p class="reading-text">{{.Editorial}}</p>{{else}}<p>Contactez le club pour obtenir son règlement intérieur.</p>{{end}}<a href="/contact">Contacter le club</a></section>
+{{end}}
+{{end}}
+</div>
+{{end}}
+
+{{define "public-locations"}}{{if .Locations}}{{range .Locations}}<div class="public-location"><h3>{{.Name}}</h3><address>{{.Address}}</address></div>{{end}}{{else}}<p>Les lieux de pratique seront précisés prochainement.</p>{{end}}{{end}}
+{{define "public-contact"}}{{if .Email}}<p><a href="mailto:{{.Email}}">{{.Email}}</a></p>{{end}}{{if .Phone}}<p><a href="tel:{{.Phone}}">{{.Phone}}</a></p>{{end}}{{if not (or .Email .Phone)}}<p>Les coordonnées du club seront bientôt disponibles.</p>{{end}}{{end}}

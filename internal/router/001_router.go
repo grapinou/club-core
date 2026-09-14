@@ -10,16 +10,34 @@ import (
 	"github.com/grapinou/club-core/internal/websecurity"
 )
 
+// New preserves the standalone legacy router API. Production uses NewWithPublic.
 func New(cfg config.Config, queries database.Queries, access *handlers.Access, csrf *websecurity.CSRF, personLists ...http.Handler) *http.ServeMux {
+	return newRouter(cfg, queries, access, csrf, nil, personLists...)
+}
+func NewWithPublic(cfg config.Config, queries database.Queries, access *handlers.Access, csrf *websecurity.CSRF, public http.Handler, personList http.Handler) *http.ServeMux {
+	return newRouter(cfg, queries, access, csrf, public, personList)
+}
+func newRouter(cfg config.Config, queries database.Queries, access *handlers.Access, csrf *websecurity.CSRF, public http.Handler, personLists ...http.Handler) *http.ServeMux {
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /{$}", handlers.HomeHandler(cfg))
-	mux.HandleFunc("GET /club", handlers.ClubHandler(cfg))
-	mux.HandleFunc("GET /contact", handlers.ContactHandler(cfg))
-	mux.HandleFunc("GET /where", handlers.WhereHandler(cfg))
-	mux.HandleFunc("GET /when", handlers.WhenHandler(cfg))
-	mux.HandleFunc("GET /rules", handlers.RulesHandler(cfg))
+	if public != nil {
+		public = csrf.Protect(public)
+		mux.Handle("GET /{$}", public)
+		for _, path := range []string{"/horaires", "/tarifs", "/contact", "/essai", "/rules"} {
+			mux.Handle("GET "+path, public)
+		}
+		for from, to := range map[string]string{"/club": "/", "/where": "/contact#lieux", "/when": "/horaires"} {
+			mux.Handle("GET "+from, http.RedirectHandler(to, http.StatusPermanentRedirect))
+		}
+	} else {
+		mux.HandleFunc("GET /{$}", handlers.HomeHandler(cfg))
+		mux.HandleFunc("GET /club", handlers.ClubHandler(cfg))
+		mux.HandleFunc("GET /contact", handlers.ContactHandler(cfg))
+		mux.HandleFunc("GET /where", handlers.WhereHandler(cfg))
+		mux.HandleFunc("GET /when", handlers.WhenHandler(cfg))
+		mux.HandleFunc("GET /rules", handlers.RulesHandler(cfg))
+	}
 
 	var personList http.Handler = handlers.PersonsListHandler(cfg, queries)
 	if len(personLists) > 0 {

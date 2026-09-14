@@ -63,3 +63,21 @@ footer { background: white; margin-top: 2rem; }
  .auth-panel { margin-block: 0; }
  .actions .btn { max-width: 100%; }
 }
+
+/* Public reference pages share the existing panels, spacing and focus style. */
+.public-content { overflow-wrap: anywhere; }
+.public-hero { padding: clamp(1.25rem, 4vw, 3rem); background: white; border: 1px solid var(--club-border); border-radius: .65rem; }
+.eyebrow { font-weight: 650; letter-spacing: .08em; }
+.public-cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,16rem),1fr)); gap: 1rem; margin-block: 1rem 2rem; }
+.public-columns { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,23rem),1fr)); gap: 1.25rem; }
+.day-navigation { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin-block: 1.25rem; }
+.day-navigation a { padding: .35rem 0; }
+.schedule-days { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,28rem),1fr)); gap: 1.25rem; align-items: start; }
+.schedule-days .section-panel { margin: 0; }
+.public-slot { display: grid; grid-template-columns: 7.5rem minmax(0,1fr); gap: 1rem; padding-block: 1rem; border-top: 1px solid var(--club-border); }
+.public-slot p { margin-bottom: .35rem; }
+.slot-time, .slot-title { font-weight: 650; }
+.slot-group { font-size: .95rem; }
+.slot-location { color: #536270; }
+.site-brand { overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
+@media(max-width:575px) { .public-slot { grid-template-columns: minmax(0,1fr); gap: .15rem; } }

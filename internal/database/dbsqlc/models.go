@@ -53,13 +53,14 @@ type ConsentDefinition struct {
 }
 
 type Group struct {
-	ID          int32
-	ActivityID  int32
-	Name        string
-	Description pgtype.Text
-	IsActive    bool
-	CreatedAt   pgtype.Timestamptz
-	UpdatedAt   pgtype.Timestamptz
+	ID               int32
+	ActivityID       int32
+	Name             string
+	Description      pgtype.Text
+	IsActive         bool
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	ShowNamePublicly bool
 }
 
 type GroupSlot struct {

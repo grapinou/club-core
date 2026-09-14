@@ -137,7 +137,7 @@ func TestRevocationKeepsSession(t *testing.T) {
 func TestPublicRoutesAndLogout(t *testing.T) {
 	f := newFixture(t)
 	b := newBrowser(f.app.Handler)
-	for _, path := range []string{"/", "/club", "/contact", "/where", "/when", "/rules", "/login", "/activate"} {
+	for _, path := range []string{"/", "/horaires", "/tarifs", "/essai", "/contact", "/rules", "/login", "/activate"} {
 		if r := b.call("GET", path, nil); r.Code != 200 {
 			t.Fatal("public route", path, r.Code)
 		}

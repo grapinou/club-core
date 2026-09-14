@@ -13,6 +13,7 @@
     >
 
     <title>{{ .Title }}</title>
+    {{if .MetaDescription}}<meta name="description" content="{{.MetaDescription}}">{{end}}
 
 
     <link
@@ -33,11 +34,13 @@
 <a class="skip-link" href="#main-content">Aller au contenu</a>
 <header class="site-header">
 <nav class="container site-nav" aria-label="Navigation principale">
-<a class="site-brand" href="/"><img src="/static/images/logo.jpeg" alt="" width="32" height="32">{{.SiteName}}</a>
+<a class="site-brand" href="/">{{.SiteName}}</a>
 <div class="public-nav">
 <a href="/" {{if eq .CurrentPath "/"}}aria-current="page"{{end}}>Accueil</a>
-<a href="/club" {{if eq .CurrentPath "/club"}}aria-current="page"{{end}}>Le club</a>
-<a href="/where" {{if or (eq .CurrentPath "/where") (eq .CurrentPath "/when")}}aria-current="page"{{end}}>Où / Quand</a>
+
+<a href="/horaires" {{if eq .CurrentPath "/horaires"}}aria-current="page"{{end}}>Horaires</a>
+<a href="/tarifs" {{if eq .CurrentPath "/tarifs"}}aria-current="page"{{end}}>Adhésions et tarifs</a>
+<a href="/essai" {{if eq .CurrentPath "/essai"}}aria-current="page"{{end}}>Essayer</a>
 <a class="btn btn-primary" href="/join">Adhérer</a>
 <a href="/contact" {{if eq .CurrentPath "/contact"}}aria-current="page"{{end}}>Contact</a>
 {{if .Authenticated}}<a href="/dashboard" {{if eq .CurrentPath "/dashboard"}}aria-current="page"{{end}}>Mon espace</a><a href="/me/account" {{if eq .CurrentPath "/me/account"}}aria-current="page"{{end}}>Mon compte</a>{{else}}<a href="/login" {{if eq .CurrentPath "/login"}}aria-current="page"{{end}}>Connexion</a>{{end}}

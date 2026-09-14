@@ -89,7 +89,8 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, 
 	csrf := websecurity.NewCSRF(runtime.SecureCookies)
 	office := administration.New(db, permissions, m, runtime.Location)
 	officeHandler := handlers.NewAdministrativeHandler(cfg.SiteName, office, permissions)
-	mux := router.New(cfg, queries, access, csrf, http.HandlerFunc(officeHandler.People))
+	publicClub := organization.New(db)
+	mux := router.NewWithPublic(cfg, queries, access, csrf, handlers.NewPublicHandler(publicClub, runtime.Location, cfg.Rules.Description), http.HandlerFunc(officeHandler.People))
 	officeHandler.Register(mux, access, csrf)
 	handlers.NewJoinHandler(cfg.SiteName, applications, submissionLimiter).Register(mux, csrf)
 	guardians := guardianaccess.New(db, permissions, runtime.Location)
@@ -111,7 +112,7 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, 
 	authHandler.Register(mux)
 	authHandler.RegisterRegistrationVerification(mux, verification)
 	return &Application{
-		Organization:             organization.New(db),
+		Organization:             publicClub,
 		Administration:           office,
 		SelfService:              selfService,
 		GuardianAccess:           guardians,

@@ -2,6 +2,7 @@ package views
 
 // SecurityData contains display hints only. Middleware enforces access.
 type SecurityData struct {
+	MetaDescription         string
 	Authenticated           bool
 	CanWritePersons         bool
 	CurrentPath             string

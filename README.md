@@ -280,4 +280,6 @@ go run ./cmd/clubctl seed-budokan --confirm-empty-demo
 go run ./cmd/clubctl describe-club 2026/2027
 ```
 
-Le seed refuse toute base métier déjà peuplée, y compris une seconde exécution. Voir le [rapport et les instructions de migration](docs/reports/2026-09-14-organization-data-and-budokan-seed.md) pour les garde-fous, la provenance et les interprétations provisoires du planning. Les pages publiques historiques ne sont pas encore raccordées à ce catalogue.
+Le seed refuse toute base métier déjà peuplée, y compris une seconde exécution. Voir le [rapport et les instructions de migration](docs/reports/2026-09-14-organization-data-and-budokan-seed.md) pour les garde-fous, la provenance et les interprétations provisoires du planning.
+
+Après application de toutes les migrations, jusqu’à `0027_public_group_name.sql`, le serveur présente ce référentiel sur `/`, `/horaires`, `/tarifs` et `/contact`. `/essai` oriente vers une prise de contact. Le planning sélectionne la saison active contenant la date courante dans `APP_TIMEZONE` ; les montants des adhésions restent à modéliser. Le [rapport frontend PostgreSQL](docs/reports/2026-09-14-public-frontend-postgres.md) décrit la transition depuis JSON, les vérifications et la publication des noms de groupes internes sur une base déjà peuplée.

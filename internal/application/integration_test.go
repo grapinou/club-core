@@ -52,11 +52,11 @@ type fixture struct {
 	person, approver, season, kind, activity int32
 }
 
-func newFixture(t *testing.T) *fixture {
+func newApplicationDatabase(t *testing.T, name string) *pgxpool.Pool {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
-	container, err := postgres.Run(ctx, "postgres:16-alpine", postgres.WithDatabase("club_test"), postgres.WithUsername("club"), postgres.WithPassword("test"), postgres.BasicWaitStrategies())
+	container, err := postgres.Run(ctx, "postgres:16-alpine", postgres.WithDatabase(name), postgres.WithUsername("club"), postgres.WithPassword("test"), postgres.BasicWaitStrategies())
 	testcontainers.CleanupContainer(t, container)
 	if err != nil {
 		t.Fatal(err)
@@ -82,6 +82,13 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
+	return pool
+}
+
+func newFixture(t *testing.T) *fixture {
+	t.Helper()
+	pool := newApplicationDatabase(t, "club_test")
+	var err error
 	f := &fixture{t: t, db: pool, mail: &fakeMailer{}}
 	runtime := config.Runtime{RegistrationVerificationTTL: config.DefaultRegistrationVerificationTTL, BaseURL: "https://club.example.test", SecureCookies: true, ActivationValidity: time.Hour, Location: time.UTC, SMTP: mailer.SMTPConfig{From: "club@example.test"}}
 	f.app, err = NewWithMailer(config.Config{SiteName: "Club Core"}, runtime, pool, f.mail)
