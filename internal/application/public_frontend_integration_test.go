@@ -64,7 +64,17 @@ func TestPublicFrontendPostgres(t *testing.T) {
 			t.Fatal("home", want)
 		}
 	}
+	for _, want := range []string{`src="/static/images/budokan/hero/hero-bureau-mascots.png"`, `hero-bureau-mascots-800.webp 800w`, `src="/static/images/budokan/illustrations/training-jjb.png"`, `training-jjb-800.webp 800w`, `src="/static/images/budokan/illustrations/club-spirit.png"`, `club-spirit-800.webp 800w`} {
+		if !strings.Contains(home, want) {
+			t.Fatal("home visual", want)
+		}
+	}
 	schedule := body("/horaires")
+	for _, want := range []string{`src="/static/images/budokan/illustrations/schedule-jjb.png"`, `schedule-jjb-800.webp 800w`, `alt="" loading="lazy"`} {
+		if !strings.Contains(schedule, want) {
+			t.Fatal("schedule visual", want)
+		}
+	}
 	if strings.Count(schedule, `class="public-slot"`) != 16 {
 		t.Fatal("slot count")
 	}
@@ -75,6 +85,9 @@ func TestPublicFrontendPostgres(t *testing.T) {
 	}
 	for _, path := range []string{"/tarifs", "/contact", "/essai", "/rules"} {
 		body(path)
+	}
+	if trial := body("/essai"); !strings.Contains(trial, `src="/static/images/budokan/illustrations/trial-jjb.png"`) || !strings.Contains(trial, `trial-jjb-800.webp 800w`) || strings.Contains(trial, "schedule-jjb.png") {
+		t.Fatal("trial visual")
 	}
 	contact := body("/contact")
 	if !strings.Contains(contact, "instagram.com/budokan_sud_oise/") {

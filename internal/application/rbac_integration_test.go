@@ -150,6 +150,33 @@ func TestPublicRoutesAndLogout(t *testing.T) {
 	if r.Code != 200 || r.Body.String() != string(static) {
 		t.Fatal("public static")
 	}
+	for _, path := range []string{
+		"/static/images/budokan/hero/hero-bureau-mascots.png",
+		"/static/images/budokan/illustrations/training-jjb.png",
+		"/static/images/budokan/illustrations/club-spirit.png",
+		"/static/images/budokan/illustrations/trial-jjb.png",
+		"/static/images/budokan/illustrations/schedule-jjb.png",
+	} {
+		if image := b.call("GET", path, nil); image.Code != 200 || image.Header().Get("Content-Type") != "image/png" {
+			t.Fatal("public image", path, image.Code, image.Header().Get("Content-Type"))
+		}
+	}
+	for _, path := range []string{
+		"/static/images/budokan/hero/hero-bureau-mascots-800.webp",
+		"/static/images/budokan/hero/hero-bureau-mascots-1600.webp",
+		"/static/images/budokan/illustrations/training-jjb-800.webp",
+		"/static/images/budokan/illustrations/training-jjb-1536.webp",
+		"/static/images/budokan/illustrations/club-spirit-800.webp",
+		"/static/images/budokan/illustrations/club-spirit-1536.webp",
+		"/static/images/budokan/illustrations/trial-jjb-800.webp",
+		"/static/images/budokan/illustrations/trial-jjb-1536.webp",
+		"/static/images/budokan/illustrations/schedule-jjb-800.webp",
+		"/static/images/budokan/illustrations/schedule-jjb-1536.webp",
+	} {
+		if image := b.call("GET", path, nil); image.Code != 200 || image.Header().Get("Content-Type") != "image/webp" {
+			t.Fatal("public WebP", path, image.Code, image.Header().Get("Content-Type"))
+		}
+	}
 	if r = b.call("POST", "/logout", nil); r.Code != 303 || r.Header().Get("Location") != "/login" {
 		t.Fatal("anonymous logout")
 	}

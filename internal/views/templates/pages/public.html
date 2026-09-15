@@ -1,23 +1,37 @@
 {{define "content"}}
 <div class="public-content">
-<header class="page-header {{if eq .Kind "/"}}public-hero{{end}}">
-{{if and (eq .Kind "/") .Club.ShortName}}<p class="eyebrow">{{.Club.ShortName}}</p>{{end}}
-<h1>{{.Heading}}</h1>
 {{if eq .Kind "/"}}
+<header class="page-header public-hero">
+<div class="public-hero__content">
+{{if .Club.ShortName}}<p class="eyebrow">{{.Club.ShortName}}</p>{{end}}
+<h1>{{.Heading}}</h1>
 {{if .Club.Description}}<p class="reading-text">{{.Club.Description}}</p>{{else if .Club.Name}}<p>Découvrez les activités du club et trouvez votre prochain rendez-vous.</p>{{end}}
 <div class="actions"><a class="btn btn-primary" href="/horaires">Voir les horaires</a><a class="btn btn-outline-primary" href="/essai">Faire un essai</a><a href="/contact">Nous contacter</a></div>
-{{end}}
+</div>
+<div class="public-hero__visual">
+<picture class="public-picture">
+<source type="image/webp" srcset="/static/images/budokan/hero/hero-bureau-mascots-800.webp 800w, /static/images/budokan/hero/hero-bureau-mascots-1600.webp 1600w" sizes="(max-width: 767px) calc(100vw - 4rem), 46vw">
+<img src="/static/images/budokan/hero/hero-bureau-mascots.png" width="1774" height="887" alt="Les mascottes du Budokan en tenue de jiu-jitsu brésilien" fetchpriority="high" decoding="async">
+</picture>
+</div>
 </header>
+{{else}}
+<header class="page-header">
+<h1>{{.Heading}}</h1>
+</header>
+{{end}}
 {{if not .Club.Name}}<p class="empty-state">Les informations du club seront bientôt disponibles.</p>
 {{else}}
 {{if eq .Kind "/"}}
-<section aria-labelledby="activities-title"><h2 id="activities-title">À pratiquer au club</h2>
-{{if .Activities}}<ul class="public-cards list-unstyled">{{range .Activities}}<li class="card"><div class="card-body"><h3>{{.}}</h3><a href="/horaires">Consulter les créneaux</a></div></li>{{end}}</ul>{{else}}<p class="empty-state">Les activités seront annoncées prochainement.</p>{{end}}</section>
+<section class="public-feature" aria-labelledby="activities-title"><div class="public-feature__content"><h2 id="activities-title">À pratiquer au club</h2>
+{{if .Activities}}<ul class="public-cards list-unstyled">{{range .Activities}}<li class="card"><div class="card-body"><h3>{{.}}</h3><a href="/horaires">Consulter les créneaux</a></div></li>{{end}}</ul>{{else}}<p class="empty-state">Les activités seront annoncées prochainement.</p>{{end}}</div>
+<picture class="public-picture"><source type="image/webp" srcset="/static/images/budokan/illustrations/training-jjb-800.webp 800w, /static/images/budokan/illustrations/training-jjb-1536.webp 1536w" sizes="(max-width: 767px) calc(100vw - 3rem), 36vw"><img class="public-illustration" src="/static/images/budokan/illustrations/training-jjb.png" width="1536" height="1024" alt="" loading="lazy" decoding="async"></picture></section>
 <div class="public-columns"><section class="section-panel" aria-labelledby="home-location-title"><h2 id="home-location-title">Où nous retrouver</h2>{{template "public-locations" .Club}}<p><a href="/contact#lieux">Toutes les informations pratiques</a></p></section>
-<section class="section-panel" aria-labelledby="home-contact-title"><h2 id="home-contact-title">Une question avant de venir ?</h2><p>L’équipe du club vous aide à choisir un groupe et à préparer votre première visite.</p>{{template "public-contact" .Club}}<div class="actions"><a href="/tarifs">Adhésions et tarifs</a></div></section></div>
+<section class="section-panel public-community" aria-labelledby="home-contact-title"><picture class="public-picture public-picture--compact"><source type="image/webp" srcset="/static/images/budokan/illustrations/club-spirit-800.webp 800w, /static/images/budokan/illustrations/club-spirit-1536.webp 1536w" sizes="(max-width: 767px) calc(100vw - 3rem), 36vw"><img class="public-illustration public-illustration--compact" src="/static/images/budokan/illustrations/club-spirit.png" width="1536" height="1024" alt="" loading="lazy" decoding="async"></picture><h2 id="home-contact-title">Une question avant de venir ?</h2><p>L’équipe du club vous aide à choisir un groupe et à préparer votre première visite.</p>{{template "public-contact" .Club}}<div class="actions"><a href="/tarifs">Adhésions et tarifs</a></div></section></div>
 {{else if eq .Kind "/horaires"}}
-{{if .Season}}<p class="page-intro">Saison <strong>{{.Season}}</strong> · Planning hebdomadaire en vigueur.</p>
+{{if .Season}}<div class="schedule-intro"><div class="schedule-intro__content"><p class="page-intro">Saison <strong>{{.Season}}</strong> · Planning hebdomadaire en vigueur.</p>
 <p class="page-intro">Les âges indiqués sont des repères pédagogiques. L’équipe peut orienter chaque enfant selon son âge, son gabarit et sa maturité.</p>
+ </div><picture class="public-picture schedule-intro__visual"><source type="image/webp" srcset="/static/images/budokan/illustrations/schedule-jjb-800.webp 800w, /static/images/budokan/illustrations/schedule-jjb-1536.webp 1536w" sizes="(max-width: 767px) calc(100vw - 3rem), 34vw"><img class="public-illustration public-illustration--schedule" src="/static/images/budokan/illustrations/schedule-jjb.png" width="1536" height="1024" alt="" loading="lazy" decoding="async"></picture></div>
 <nav class="day-navigation" aria-label="Jours du planning">{{range .Days}}<a href="#jour-{{.Name}}">{{.Name}}</a>{{end}}</nav>
 <div class="schedule-days">{{range .Days}}<section class="section-panel" aria-labelledby="jour-{{.Name}}"><h2 id="jour-{{.Name}}">{{.Name}}</h2>
 {{if .Slots}}<ul class="list-unstyled schedule-slots">{{range .Slots}}<li class="public-slot">
@@ -40,8 +54,9 @@
 {{if .Club.Links}}<h3>Retrouvez-nous aussi</h3><ul>{{range .Club.Links}}<li><a href="{{.URL}}">{{.Label}}</a></li>{{end}}</ul>{{end}}
 </section><section id="lieux" class="section-panel"><h2>Lieux de pratique</h2>{{template "public-locations" .Club}}<a href="/horaires">Voir les horaires</a></section></div>
 {{else if eq .Kind "/essai"}}
-<section class="section-panel content-readable"><h2>Préparer votre première séance</h2><p>Repérez une activité et un horaire, puis contactez le club pour organiser votre venue et connaître les conditions d’essai.</p><p>L’équipe pourra vous conseiller sur le groupe et la tenue à prévoir. Une prise de contact ne réserve pas automatiquement une place.</p>
-<div class="actions"><a class="btn btn-primary" href="/horaires">Choisir un horaire</a><a class="btn btn-outline-primary" href="/contact">Contacter le club pour un essai</a></div></section>
+<section class="section-panel public-feature public-feature--trial"><div class="public-feature__content"><h2>Préparer votre première séance</h2><p>Repérez une activité et un horaire, puis contactez le club pour organiser votre venue et connaître les conditions d’essai.</p><p>L’équipe pourra vous conseiller sur le groupe et la tenue à prévoir. Une prise de contact ne réserve pas automatiquement une place.</p>
+<div class="actions"><a class="btn btn-primary" href="/horaires">Choisir un horaire</a><a class="btn btn-outline-primary" href="/contact">Contacter le club pour un essai</a></div></div>
+<picture class="public-picture"><source type="image/webp" srcset="/static/images/budokan/illustrations/trial-jjb-800.webp 800w, /static/images/budokan/illustrations/trial-jjb-1536.webp 1536w" sizes="(max-width: 767px) calc(100vw - 3rem), 46vw"><img class="public-illustration" src="/static/images/budokan/illustrations/trial-jjb.png" width="1536" height="1024" alt="" decoding="async"></picture></section>
 {{else if eq .Kind "/rules"}}
 <section class="section-panel content-readable">{{if .Editorial}}<p class="reading-text">{{.Editorial}}</p>{{else}}<p>Contactez le club pour obtenir son règlement intérieur.</p>{{end}}<a href="/contact">Contacter le club</a></section>
 {{end}}
