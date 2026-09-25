@@ -187,17 +187,22 @@ type MembershipType struct {
 }
 
 type Organization struct {
-	ID                    int32
-	Name                  string
-	ShortName             pgtype.Text
-	Description           pgtype.Text
-	PublicEmail           pgtype.Text
-	PublicPhone           pgtype.Text
-	CorrespondenceAddress pgtype.Text
-	WebsiteUrl            pgtype.Text
-	IsActive              bool
-	CreatedAt             pgtype.Timestamptz
-	UpdatedAt             pgtype.Timestamptz
+	ID                         int32
+	Name                       string
+	ShortName                  pgtype.Text
+	Description                pgtype.Text
+	PublicEmail                pgtype.Text
+	PublicPhone                pgtype.Text
+	CorrespondenceAddress      pgtype.Text
+	WebsiteUrl                 pgtype.Text
+	IsActive                   bool
+	CreatedAt                  pgtype.Timestamptz
+	UpdatedAt                  pgtype.Timestamptz
+	PublicPhoneLabel           pgtype.Text
+	TrialSessionDescription    pgtype.Text
+	TrialItemsToBring          []string
+	TrialEquipmentOffer        pgtype.Text
+	TrialEquipmentDetailPrompt pgtype.Text
 }
 
 type OrganizationLink struct {
@@ -210,6 +215,16 @@ type OrganizationLink struct {
 	IsActive       bool
 	CreatedAt      pgtype.Timestamptz
 	UpdatedAt      pgtype.Timestamptz
+}
+
+type OrganizationPublicImage struct {
+	OrganizationID int32
+	Placement      string
+	Src            string
+	WebpSrcset     string
+	Alt            string
+	Width          int32
+	Height         int32
 }
 
 type Person struct {

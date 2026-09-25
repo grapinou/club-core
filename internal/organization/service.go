@@ -18,6 +18,7 @@ type Identity struct {
 	Organization dbsqlc.Organization
 	Locations    []dbsqlc.Location
 	Links        []dbsqlc.OrganizationLink
+	Images       []dbsqlc.OrganizationPublicImage
 }
 
 func (s *Service) Identity(ctx context.Context) (Identity, error) {
@@ -32,6 +33,10 @@ func (s *Service) Identity(ctx context.Context) (Identity, error) {
 		return result, err
 	}
 	result.Links, err = s.queries.ListOrganizationLinks(ctx, result.Organization.ID)
+	if err != nil {
+		return result, err
+	}
+	result.Images, err = s.queries.ListOrganizationPublicImages(ctx, result.Organization.ID)
 	return result, err
 }
 

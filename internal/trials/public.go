@@ -37,12 +37,20 @@ type PublicBooking struct {
 	FirstName, LastName, BirthDate, Email, Phone                                    string
 	Minor                                                                           bool
 	GuardianFirstName, GuardianLastName, GuardianEmail, GuardianPhone, Relationship string
+	EquipmentNeeded                                                                 bool
+	EquipmentDetails                                                                string
 }
+type PublicPerson struct{ FirstName, LastName, BirthDate, Email, Phone string }
 type PublicConfirmation struct {
-	TrialID   int32
-	Offering  PublicOffering
-	Date      string
-	FirstName string
+	TrialID          int32
+	Offering         PublicOffering
+	Date             string
+	FirstName        string
+	Registrant       PublicPerson
+	Guardian         *PublicPerson
+	EquipmentNeeded  bool
+	EquipmentDetails string
+	EmailTo          string
 }
 
 var ErrInvalidPublicBooking = errors.New("invalid public booking")
@@ -107,6 +115,13 @@ func (s *PublicService) Book(ctx context.Context, b PublicBooking, now time.Time
 	b.GuardianLastName = strings.TrimSpace(b.GuardianLastName)
 	b.GuardianEmail = strings.TrimSpace(b.GuardianEmail)
 	b.GuardianPhone = strings.TrimSpace(b.GuardianPhone)
+	b.EquipmentDetails = strings.Join(strings.Fields(b.EquipmentDetails), " ")
+	if len(b.EquipmentDetails) > 500 {
+		return result, ErrInvalidPublicBooking
+	}
+	if !b.EquipmentNeeded {
+		b.EquipmentDetails = ""
+	}
 	birth, e := time.Parse("2006-01-02", b.BirthDate)
 	date, ed := time.Parse("2006-01-02", b.Date)
 	if e != nil || ed != nil || !validName(b.FirstName) || !validName(b.LastName) || b.Offering.ActivityID <= 0 || b.Offering.GroupID <= 0 || b.Offering.SlotID <= 0 {
@@ -147,6 +162,13 @@ func (s *PublicService) Book(ctx context.Context, b PublicBooking, now time.Time
 	if err != nil {
 		return result, err
 	}
+	var equipmentPrompt pgtype.Text
+	if err = tx.QueryRow(ctx, "SELECT trial_equipment_detail_prompt FROM organizations WHERE is_active FOR SHARE").Scan(&equipmentPrompt); err != nil {
+		return result, err
+	}
+	if b.EquipmentNeeded && equipmentPrompt.Valid && b.EquipmentDetails == "" {
+		return result, ErrInvalidPublicBooking
+	}
 	q := dbsqlc.New(tx)
 	person, err := q.CreatePerson(ctx, dbsqlc.CreatePersonParams{FirstName: b.FirstName, LastName: b.LastName, BirthDate: pgtype.Date{Time: birth, Valid: true}, Email: textValue(b.Email), PhoneNumber: textValue(b.Phone)})
 	if err != nil {
@@ -162,14 +184,28 @@ func (s *PublicService) Book(ctx context.Context, b PublicBooking, now time.Time
 			return result, err
 		}
 	}
-	trial, err := s.trials.ScheduleTx(ctx, tx, dbsqlc.CreateTrialParams{PersonID: person.ID, ActivityID: activity, GroupID: pgtype.Int4{Int32: group, Valid: true}, GroupSlotID: pgtype.Int4{Int32: b.Offering.SlotID, Valid: true}, TrialDate: pgtype.Date{Time: date, Valid: true}})
+	var notes pgtype.Text
+	if b.EquipmentNeeded {
+		notes = pgtype.Text{String: "Matériel demandé pour l’essai : oui", Valid: true}
+		if b.EquipmentDetails != "" {
+			notes.String += ". Précision : " + b.EquipmentDetails
+		}
+	}
+	trial, err := s.trials.ScheduleTx(ctx, tx, dbsqlc.CreateTrialParams{PersonID: person.ID, ActivityID: activity, GroupID: pgtype.Int4{Int32: group, Valid: true}, GroupSlotID: pgtype.Int4{Int32: b.Offering.SlotID, Valid: true}, TrialDate: pgtype.Date{Time: date, Valid: true}, Notes: notes})
 	if err != nil {
 		return result, fmt.Errorf("schedule public trial: %w", err)
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return result, err
 	}
-	result = PublicConfirmation{TrialID: trial.ID, Date: b.Date, FirstName: b.FirstName, Offering: PublicOffering{ActivityID: activity, GroupID: group, SlotID: b.Offering.SlotID, Activity: activityName, Group: groupName, Practice: practice, Start: start, End: end, Location: location, Address: addr}}
+	result = PublicConfirmation{TrialID: trial.ID, Date: b.Date, FirstName: b.FirstName, Registrant: PublicPerson{b.FirstName, b.LastName, b.BirthDate, b.Email, b.Phone}, EquipmentNeeded: b.EquipmentNeeded, EquipmentDetails: b.EquipmentDetails,
+		Offering: PublicOffering{ActivityID: activity, GroupID: group, SlotID: b.Offering.SlotID, Activity: activityName, Group: groupName, Practice: practice, Start: start, End: end, Location: location, Address: addr}}
+	if minor {
+		result.Guardian = &PublicPerson{FirstName: b.GuardianFirstName, LastName: b.GuardianLastName, Email: b.GuardianEmail, Phone: b.GuardianPhone}
+		result.EmailTo = b.GuardianEmail
+	} else {
+		result.EmailTo = b.Email
+	}
 	return result, nil
 }
 func validRelationship(s string) bool {

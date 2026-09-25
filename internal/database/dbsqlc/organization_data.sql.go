@@ -38,7 +38,7 @@ func (q *Queries) CreateLocation(ctx context.Context, arg CreateLocationParams) 
 
 const createOrganization = `-- name: CreateOrganization :one
 INSERT INTO organizations (name,short_name,description,public_email,public_phone,correspondence_address,website_url)
-VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, name, short_name, description, public_email, public_phone, correspondence_address, website_url, is_active, created_at, updated_at
+VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, name, short_name, description, public_email, public_phone, correspondence_address, website_url, is_active, created_at, updated_at, public_phone_label, trial_session_description, trial_items_to_bring, trial_equipment_offer, trial_equipment_detail_prompt
 `
 
 type CreateOrganizationParams struct {
@@ -74,6 +74,11 @@ func (q *Queries) CreateOrganization(ctx context.Context, arg CreateOrganization
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PublicPhoneLabel,
+		&i.TrialSessionDescription,
+		&i.TrialItemsToBring,
+		&i.TrialEquipmentOffer,
+		&i.TrialEquipmentDetailPrompt,
 	)
 	return i, err
 }
@@ -114,7 +119,7 @@ func (q *Queries) CreateOrganizationLink(ctx context.Context, arg CreateOrganiza
 }
 
 const getActiveOrganization = `-- name: GetActiveOrganization :one
-SELECT id, name, short_name, description, public_email, public_phone, correspondence_address, website_url, is_active, created_at, updated_at FROM organizations WHERE is_active
+SELECT id, name, short_name, description, public_email, public_phone, correspondence_address, website_url, is_active, created_at, updated_at, public_phone_label, trial_session_description, trial_items_to_bring, trial_equipment_offer, trial_equipment_detail_prompt FROM organizations WHERE is_active
 `
 
 func (q *Queries) GetActiveOrganization(ctx context.Context) (Organization, error) {
@@ -132,6 +137,11 @@ func (q *Queries) GetActiveOrganization(ctx context.Context) (Organization, erro
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PublicPhoneLabel,
+		&i.TrialSessionDescription,
+		&i.TrialItemsToBring,
+		&i.TrialEquipmentOffer,
+		&i.TrialEquipmentDetailPrompt,
 	)
 	return i, err
 }
@@ -209,6 +219,38 @@ func (q *Queries) ListOrganizationLocations(ctx context.Context, organizationID 
 			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOrganizationPublicImages = `-- name: ListOrganizationPublicImages :many
+SELECT organization_id, placement, src, webp_srcset, alt, width, height FROM organization_public_images WHERE organization_id=$1 ORDER BY placement
+`
+
+func (q *Queries) ListOrganizationPublicImages(ctx context.Context, organizationID int32) ([]OrganizationPublicImage, error) {
+	rows, err := q.db.Query(ctx, listOrganizationPublicImages, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OrganizationPublicImage
+	for rows.Next() {
+		var i OrganizationPublicImage
+		if err := rows.Scan(
+			&i.OrganizationID,
+			&i.Placement,
+			&i.Src,
+			&i.WebpSrcset,
+			&i.Alt,
+			&i.Width,
+			&i.Height,
 		); err != nil {
 			return nil, err
 		}
@@ -348,7 +390,7 @@ func (q *Queries) UpdateLocation(ctx context.Context, arg UpdateLocationParams) 
 
 const updateOrganization = `-- name: UpdateOrganization :one
 UPDATE organizations SET name=$2,short_name=$3,description=$4,public_email=$5,public_phone=$6,
- correspondence_address=$7,website_url=$8,is_active=$9,updated_at=NOW() WHERE id=$1 RETURNING id, name, short_name, description, public_email, public_phone, correspondence_address, website_url, is_active, created_at, updated_at
+ correspondence_address=$7,website_url=$8,is_active=$9,updated_at=NOW() WHERE id=$1 RETURNING id, name, short_name, description, public_email, public_phone, correspondence_address, website_url, is_active, created_at, updated_at, public_phone_label, trial_session_description, trial_items_to_bring, trial_equipment_offer, trial_equipment_detail_prompt
 `
 
 type UpdateOrganizationParams struct {
@@ -388,6 +430,11 @@ func (q *Queries) UpdateOrganization(ctx context.Context, arg UpdateOrganization
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PublicPhoneLabel,
+		&i.TrialSessionDescription,
+		&i.TrialItemsToBring,
+		&i.TrialEquipmentOffer,
+		&i.TrialEquipmentDetailPrompt,
 	)
 	return i, err
 }

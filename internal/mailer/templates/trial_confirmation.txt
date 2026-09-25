@@ -1,0 +1,19 @@
+Votre essai est enregistré pour {{.Registrant}}.
+
+Activité : {{.Activity}}
+Groupe : {{.Group}}
+{{if .Practice}}Séance : {{.Practice}}
+{{end}}Date : {{.Date}}
+Horaire : {{.Start}}–{{.End}}
+Lieu : {{.Location}}
+{{if .Address}}{{.Address}}
+{{end}}{{if .EquipmentNeeded}}Matériel demandé : oui
+{{if .EquipmentDetails}}Précision : {{.EquipmentDetails}}
+{{end}}{{if .EquipmentOffer}}{{.EquipmentOffer}}
+{{end}}{{end}}{{if .SessionDescription}}
+Première séance : {{.SessionDescription}}
+{{end}}{{if .ItemsToBring}}
+À apporter : {{.ItemsToBring}}
+{{end}}
+À bientôt,
+{{.Club}}

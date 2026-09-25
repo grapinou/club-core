@@ -14,10 +14,17 @@ import (
 // consent instruments and all administrative data.
 type PublicLocation struct{ Name, Address string }
 type PublicLink struct{ Label, URL string }
+type PublicImage struct {
+	Src, WebPSrcset, Alt string
+	Width, Height        int32
+}
 type PublicClub struct {
-	Name, ShortName, Description, Email, Phone, Website string
-	Locations                                           []PublicLocation
-	Links                                               []PublicLink
+	Name, ShortName, Description, Email, Phone, PhoneLabel, Website          string
+	TrialSessionDescription, TrialEquipmentOffer, TrialEquipmentDetailPrompt string
+	TrialItemsToBring                                                        []string
+	Images                                                                   map[string]PublicImage
+	Locations                                                                []PublicLocation
+	Links                                                                    []PublicLink
 }
 type PublicSlot struct {
 	Weekday                                                  int16
@@ -39,7 +46,8 @@ func (s *Service) PublicIdentity(ctx context.Context) (PublicClub, error) {
 		return PublicClub{}, err
 	}
 	o := identity.Organization
-	c := PublicClub{Name: o.Name, ShortName: o.ShortName.String, Description: o.Description.String, Email: o.PublicEmail.String, Phone: o.PublicPhone.String, Website: o.WebsiteUrl.String}
+	c := PublicClub{Name: o.Name, ShortName: o.ShortName.String, Description: o.Description.String, Email: o.PublicEmail.String, Phone: o.PublicPhone.String, PhoneLabel: o.PublicPhoneLabel.String, Website: o.WebsiteUrl.String,
+		TrialSessionDescription: o.TrialSessionDescription.String, TrialItemsToBring: o.TrialItemsToBring, TrialEquipmentOffer: o.TrialEquipmentOffer.String, TrialEquipmentDetailPrompt: o.TrialEquipmentDetailPrompt.String, Images: map[string]PublicImage{}}
 	for _, l := range identity.Locations {
 		if l.IsActive {
 			c.Locations = append(c.Locations, PublicLocation{l.Name, l.Address})
@@ -49,6 +57,9 @@ func (s *Service) PublicIdentity(ctx context.Context) (PublicClub, error) {
 		if l.IsActive {
 			c.Links = append(c.Links, PublicLink{l.Label, l.Url})
 		}
+	}
+	for _, image := range identity.Images {
+		c.Images[image.Placement] = PublicImage{image.Src, image.WebpSrcset, image.Alt, image.Width, image.Height}
 	}
 	return c, nil
 }

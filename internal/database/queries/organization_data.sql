@@ -43,3 +43,6 @@ ORDER BY gs.weekday,gs.start_time,gs.id;
 
 -- name: GetReferenceSeason :one
 SELECT * FROM seasons WHERE name=$1;
+
+-- name: ListOrganizationPublicImages :many
+SELECT * FROM organization_public_images WHERE organization_id=$1 ORDER BY placement;

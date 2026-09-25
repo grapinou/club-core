@@ -91,7 +91,7 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, 
 	office := administration.New(db, permissions, m, runtime.Location)
 	officeHandler := handlers.NewAdministrativeHandler(cfg.SiteName, office, permissions)
 	publicClub := organization.New(db)
-	mux := router.NewWithPublic(cfg, queries, access, csrf, handlers.NewPublicHandler(publicClub, runtime.Location, cfg.Rules.Description, trials.NewPublic(db, runtime.Location), submissionLimiter), http.HandlerFunc(officeHandler.People))
+	mux := router.NewWithPublic(cfg, queries, access, csrf, handlers.NewPublicHandler(publicClub, runtime.Location, cfg.Rules.Description, trials.NewPublic(db, runtime.Location), submissionLimiter, sender, runtime.SMTP.From), http.HandlerFunc(officeHandler.People))
 	officeHandler.Register(mux, access, csrf)
 	handlers.NewJoinHandler(cfg.SiteName, applications, submissionLimiter).Register(mux, csrf)
 	guardians := guardianaccess.New(db, permissions, runtime.Location)

@@ -8,6 +8,9 @@ DB_NAME="clubcore_demo"
 DB_USER="clubcore"
 DB_PASSWORD="clubcore"
 DB_PORT="5433"
+MAILPIT_CONTAINER="club-core-mailpit"
+MAILPIT_SMTP_PORT="1025"
+MAILPIT_WEB_PORT="8025"
 
 export DATABASE_URL="postgres://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}?sslmode=disable"
 export APP_BASE_URL="http://localhost:8080"
@@ -23,6 +26,41 @@ if ! docker info >/dev/null 2>&1; then
     exit 1
 fi
 echo "✓ Docker"
+
+# Capture locale des emails, sauf si un transport est choisi explicitement.
+if [ -z "${EMAIL_TRANSPORT:-}" ]; then
+    if docker inspect "$MAILPIT_CONTAINER" >/dev/null 2>&1; then
+        if [ "$(docker inspect -f '{{.State.Running}}' "$MAILPIT_CONTAINER")" != "true" ]; then
+            echo "→ Démarrage de Mailpit..."
+            docker start "$MAILPIT_CONTAINER" >/dev/null
+        fi
+    else
+        echo "→ Création du conteneur Mailpit..."
+        docker run -d \
+            --name "$MAILPIT_CONTAINER" \
+            -p "127.0.0.1:${MAILPIT_SMTP_PORT}:1025" \
+            -p "127.0.0.1:${MAILPIT_WEB_PORT}:8025" \
+            axllent/mailpit:v1.31.1 >/dev/null
+    fi
+    echo "→ Attente de Mailpit..."
+    for attempt in $(seq 1 30); do
+        if curl --silent --fail "http://localhost:${MAILPIT_WEB_PORT}/" >/dev/null; then
+            break
+        fi
+        if [ "$attempt" -eq 30 ]; then
+            echo "✗ Mailpit ne répond pas sur localhost:${MAILPIT_WEB_PORT}."
+            exit 1
+        fi
+        sleep 1
+    done
+    export EMAIL_TRANSPORT="smtp"
+    export SMTP_HOST="localhost"
+    export SMTP_PORT="$MAILPIT_SMTP_PORT"
+    export SMTP_FROM="essais@clubcore.test"
+    export SMTP_STARTTLS="false"
+    unset SMTP_USERNAME SMTP_PASSWORD
+    echo "✓ Mailpit prêt"
+fi
 
 # PostgreSQL
 if docker inspect "$CONTAINER" >/dev/null 2>&1; then
@@ -92,6 +130,13 @@ if [ "$BUSINESS_ROWS" = "0" ]; then
     go run ./cmd/clubctl seed-budokan --confirm-empty-demo
     echo "✓ Données Budokan"
 else
+    IS_BUDOKAN="$(
+        docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -tAc \
+        "SELECT EXISTS(SELECT 1 FROM organizations WHERE is_active AND name='Budokan Sud Oise' AND public_email='budokansud.oise@gmail.com')"
+    )"
+    if [ "$IS_BUDOKAN" = "t" ]; then
+        go run ./cmd/clubctl upgrade-budokan-demo --confirm-demo >/dev/null
+    fi
     echo "✓ Données de démonstration présentes"
 fi
 
@@ -102,6 +147,9 @@ echo
 echo " Site :       http://localhost:8080"
 echo " Base :       ${DB_NAME}"
 echo " PostgreSQL : localhost:${DB_PORT}"
+if [ "${SMTP_HOST:-}" = "localhost" ] && [ "${SMTP_PORT:-}" = "$MAILPIT_SMTP_PORT" ]; then
+    echo " Mailpit :    http://localhost:${MAILPIT_WEB_PORT} (SMTP localhost:${MAILPIT_SMTP_PORT})"
+fi
 echo "──────────────────────────────────────────"
 echo
 echo "Ctrl+C arrête le serveur."

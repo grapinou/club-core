@@ -41,7 +41,7 @@
 <a href="/horaires" {{if eq .CurrentPath "/horaires"}}aria-current="page"{{end}}>Horaires</a>
 <a href="/tarifs" {{if eq .CurrentPath "/tarifs"}}aria-current="page"{{end}}>Adhésions et tarifs</a>
 <a href="/essai" {{if eq .CurrentPath "/essai"}}aria-current="page"{{end}}>Essayer</a>
-<a class="btn btn-primary" href="/join">Adhérer</a>
+<a href="/join">Adhérer</a>
 <a href="/contact" {{if eq .CurrentPath "/contact"}}aria-current="page"{{end}}>Contact</a>
 {{if .Authenticated}}<a href="/dashboard" {{if eq .CurrentPath "/dashboard"}}aria-current="page"{{end}}>Mon espace</a><a href="/me/account" {{if eq .CurrentPath "/me/account"}}aria-current="page"{{end}}>Mon compte</a>{{else}}<a href="/login" {{if eq .CurrentPath "/login"}}aria-current="page"{{end}}>Connexion</a>{{end}}
 </div></nav>

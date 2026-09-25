@@ -1,6 +1,7 @@
 package application
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"github.com/grapinou/club-core/internal/config"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/demodata"
+	"github.com/grapinou/club-core/internal/mailer"
 	"github.com/grapinou/club-core/internal/trials"
 )
 
@@ -34,6 +36,21 @@ func TestPublicTrialBooking(t *testing.T) {
 	offers, err := service.Offerings(ctx, now)
 	if err != nil || len(offers) == 0 {
 		t.Fatalf("offerings: %v, %d", err, len(offers))
+	}
+	var mondayFound bool
+	for _, o := range offers {
+		if o.Weekday == 1 && o.Start == "20:15" {
+			mondayFound = true
+			if o.Group != "JJB Adolescents et Adultes" || o.Practice != "Préparation physique / Jiu-Jitsu Brésilien" {
+				t.Fatal("Monday session attached to wrong group", o)
+			}
+		}
+		if o.Group == "JJB pratiques spécifiques" {
+			t.Fatal("technical group offered")
+		}
+	}
+	if !mondayFound {
+		t.Fatal("Monday session not offered")
 	}
 	var chosen trials.PublicOffering
 	for _, o := range offers {
@@ -86,12 +103,18 @@ func TestPublicTrialBooking(t *testing.T) {
 	child.GuardianEmail = "parent@example.test"
 	child.GuardianPhone = "0605060708"
 	child.Relationship = "mother"
+	child.EquipmentNeeded = true
+	child.EquipmentDetails = "1,42 m"
 	minorConfirm, err := service.Book(ctx, child, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if count("persons") != beforeP+3 || count("person_guardians") != 1 || count("trial_registrations") != beforeT+2 {
 		t.Fatal("minor booking incomplete")
+	}
+	var notes string
+	if err := db.QueryRow(ctx, "SELECT notes FROM trial_registrations WHERE id=$1", minorConfirm.TrialID).Scan(&notes); err != nil || !strings.Contains(notes, "1,42 m") {
+		t.Fatalf("equipment note: %q %v", notes, err)
 	}
 	var guardianEmail string
 	if err := db.QueryRow(ctx, `SELECT p.email FROM trial_registrations t JOIN person_guardians g ON g.child_person_id=t.person_id JOIN persons p ON p.id=g.guardian_person_id WHERE t.id=$1`, minorConfirm.TrialID).Scan(&guardianEmail); err != nil || guardianEmail != "parent@example.test" {
@@ -151,16 +174,22 @@ func TestPublicTrialBooking(t *testing.T) {
 			exec("UPDATE seasons SET is_active=true")
 		})
 	}
-	app, err := NewWithMailer(config.Config{SiteName: "Club Core"}, config.Runtime{Location: time.UTC, ActivationValidity: time.Hour, RegistrationVerificationTTL: time.Hour}, db, &fakeMailer{})
+	mail := &fakeMailer{}
+	app, err := NewWithMailer(config.Config{SiteName: "Club Core"}, config.Runtime{Location: time.UTC, ActivationValidity: time.Hour, RegistrationVerificationTTL: time.Hour, SMTP: mailer.SMTPConfig{From: "club@example.test"}}, db, mail)
 	if err != nil {
 		t.Fatal(err)
 	}
+	activityPage := httptest.NewRecorder()
+	app.Handler.ServeHTTP(activityPage, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/essai?activity=%d", chosen.ActivityID), nil))
+	if activityPage.Code != 200 || !strings.Contains(activityPage.Body.String(), `action="/essai#choix-seance"`) || !strings.Contains(activityPage.Body.String(), `id="choix-seance"`) || !strings.Contains(activityPage.Body.String(), `action="/essai#choix-date"`) {
+		t.Fatal("activity selection does not lead to the session step")
+	}
 	get := httptest.NewRecorder()
 	app.Handler.ServeHTTP(get, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/essai?activity=%d&slot=%d", chosen.ActivityID, chosen.SlotID), nil))
-	if get.Code != 200 || !strings.Contains(get.Body.String(), "Enregistrer mon essai") {
+	if get.Code != 200 || !strings.Contains(get.Body.String(), "Enregistrer mon essai") || !strings.Contains(get.Body.String(), `id="choix-date"`) {
 		t.Fatalf("form: %d %s", get.Code, get.Body.String())
 	}
-	values := url.Values{"activity": {fmt.Sprint(chosen.ActivityID)}, "slot": {fmt.Sprint(chosen.SlotID)}, "date": {chosen.Dates[0]}, "first_name": {"Bruno"}, "last_name": {"Visiteur"}, "birth_date": {birth}, "email": {"bruno@example.test"}, "phone": {"0612345678"}, "minor": {"no"}}
+	values := url.Values{"activity": {fmt.Sprint(chosen.ActivityID)}, "slot": {fmt.Sprint(chosen.SlotID)}, "date": {chosen.Dates[0]}, "first_name": {"Bruno"}, "last_name": {"Visiteur"}, "birth_date": {birth}, "email": {"bruno@example.test"}, "phone": {"0612345678"}, "minor": {"no"}, "equipment_needed": {"no"}}
 	var cookie *http.Cookie
 	for _, c := range get.Result().Cookies() {
 		if c.Name == "club_csrf" {
@@ -182,6 +211,36 @@ func TestPublicTrialBooking(t *testing.T) {
 	if count("trial_registrations") != beforeT+3 {
 		t.Fatal("HTTP booking not saved")
 	}
+	if len(mail.messages) != 1 || mail.messages[0].To != "bruno@example.test" || !strings.Contains(mail.messages[0].Text, chosen.Location) {
+		t.Fatal("adult confirmation email")
+	}
+	for _, want := range []string{chosen.Activity, chosen.Dates[0], chosen.Start, chosen.End, chosen.Location, "À apporter", "Confirmation de votre essai"} {
+		if !strings.Contains(mail.messages[0].Text+mail.messages[0].Subject, want) {
+			t.Fatalf("adult email missing %q", want)
+		}
+	}
+	var adultNotes *string
+	if err := db.QueryRow(ctx, "SELECT notes FROM trial_registrations WHERE person_id=(SELECT id FROM persons WHERE email='bruno@example.test')").Scan(&adultNotes); err != nil || adultNotes != nil {
+		t.Fatalf("no equipment should leave notes empty: %v %v", adultNotes, err)
+	}
+	mail.err = errors.New("relay unavailable")
+	minorValues := url.Values{"activity": {fmt.Sprint(chosen.ActivityID)}, "slot": {fmt.Sprint(chosen.SlotID)}, "date": {chosen.Dates[0]}, "first_name": {"Lina"}, "last_name": {"Visiteur"}, "birth_date": {now.AddDate(-9, 0, 0).Format("2006-01-02")}, "minor": {"yes"}, "guardian_first_name": {"Nora"}, "guardian_last_name": {"Visiteur"}, "guardian_email": {"nora@example.test"}, "guardian_phone": {"0600000000"}, "relationship": {"mother"}, "equipment_needed": {"yes"}, "equipment_details": {"1,40 m"}, "csrf_token": {cookie.Value}}
+	minorRequest := httptest.NewRequest(http.MethodPost, "/essai", strings.NewReader(minorValues.Encode()))
+	minorRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	minorRequest.AddCookie(cookie)
+	minorPost := httptest.NewRecorder()
+	app.Handler.ServeHTTP(minorPost, minorRequest)
+	if minorPost.Code != 200 || !strings.Contains(minorPost.Body.String(), "Nora Visiteur") || !strings.Contains(minorPost.Body.String(), "nora@example.test") || !strings.Contains(minorPost.Body.String(), "1,40 m") {
+		t.Fatalf("minor confirmation: %d %s", minorPost.Code, minorPost.Body.String())
+	}
+	if count("trial_registrations") != beforeT+4 || len(mail.messages) != 2 || mail.messages[1].To != "nora@example.test" {
+		t.Fatal("email failure affected booking")
+	}
+	for _, want := range []string{chosen.Activity, chosen.Dates[0], chosen.Start, chosen.End, chosen.Location, "Matériel demandé : oui", "1,40 m"} {
+		if !strings.Contains(mail.messages[1].Text, want) {
+			t.Fatalf("minor email missing %q", want)
+		}
+	}
 }
 
 func TestPublicTrialVisibleInOffice(t *testing.T) {
@@ -194,7 +253,7 @@ func TestPublicTrialVisibleInOffice(t *testing.T) {
 	if err != nil || len(offers) != 1 {
 		t.Fatalf("offerings %v %d", err, len(offers))
 	}
-	booking := trials.PublicBooking{Offering: offers[0], Date: offers[0].Dates[0], FirstName: "Visiteur", LastName: "Essai", BirthDate: now.AddDate(-25, 0, 0).Format("2006-01-02"), Email: "visiteur@example.test", Phone: "0611223344"}
+	booking := trials.PublicBooking{Offering: offers[0], Date: offers[0].Dates[0], FirstName: "Visiteur", LastName: "Essai", BirthDate: now.AddDate(-25, 0, 0).Format("2006-01-02"), Email: "visiteur@example.test", Phone: "0611223344", EquipmentNeeded: true, EquipmentDetails: "taille M"}
 	confirmation, err := service.Book(t.Context(), booking, now)
 	if err != nil {
 		t.Fatal(err)
@@ -208,6 +267,6 @@ func TestPublicTrialVisibleInOffice(t *testing.T) {
 	}
 	b := f.membershipAdminBrowser()
 	officeOK(t, b, "/trials?date="+booking.Date, "Visiteur Essai", "Groupe adultes", "18:30", "Dojo municipal", "Programmé")
-	officeOK(t, b, fmt.Sprintf("/trials/%d", confirmation.TrialID), "Visiteur Essai", "Dojo municipal", "Programmé")
+	officeOK(t, b, fmt.Sprintf("/trials/%d", confirmation.TrialID), "Visiteur Essai", "Dojo municipal", "Programmé", "taille M")
 	officeOK(t, b, fmt.Sprintf("/persons/%d", personID), "visiteur@example.test", "0611223344")
 }

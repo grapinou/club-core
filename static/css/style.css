@@ -88,9 +88,7 @@ footer { background: white; margin-top: 2rem; }
 .schedule-intro__content { min-width: 0; }
 .schedule-intro__visual { height: 9.5rem; }
 .public-illustration--schedule { height: 100%; max-height: 9.5rem; aspect-ratio: auto; object-position: center 34%; }
-.day-navigation { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin-block: 1.25rem; }
-.day-navigation a { padding: .35rem 0; }
-.schedule-days { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,28rem),1fr)); gap: 1.25rem; align-items: start; }
+.schedule-days { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,28rem),1fr)); gap: 1.25rem; align-items: stretch; }
 .schedule-days .section-panel { margin: 0; }
 .public-slot { display: grid; grid-template-columns: 7.5rem minmax(0,1fr); gap: 1rem; padding-block: 1rem; border-top: 1px solid var(--club-border); }
 .public-slot p { margin-bottom: .35rem; }
@@ -114,3 +112,11 @@ footer { background: white; margin-top: 2rem; }
 .booking-form:has(input[name="minor"][value="yes"]:checked) .booking-adult,.booking-form:has(input[name="minor"][value="no"]:checked) .booking-minor {display:none}
 .booking-confirmation dl {display:grid;grid-template-columns:minmax(7rem,10rem) 1fr;gap:.4rem 1rem}
 .booking-confirmation dt {font-weight:700}
+
+#choix-seance, #choix-date {scroll-margin-top:1rem}
+.public-hero:not(:has(.public-hero__visual)),.public-feature:not(:has(.public-picture)) {display:block}
+.public-picture--compact img {max-height:11rem;object-position:center 58%}
+.schedule-intro__visual img {max-height:9.5rem;object-position:center 34%}
+.booking-form:has(input[name="equipment_needed"][value="no"]:checked) .booking-equipment-details,.booking-form:not(:has(input[name="equipment_needed"][value="yes"]:checked)) .booking-equipment-details {display:none}
+.schedule-intro__visual .public-picture {height:100%}
+.schedule-intro__visual img {width:100%;height:100%;max-height:none;aspect-ratio:auto;object-fit:cover}

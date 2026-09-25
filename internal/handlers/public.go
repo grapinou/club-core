@@ -2,8 +2,8 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"errors"
-	"github.com/grapinou/club-core/internal/trials"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -11,7 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/grapinou/club-core/internal/mailer"
 	"github.com/grapinou/club-core/internal/organization"
+	"github.com/grapinou/club-core/internal/trials"
 	"github.com/grapinou/club-core/internal/views"
 )
 
@@ -21,10 +23,12 @@ type PublicHandler struct {
 	rules    string
 	trials   *trials.PublicService
 	limiter  *AttemptLimiter
+	sender   mailer.Mailer
+	mailFrom string
 }
 
-func NewPublicHandler(s *organization.Service, loc *time.Location, rules string, trialService *trials.PublicService, limiter *AttemptLimiter) *PublicHandler {
-	return &PublicHandler{s, loc, rules, trialService, limiter}
+func NewPublicHandler(s *organization.Service, loc *time.Location, rules string, trialService *trials.PublicService, limiter *AttemptLimiter, sender mailer.Mailer, mailFrom string) *PublicHandler {
+	return &PublicHandler{service: s, location: loc, rules: rules, trials: trialService, limiter: limiter, sender: sender, mailFrom: mailFrom}
 }
 func (h *PublicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost && h.limiter != nil && !h.limiter.AllowRequest(r) {
@@ -50,14 +54,24 @@ func (h *PublicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		data.SiteName = "Club Core"
 	}
 	if r.URL.Path == "/essai" {
-		if err = h.trialPage(r, &data); err != nil {
+		if err = h.trialPage(r, &data, c); err != nil {
 			http.Error(w, "Les créneaux sont momentanément indisponibles.", 503)
 			return
 		}
 	}
 	data.Title = title + " · " + data.SiteName
 	data.MetaDescription = title + " : découvrez les informations pratiques et contactez " + data.SiteName + "."
-	data.Club = views.PublicClubView{Name: c.Name, ShortName: c.ShortName, Description: c.Description, Email: c.Email, Phone: c.Phone, Website: c.Website}
+	data.Club = views.PublicClubView{Name: c.Name, ShortName: c.ShortName, Description: c.Description, Email: c.Email, Phone: c.Phone, PhoneLabel: c.PhoneLabel, Website: c.Website,
+		TrialSessionDescription: c.TrialSessionDescription, TrialEquipmentOffer: c.TrialEquipmentOffer, TrialEquipmentDetailPrompt: c.TrialEquipmentDetailPrompt, TrialItemsToBring: c.TrialItemsToBring}
+	imageView := func(key string) views.PublicImageView {
+		i := c.Images[key]
+		return views.PublicImageView{Src: i.Src, WebPSrcset: i.WebPSrcset, Alt: i.Alt, Width: i.Width, Height: i.Height}
+	}
+	data.Club.HeroImage = imageView("hero")
+	data.Club.ActivityImage = imageView("activity")
+	data.Club.CommunityImage = imageView("community")
+	data.Club.ScheduleImage = imageView("schedule")
+	data.Club.TrialImage = imageView("trial")
 	for _, l := range c.Locations {
 		data.Club.Locations = append(data.Club.Locations, views.PublicLocationView{Name: l.Name, Address: l.Address})
 	}
@@ -101,7 +115,7 @@ func (h *PublicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body.Bytes())
 }
 
-func (h *PublicHandler) trialPage(r *http.Request, data *views.PublicPage) error {
+func (h *PublicHandler) trialPage(r *http.Request, data *views.PublicPage, club organization.PublicClub) error {
 	data.Form = url.Values{}
 	if r.Method == http.MethodPost {
 		data.Form = r.PostForm
@@ -134,7 +148,7 @@ func (h *PublicHandler) trialPage(r *http.Request, data *views.PublicPage) error
 		return nil
 	}
 	data.Errors = map[string]string{}
-	b := trials.PublicBooking{Offering: trials.PublicOffering{ActivityID: data.SelectedActivity, SlotID: data.SelectedSlot}, Date: data.Form.Get("date"), FirstName: data.Form.Get("first_name"), LastName: data.Form.Get("last_name"), BirthDate: data.Form.Get("birth_date"), Email: data.Form.Get("email"), Phone: data.Form.Get("phone"), Minor: data.Form.Get("minor") == "yes", GuardianFirstName: data.Form.Get("guardian_first_name"), GuardianLastName: data.Form.Get("guardian_last_name"), GuardianEmail: data.Form.Get("guardian_email"), GuardianPhone: data.Form.Get("guardian_phone"), Relationship: data.Form.Get("relationship")}
+	b := trials.PublicBooking{Offering: trials.PublicOffering{ActivityID: data.SelectedActivity, SlotID: data.SelectedSlot}, Date: data.Form.Get("date"), FirstName: data.Form.Get("first_name"), LastName: data.Form.Get("last_name"), BirthDate: data.Form.Get("birth_date"), Email: data.Form.Get("email"), Phone: data.Form.Get("phone"), Minor: data.Form.Get("minor") == "yes", GuardianFirstName: data.Form.Get("guardian_first_name"), GuardianLastName: data.Form.Get("guardian_last_name"), GuardianEmail: data.Form.Get("guardian_email"), GuardianPhone: data.Form.Get("guardian_phone"), Relationship: data.Form.Get("relationship"), EquipmentNeeded: data.Form.Get("equipment_needed") == "yes", EquipmentDetails: data.Form.Get("equipment_details")}
 	for _, o := range offerings {
 		if o.ActivityID == b.Offering.ActivityID && o.SlotID == b.Offering.SlotID {
 			b.Offering.GroupID = o.GroupID
@@ -154,6 +168,15 @@ func (h *PublicHandler) trialPage(r *http.Request, data *views.PublicPage) error
 	}
 	if !found {
 		data.Errors["date"] = "Choisissez une date proposée pour cette séance."
+	}
+	if club.TrialEquipmentOffer != "" && data.Form.Get("equipment_needed") != "yes" && data.Form.Get("equipment_needed") != "no" {
+		data.Errors["equipment_needed"] = "Indiquez si du matériel est nécessaire."
+	}
+	if b.EquipmentNeeded && club.TrialEquipmentDetailPrompt != "" && strings.TrimSpace(b.EquipmentDetails) == "" {
+		data.Errors["equipment_details"] = "Ajoutez la précision demandée par le club."
+	}
+	if len(b.EquipmentDetails) > 500 {
+		data.Errors["equipment_details"] = "La précision est trop longue."
 	}
 	for _, field := range []string{"first_name", "last_name", "birth_date"} {
 		if strings.TrimSpace(data.Form.Get(field)) == "" {
@@ -207,5 +230,13 @@ func (h *PublicHandler) trialPage(r *http.Request, data *views.PublicPage) error
 		return err
 	}
 	data.Confirmation = &confirmation
+	if h.sender != nil && h.mailFrom != "" {
+		message, messageErr := mailer.TrialConfirmationMessage(h.mailFrom, confirmation.EmailTo, mailer.TrialConfirmationData{Club: club.Name, Registrant: confirmation.Registrant.FirstName + " " + confirmation.Registrant.LastName, Activity: confirmation.Offering.Activity, Group: confirmation.Offering.Group, Practice: confirmation.Offering.Practice, Date: confirmation.Date, Start: confirmation.Offering.Start, End: confirmation.Offering.End, Location: confirmation.Offering.Location, Address: confirmation.Offering.Address, SessionDescription: club.TrialSessionDescription, ItemsToBring: strings.Join(club.TrialItemsToBring, ", "), EquipmentOffer: club.TrialEquipmentOffer, EquipmentNeeded: confirmation.EquipmentNeeded, EquipmentDetails: confirmation.EquipmentDetails})
+		if messageErr == nil {
+			mailCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = h.sender.Send(mailCtx, message)
+			cancel()
+		}
+	}
 	return nil
 }

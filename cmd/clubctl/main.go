@@ -47,6 +47,16 @@ func run() error {
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(catalogue)
 	}
+	if os.Args[1] == "upgrade-budokan-demo" {
+		if len(os.Args) != 3 || os.Args[2] != "--confirm-demo" {
+			return demodata.ErrGuard
+		}
+		if err := demodata.UpgradeBudokan(ctx, db); err != nil {
+			return err
+		}
+		fmt.Fprintln(os.Stdout, "Démonstration Budokan mise à jour sans supprimer les dossiers existants.")
+		return nil
+	}
 	if os.Args[1] == "seed-budokan" {
 		if len(os.Args) != 3 || os.Args[2] != "--confirm-empty-demo" {
 			return demodata.ErrGuard
@@ -54,7 +64,7 @@ func run() error {
 		if err := demodata.SeedBudokan(ctx, db, true); err != nil {
 			return err
 		}
-		fmt.Fprintln(os.Stdout, "Démonstration Budokan créée : 1 organisation, 1 lieu, 3 activités, 6 groupes, 16 créneaux.")
+		fmt.Fprintln(os.Stdout, "Démonstration Budokan créée : 1 organisation, 1 lieu, 3 activités, 5 groupes, 16 créneaux.")
 		return nil
 	}
 	return clubctl.Run(ctx, dbsqlc.New(db), os.Args[1:], os.Stdout)

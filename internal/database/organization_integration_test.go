@@ -33,7 +33,7 @@ func TestBudokanSeedPostgres(t *testing.T) {
 	if err = demodata.SeedBudokan(ctx, db, true); err == nil {
 		t.Fatal("expected injected failure")
 	}
-	for _, table := range []string{"organizations", "locations", "organization_links", "activities", "groups", "seasons", "group_slots", "membership_types", "consent_definitions"} {
+	for _, table := range []string{"organizations", "locations", "organization_links", "organization_public_images", "activities", "groups", "seasons", "group_slots", "membership_types", "consent_definitions"} {
 		var n int
 		if err = db.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != 0 {
 			t.Fatalf("rollback %s: %d %v", table, n, err)
@@ -62,7 +62,7 @@ func TestBudokanSeedPostgres(t *testing.T) {
 	if err = json.Unmarshal(out, &cliCatalogue); err != nil {
 		t.Fatalf("describe JSON: %v", err)
 	}
-	if cliCatalogue.Identity.Organization.Name != "Budokan Sud Oise" || len(cliCatalogue.Identity.Locations) != 1 || len(cliCatalogue.Activities) != 3 || len(cliCatalogue.Groups) != 6 || cliCatalogue.Season.Name != "2026/2027" || len(cliCatalogue.Schedule) != 16 || len(cliCatalogue.MembershipTypes) != 3 || len(cliCatalogue.Consents) != 1 {
+	if cliCatalogue.Identity.Organization.Name != "Budokan Sud Oise" || len(cliCatalogue.Identity.Locations) != 1 || len(cliCatalogue.Identity.Images) != 5 || len(cliCatalogue.Activities) != 3 || len(cliCatalogue.Groups) != 5 || cliCatalogue.Season.Name != "2026/2027" || len(cliCatalogue.Schedule) != 16 || len(cliCatalogue.MembershipTypes) != 3 || len(cliCatalogue.Consents) != 1 {
 		t.Fatalf("describe catalogue: %+v", cliCatalogue)
 	}
 	assertBudokanPracticeGroups(t, cliCatalogue)
@@ -71,7 +71,7 @@ func TestBudokanSeedPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if identity.Organization.Name != "Budokan Sud Oise" || identity.Organization.PublicEmail.String != "budokansud.oise@gmail.com" || identity.Organization.PublicPhone.String != "06 21 03 21 61" || len(identity.Locations) != 1 || len(identity.Links) != 1 {
+	if identity.Organization.Name != "Budokan Sud Oise" || identity.Organization.PublicEmail.String != "budokansud.oise@gmail.com" || identity.Organization.PublicPhone.String != "06 21 03 21 61" || identity.Organization.PublicPhoneLabel.String != "Seb Colosse" || len(identity.Locations) != 1 || len(identity.Links) != 1 {
 		t.Fatalf("identity: %+v", identity)
 	}
 	if identity.Locations[0].Name != "Gymnase La Mardelle" || identity.Locations[0].Address != "Rue des Marais, 60260 Lamorlaye" {
@@ -139,7 +139,7 @@ func TestBudokanSeedPostgres(t *testing.T) {
 	if !reflect.DeepEqual(expected, actual) || !reflect.DeepEqual(counts, []int{3, 3, 3, 3, 1, 2, 1}) {
 		t.Fatalf("schedule drift: %v / %v", actual, counts)
 	}
-	for table, want := range map[string]int{"activities": 3, "groups": 6, "membership_types": 3, "consent_definitions": 1, "persons": 0, "users": 0} {
+	for table, want := range map[string]int{"activities": 3, "groups": 5, "organization_public_images": 5, "membership_types": 3, "consent_definitions": 1, "persons": 0, "users": 0} {
 		var n int
 		if err = db.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != want {
 			t.Fatalf("%s: %d %v", table, n, err)
@@ -323,12 +323,12 @@ func assertBudokanPracticeGroups(t *testing.T, c organization.Catalogue) {
 	t.Helper()
 	expected := map[string]bool{
 		"JJB enfants 7–10 ans": true, "JJB enfants 10–14 ans": true, "JJB Adolescents et Adultes": true,
-		"Jiu-Jitsu Traditionnel / Combat enfants 7–10 ans": true, "Jiu-Jitsu Traditionnel / Combat enfants 10–14 ans": true, "JJB pratiques spécifiques": true,
+		"Jiu-Jitsu Traditionnel / Combat enfants 7–10 ans": true, "Jiu-Jitsu Traditionnel / Combat enfants 10–14 ans": true,
 	}
 	if len(c.Groups) != len(expected) {
 		t.Fatalf("groups: %+v", c.Groups)
 	}
-	var adultID, technicalID int32
+	var adultID int32
 	for _, g := range c.Groups {
 		if !expected[g.Name] {
 			t.Fatalf("unexpected group (no No-Gi/Libre groups): %s", g.Name)
@@ -337,19 +337,13 @@ func assertBudokanPracticeGroups(t *testing.T, c organization.Catalogue) {
 		if g.Name == "JJB Adolescents et Adultes" {
 			adultID = g.ID
 		}
-		if g.Name == "JJB pratiques spécifiques" {
-			technicalID = g.ID
-			if !strings.Contains(g.Description.String, "lundi uniquement") || !strings.Contains(g.Description.String, "public à confirmer") {
-				t.Fatal(g.Description)
-			}
-		}
 	}
-	technicalSlots, modalities := 0, 0
+	mondaySlots, modalities := 0, 0
 	for _, slot := range c.Schedule {
-		if slot.GroupID == technicalID {
-			technicalSlots++
-			if slot.Weekday != 1 || slot.StartTime != "20:15" || slot.EndTime != "22:00" || slot.PracticeLabel.String != "Préparation physique / Jiu-Jitsu Brésilien" {
-				t.Fatalf("technical group used beyond Monday: %+v", slot)
+		if slot.Weekday == 1 && slot.StartTime == "20:15" {
+			mondaySlots++
+			if slot.GroupID != adultID || slot.EndTime != "22:00" || slot.PracticeLabel.String != "Préparation physique / Jiu-Jitsu Brésilien" {
+				t.Fatalf("Monday session must belong to public adult group: %+v", slot)
 			}
 		}
 		switch slot.PracticeLabel.String {
@@ -360,7 +354,7 @@ func assertBudokanPracticeGroups(t *testing.T, c organization.Catalogue) {
 			}
 		}
 	}
-	if technicalSlots != 1 || modalities != 3 {
-		t.Fatalf("technical slots/modalities: %d/%d", technicalSlots, modalities)
+	if mondaySlots != 1 || modalities != 3 {
+		t.Fatalf("Monday slots/modalities: %d/%d", mondaySlots, modalities)
 	}
 }

@@ -59,6 +59,9 @@ func TestPublicFrontendPostgres(t *testing.T) {
 		return b
 	}
 	home := body("/")
+	if strings.Contains(home, "Préparer sa venue") {
+		t.Fatal("first visit guidance belongs to trial page")
+	}
 	for _, want := range []string{"Budokan Sud Oise", "Jiu-Jitsu Brésilien", "Jiu-Jitsu Traditionnel / Combat", "Préparation physique", "Gymnase La Mardelle", "Rue des Marais, 60260 Lamorlaye", "budokansud.oise@gmail.com", "06 21 03 21 61"} {
 		if !strings.Contains(home, want) {
 			t.Fatal("home", want)
@@ -70,6 +73,9 @@ func TestPublicFrontendPostgres(t *testing.T) {
 		}
 	}
 	schedule := body("/horaires")
+	if strings.Contains(schedule, `class="day-navigation"`) || strings.Contains(schedule, "Préparer un essai") || strings.Contains(schedule, "Contacter le club") {
+		t.Fatal("schedule has extra navigation")
+	}
 	for _, want := range []string{`src="/static/images/budokan/illustrations/schedule-jjb.png"`, `schedule-jjb-800.webp 800w`, `alt="" loading="lazy"`} {
 		if !strings.Contains(schedule, want) {
 			t.Fatal("schedule visual", want)
@@ -86,19 +92,21 @@ func TestPublicFrontendPostgres(t *testing.T) {
 	for _, path := range []string{"/tarifs", "/contact", "/essai", "/rules"} {
 		body(path)
 	}
-	if trial := body("/essai"); !strings.Contains(trial, `src="/static/images/budokan/illustrations/trial-jjb.png"`) || !strings.Contains(trial, `trial-jjb-800.webp 800w`) || strings.Contains(trial, "schedule-jjb.png") {
+	if trial := body("/essai"); !strings.Contains(trial, `src="/static/images/budokan/illustrations/trial-jjb.png"`) || !strings.Contains(trial, `trial-jjb-800.webp 800w`) || strings.Contains(trial, "schedule-jjb.png") || !strings.Contains(trial, "Préparer sa venue") || !strings.Contains(trial, "Un kimono peut être prêté") || !strings.Contains(trial, "Des claquettes") {
 		t.Fatal("trial visual")
 	}
 	contact := body("/contact")
-	if !strings.Contains(contact, "instagram.com/budokan_sud_oise/") {
+	if !strings.Contains(contact, "instagram.com/budokan_sud_oise/") || !strings.Contains(contact, "Seb Colosse") || strings.Contains(contact, "Site principal du club") {
 		t.Fatal("social link")
 	}
-	if !strings.Contains(body("/tarifs"), "Les montants ne sont pas encore affichés") {
+	if prices := body("/tarifs"); !strings.Contains(prices, "Les montants ne sont pas encore affichés") || strings.Contains(prices, "Demander les tarifs") || strings.Contains(prices, "Demander une adhésion") {
 		t.Fatal("pricing limitation")
 	}
-	exec("UPDATE groups SET name='Regroupement interne renommé' WHERE NOT show_name_publicly")
-	if strings.Contains(body("/horaires"), "Regroupement interne renommé") {
-		t.Fatal("hidden name rule must be generic")
+	if strings.Contains(home, `class="btn btn-primary" href="/join"`) {
+		t.Fatal("membership link is too prominent")
+	}
+	if !strings.Contains(home, `<a href="/join">Adhérer</a>`) || strings.Contains(home, "nav-join") {
+		t.Fatal("membership link should match the main navigation")
 	}
 	exec("UPDATE seasons SET is_active=false")
 	if !strings.Contains(body("/horaires"), "Aucun planning de saison courante") {

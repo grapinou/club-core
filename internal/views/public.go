@@ -32,10 +32,17 @@ func publicWeekday(iso int) string {
 
 type PublicLocationView struct{ Name, Address string }
 type PublicLinkView struct{ Label, URL string }
+type PublicImageView struct {
+	Src, WebPSrcset, Alt string
+	Width, Height        int32
+}
 type PublicClubView struct {
-	Name, ShortName, Description, Email, Phone, Website string
-	Locations                                           []PublicLocationView
-	Links                                               []PublicLinkView
+	Name, ShortName, Description, Email, Phone, PhoneLabel, Website          string
+	TrialSessionDescription, TrialEquipmentOffer, TrialEquipmentDetailPrompt string
+	TrialItemsToBring                                                        []string
+	HeroImage, ActivityImage, CommunityImage, ScheduleImage, TrialImage      PublicImageView
+	Locations                                                                []PublicLocationView
+	Links                                                                    []PublicLinkView
 }
 type PublicSlotView struct{ Start, End, Activity, Group, Practice, Location, Address string }
 type PublicDayView struct {
