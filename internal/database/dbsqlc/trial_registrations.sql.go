@@ -371,7 +371,8 @@ SELECT gs.group_id, gs.is_active,
        (EXTRACT(ISODOW FROM $2::date) = gs.weekday
         AND $2::date >= gs.valid_from
         AND (gs.valid_until IS NULL OR $2::date <= gs.valid_until)
-        AND $2::date BETWEEN s.starts_at AND s.ends_at)::boolean AS calendar_valid
+        AND $2::date BETWEEN s.starts_at AND s.ends_at
+        AND s.is_active)::boolean AS calendar_valid
 FROM group_slots gs JOIN seasons s ON s.id=gs.season_id
 WHERE gs.id=$1 FOR SHARE OF gs, s
 `

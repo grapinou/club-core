@@ -26,6 +26,9 @@ func newRouter(cfg config.Config, queries database.Queries, access *handlers.Acc
 		mux.Handle("GET /{$}", public)
 		for _, path := range []string{"/horaires", "/tarifs", "/contact", "/essai", "/rules"} {
 			mux.Handle("GET "+path, public)
+			if path == "/essai" {
+				mux.Handle("POST /essai", public)
+			}
 		}
 		for from, to := range map[string]string{"/club": "/", "/where": "/contact#lieux", "/when": "/horaires"} {
 			mux.Handle("GET "+from, http.RedirectHandler(to, http.StatusPermanentRedirect))

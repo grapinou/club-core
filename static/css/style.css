@@ -108,3 +108,9 @@ footer { background: white; margin-top: 2rem; }
  .public-illustration--schedule { height: 100%; max-height: 7rem; }
 }
 @media(max-width:575px) { .public-slot { grid-template-columns: minmax(0,1fr); gap: .15rem; } }
+.booking-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,16rem),1fr)); gap:1rem; }
+.booking-form .form-control,.booking-form .form-select {max-width:34rem}
+.field-error {color:#a32121; margin:.3rem 0 0; font-size:.9rem}
+.booking-form:has(input[name="minor"][value="yes"]:checked) .booking-adult,.booking-form:has(input[name="minor"][value="no"]:checked) .booking-minor {display:none}
+.booking-confirmation dl {display:grid;grid-template-columns:minmax(7rem,10rem) 1fr;gap:.4rem 1rem}
+.booking-confirmation dt {font-weight:700}

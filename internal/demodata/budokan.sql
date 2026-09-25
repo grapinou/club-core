@@ -1,7 +1,7 @@
 -- Public Budokan Sud Oise data consulted September 2026. See the milestone report.
 -- This file is executed only inside SeedBudokan's guarded transaction.
-INSERT INTO organizations (name,short_name,public_email,public_phone,website_url)
-VALUES ('Budokan Sud Oise','BS.O','budokansud.oise@gmail.com','06 21 03 21 61','https://www.budokansudoise.com/');
+INSERT INTO organizations (name,short_name,description,public_email,public_phone,website_url)
+VALUES ('Budokan Sud Oise','BS.O','Une association de sports de combat à Lamorlaye, avec des séances pour enfants, adolescents et adultes. Découvrez le groupe et le créneau qui vous conviennent, puis venez partager une première séance.','budokansud.oise@gmail.com','06 21 03 21 61','https://www.budokansudoise.com/');
 INSERT INTO locations (organization_id,name,address)
 SELECT id,'Gymnase La Mardelle','Rue des Marais, 60260 Lamorlaye' FROM organizations;
 INSERT INTO organization_links (organization_id,kind,label,url)

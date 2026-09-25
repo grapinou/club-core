@@ -1,285 +1,53 @@
-# Club Manager
+# Club Core
 
-Club Manager est une application de gestion d'associations développée en Go.
+Club Core est une application Go de gestion d’association. Le Budokan Sud Oise est le jeu de démonstration livré avec le projet ; le code et le modèle restent génériques.
 
-L'objectif du projet est de construire progressivement une application simple, robuste et maintenable pouvant servir de base à différents types d'associations.
+Le site public présente les activités, le planning, les lieux, les contacts et permet de réserver un essai sans compte. L’espace administratif suit les personnes, les essais, les adhésions et les demandes d’inscription. Un espace personnel est également disponible.
 
-Le projet sert également de support d'apprentissage : les choix d'architecture sont introduits progressivement, documentés et conservés dans l'historique Git.
+## Démarrage local
 
----
-
-## État actuel
-
-La première version publique de Club Manager permet de disposer d'un petit site d'association configurable.
-
-Les pages disponibles sont :
-
-* Accueil ;
-* Le club ;
-* Où nous trouver ;
-* Quand nous trouver ;
-* Contact ;
-* Règlement intérieur.
-
-Le contenu principal du site est chargé depuis un fichier de configuration JSON.
-
-L'application prend également en charge :
-
-* les templates HTML Go ;
-* un layout commun ;
-* une navigation responsive avec Bootstrap ;
-* les fichiers statiques ;
-* les images configurables ;
-* les liens de contact par email et téléphone.
-
----
-
-## Architecture actuelle
-
-Le projet suit une architecture volontairement simple :
-
-```text
-config.json
-    │
-    ▼
- config.Load()
-    │
-    ▼
-   Config
-    │
-    ▼
-   main
-    │
-    ▼
-  router
-    │
-    ├───────────────┐
-    ▼               ▼
-handlers          static
-    │             files
-    ▼
-  views
-    │
-    ▼
-templates
-    │
-    ▼
-   HTML
-```
-
-Les principales responsabilités sont séparées entre :
-
-* `cmd/server` : point d'entrée de l'application ;
-* `internal/config` : chargement et représentation de la configuration ;
-* `internal/router` : déclaration des routes HTTP et service des fichiers statiques ;
-* `internal/handlers` : préparation des données nécessaires aux pages ;
-* `internal/views
-  HTML
-
-````
-
-Les principales responsabilités sont séparées entre :
-
-- `cmd/server` : point d'entrée de l'application ;
-- `internal/config` : chargement et représentation de la configuration ;
-- `internal/router` :` : données de présentation et exécution des templates ;
-- `static` : CSS, images et autres ressources statiques.
-
----
-
-## Configuration
-
-Le contenu du site est défini dans :
-
-```text
-config/config.json
-````
-
-Exemple :
-
-```json
-{
-    "site_name": "TCR Club Manager",
-
-    "club": {
-        "title": "Le Club",
-        "heading": "Team Cat Ride",
-        "description": "TCR est là pour t'accompagner et te faire progresser en vélo.",
-        "image": "/static/images/club.jpeg",
-        "image_alt": "L'ensemble des accompagnateurs"
-    }
-}
-```
-
-Cette approche permet de modifier une partie importante du contenu du site sans modifier le code Go.
-
----
-
-## Fichiers statiques
-
-Les ressources statiques sont placées dans :
-
-```text
-static/
-├── css/
-└── images/
-```
-
-Elles sont accessibles depuis l'URL :
-
-```text
-/static/
-```
-
-Par exemple :
-
-```text
-/static/images/club.jpeg
-```
-
-correspond à :
-
-```text
-static/images/club.jpeg
-```
-
-dans le projet.
-
----
-
-## Interface
-
-L'interface utilise :
-
-* les templates HTML de Go ;
-* Bootstrap pour la mise en page et le responsive ;
-* un fichier CSS local pour les personnalisations spécifiques.
-
-Bootstrap est volontairement utilisé de manière simple afin de fournir rapidement une interface propre sans faire du développement frontend le sujet principal du projet.
-
----
-
-## Lancer le projet
-
-Depuis la racine du dépôt :
+Prérequis : Go, Docker et [Goose](https://pressly.github.io/goose/) dans le `PATH`.
 
 ```bash
+./scripts/run-dev.sh
+```
+
+Ce script conserve une base PostgreSQL Docker locale sur le port 5433, configure `DATABASE_URL`, `APP_BASE_URL` et `APP_TIMEZONE`, applique les migrations Goose, puis lance le serveur sur `http://localhost:8080`. Il ne charge pas automatiquement les données Budokan.
+
+Pour utiliser une PostgreSQL existante, définir au minimum `DATABASE_URL`, `APP_BASE_URL` et `APP_TIMEZONE`, appliquer les migrations puis lancer :
+
+```bash
+goose -dir migrations postgres "$DATABASE_URL" up
 go run ./cmd/server
 ```
 
-Le serveur est alors disponible à l'adresse :
+Les migrations sont dans `migrations/`. Les requêtes source de [sqlc](https://sqlc.dev/) sont dans `internal/database/queries/` ; `sqlc generate` met à jour `internal/database/dbsqlc/` après une modification SQL. Le fichier `config/config.json` conserve des réglages éditoriaux historiques ; les données publiques du club viennent de PostgreSQL.
 
-```text
-http://localhost:8080
-```
-
----
-
-## Tests
-
-Pour exécuter les tests :
-
-```bash
-go test ./...
-```
-
-Le projet peut également être vérifié avec :
-
-```bash
-go vet ./...
-```
-
-et formaté avec :
-
-```bash
-go fmt ./...
-```
-
----
-
-## Technologies actuellement utilisées
-
-* Go ;
-* bibliothèque standard `net/http` ;
-* templates HTML Go ;
-* JSON ;
-* Bootstrap ;
-* Git.
-
----
-
-## Évolutions prévues
-
-Club Manager a vocation à évoluer progressivement vers une véritable application de gestion d'association.
-
-Les prochaines étapes pourront notamment introduire :
-
-* PostgreSQL ;
-* Goose pour les migrations ;
-* sqlc pour l'accès aux données ;
-* gestion des adhérents ;
-* gestion des rôles et permissions ;
-* authentification ;
-* cotisations ;
-* cours et événements ;
-* HTMX pour certaines interactions dynamiques.
-
-Ces fonctionnalités ne font pas encore partie de la version actuelle.
-
----
-
-## Principe de développement
-
-Le projet suit quelques principes simples :
-
-* privilégier la simplicité avant la complexité ;
-* écrire du code lisible et maintenable ;
-* séparer clairement les responsabilités ;
-* ne créer une abstraction que lorsqu'un besoin réel apparaît ;
-* faire évoluer l'application par petites étapes ;
-* tester régulièrement ;
-* documenter les choix techniques ;
-* conserver un historique Git clair.
-
-La démarche générale peut être résumée ainsi :
-
-```text
-Écrire simplement
-        ↓
-Observer les besoins
-        ↓
-Identifier les responsabilités
-        ↓
-Faire évoluer l'architecture
-```
-
----
-
-## Objectif à long terme
-
-Club Manager doit devenir une application générique pouvant être adaptée à différentes associations tout en conservant un backend commun.
-
-Le projet constitue également un support pour étudier et mettre en pratique des notions de développement logiciel telles que :
-
-* architecture ;
-* HTTP ;
-* configuration ;
-* templates ;
-* bases de données ;
-* tests ;
-* authentification ;
-* autorisation ;
-* séparation des responsabilités.
-
-## Données métier et démonstration Budokan
-
-Le référentiel d’organisation, les lieux et le planning de démonstration sont stockés en PostgreSQL. Sur une base vide migrée dont le nom se termine par `_demo`, avec `DATABASE_URL` fourni localement :
+Le jeu Budokan se charge uniquement dans une base de démonstration vide dont le nom se termine par `_demo` :
 
 ```bash
 go run ./cmd/clubctl seed-budokan --confirm-empty-demo
-go run ./cmd/clubctl describe-club 2026/2027
 ```
 
-Le seed refuse toute base métier déjà peuplée, y compris une seconde exécution. Voir le [rapport et les instructions de migration](docs/reports/2026-09-14-organization-data-and-budokan-seed.md) pour les garde-fous, la provenance et les interprétations provisoires du planning.
+La commande utilise `DATABASE_URL`. Consultez `go run ./cmd/clubctl --help` pour les commandes disponibles. Ne lancez pas le seed sur une base de production.
 
-Après application de toutes les migrations, jusqu’à `0027_public_group_name.sql`, le serveur présente ce référentiel sur `/`, `/horaires`, `/tarifs` et `/contact`. `/essai` oriente vers une prise de contact. Le planning sélectionne la saison active contenant la date courante dans `APP_TIMEZONE` ; les montants des adhésions restent à modéliser. Le [rapport frontend PostgreSQL](docs/reports/2026-09-14-public-frontend-postgres.md) décrit la transition depuis JSON, les vérifications et la publication des noms de groupes internes sur une base déjà peuplée.
+## Vérification
+
+Les tests d’intégration utilisent PostgreSQL 16 via Testcontainers et nécessitent Docker :
+
+```bash
+go test ./...
+go vet ./...
+git diff --check
+```
+
+## Structure
+
+- `internal/application` assemble les services, handlers et routes.
+- `internal/organization` fournit les données publiques de l’organisation.
+- `internal/trials` valide et crée les essais ; le parcours public y réutilise les mêmes règles de programmation que l’administration.
+- `internal/administration` et `internal/handlers` servent le bureau et les pages HTTP.
+- `internal/views` contient les templates Go ; `static/` contient les styles et illustrations.
+- `internal/demodata/budokan.sql` décrit le club de démonstration.
+
+Les rapports de jalons sont dans `docs/reports/`.
