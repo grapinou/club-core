@@ -89,8 +89,9 @@ func Note(value string) (pgtype.Text, error) {
 }
 
 type Home struct {
-	Counts dbsqlc.AdministrativeCountsRow
-	Recent []dbsqlc.RecentAdministrativePersonsRow
+	Counts      dbsqlc.AdministrativeCountsRow
+	Upcoming    []dbsqlc.AdministrativeTrialsRow
+	PastPending []dbsqlc.AdministrativeTrialsRow
 }
 
 func (s *Service) Dashboard(ctx context.Context) (Home, error) {
@@ -101,12 +102,23 @@ func (s *Service) Dashboard(ctx context.Context) (Home, error) {
 	if _, err := s.require(ctx, authorization.MembershipsRead); err != nil {
 		return d, err
 	}
+	today := s.Today()
 	var err error
-	d.Counts, err = s.q.AdministrativeCounts(ctx, s.Today())
+	d.Counts, err = s.q.AdministrativeCounts(ctx, today)
 	if err != nil {
 		return d, err
 	}
-	d.Recent, err = s.q.RecentAdministrativePersons(ctx)
+	d.Upcoming, err = s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{FromDate: today, Today: today})
+	if err != nil {
+		return d, err
+	}
+	if len(d.Upcoming) > 8 {
+		d.Upcoming = d.Upcoming[:8]
+	}
+	d.PastPending, err = s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{BeforeDate: today, Today: today})
+	if len(d.PastPending) > 8 {
+		d.PastPending = d.PastPending[:8]
+	}
 	return d, err
 }
 func (s *Service) People(ctx context.Context, search string, page int32) ([]dbsqlc.SearchAdministrativePersonsRow, error) {
@@ -120,6 +132,8 @@ func (s *Service) People(ctx context.Context, search string, page int32) ([]dbsq
 }
 
 type Person struct {
+	TrialQuotas []trials.QuotaUsage
+	IsMinor     bool
 	Account     []dbsqlc.AdministrativePersonAccountRow
 	Info        dbsqlc.AdministrativePersonRow
 	Relations   []dbsqlc.AdministrativeRelationsRow
@@ -137,6 +151,7 @@ func (s *Service) Person(ctx context.Context, id int32) (Person, error) {
 	if err != nil {
 		return p, err
 	}
+	p.IsMinor = s.memberships.IsEligibleMinor(p.Info.BirthDate)
 	p.Account, err = s.q.AdministrativePersonAccount(ctx, id)
 	if err != nil {
 		return p, err
@@ -145,7 +160,11 @@ func (s *Service) Person(ctx context.Context, id int32) (Person, error) {
 	if err != nil {
 		return p, err
 	}
-	p.Trials, err = s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{PersonID: id})
+	p.Trials, err = s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{PersonID: id, Today: s.Today()})
+	if err != nil {
+		return p, err
+	}
+	p.TrialQuotas, err = s.trials.Quotas(ctx, id)
 	if err != nil {
 		return p, err
 	}
@@ -155,17 +174,55 @@ func (s *Service) Person(ctx context.Context, id int32) (Person, error) {
 	p.Memberships, err = s.q.AdministrativeMemberships(ctx, dbsqlc.AdministrativeMembershipsParams{PersonID: id, Today: s.Today()})
 	return p, err
 }
+
+func (s *Service) TrialQuota(ctx context.Context, id int32) ([]trials.QuotaUsage, error) {
+	t, err := s.Trial(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return s.trials.QuotaForTrial(ctx, dbsqlc.TrialRegistration{ID: t.ID, PersonID: t.PersonID})
+}
+
+// AddGuardianEmergency adds a known legal guardian without replacing other
+// contacts. Person locking serializes priority allocation with approval.
+func (s *Service) AddGuardianEmergency(ctx context.Context, child, guardian int32) error {
+	return s.mutate(ctx, authorization.PersonsWrite, func(tx pgx.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
+		first, second := child, guardian
+		if first > second {
+			first, second = second, first
+		}
+		for _, id := range []int32{first, second} {
+			if _, err := q.LockAdministrativePerson(ctx, id); err != nil {
+				return "", "", 0, err
+			}
+		}
+		if _, err := q.LockConsentGuardian(ctx, dbsqlc.LockConsentGuardianParams{ChildPersonID: child, GuardianPersonID: guardian}); err != nil {
+			return "", "", 0, err
+		}
+		_, err := tx.Exec(ctx, `INSERT INTO person_emergency_contacts(person_id,contact_person_id,priority)
+		 SELECT $1,$2,coalesce(max(priority),0)+1 FROM person_emergency_contacts WHERE person_id=$1
+		 ON CONFLICT (person_id,contact_person_id) DO NOTHING`, child, guardian)
+		return "emergency_contact_added", "person", child, err
+	})
+}
 func (s *Service) Trials(ctx context.Context, on, from pgtype.Date) ([]dbsqlc.AdministrativeTrialsRow, error) {
 	if _, err := s.require(ctx, authorization.PersonsRead); err != nil {
 		return nil, err
 	}
-	return s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{OnDate: on, FromDate: from})
+	return s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{OnDate: on, FromDate: from, Today: s.Today()})
+}
+func (s *Service) PastPendingTrials(ctx context.Context) ([]dbsqlc.AdministrativeTrialsRow, error) {
+	if _, err := s.require(ctx, authorization.PersonsRead); err != nil {
+		return nil, err
+	}
+	today := s.Today()
+	return s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{BeforeDate: today, Today: today})
 }
 func (s *Service) Trial(ctx context.Context, id int32) (dbsqlc.AdministrativeTrialsRow, error) {
 	if _, err := s.require(ctx, authorization.PersonsRead); err != nil {
 		return dbsqlc.AdministrativeTrialsRow{}, err
 	}
-	rows, err := s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{TrialID: id})
+	rows, err := s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{TrialID: id, Today: s.Today()})
 	if err != nil {
 		return dbsqlc.AdministrativeTrialsRow{}, err
 	}
@@ -173,6 +230,12 @@ func (s *Service) Trial(ctx context.Context, id int32) (dbsqlc.AdministrativeTri
 		return dbsqlc.AdministrativeTrialsRow{}, pgx.ErrNoRows
 	}
 	return rows[0], nil
+}
+func (s *Service) Relations(ctx context.Context, personID int32) ([]dbsqlc.AdministrativeRelationsRow, error) {
+	if _, err := s.require(ctx, authorization.PersonsRead); err != nil {
+		return nil, err
+	}
+	return s.q.AdministrativeRelations(ctx, personID)
 }
 
 type Choices struct {
@@ -241,7 +304,7 @@ func (s *Service) Schedule(ctx context.Context, p dbsqlc.CreateTrialParams) (int
 }
 func (s *Service) UpdateTrial(ctx context.Context, id, revision int32, action string, schedule dbsqlc.RescheduleTrialParams, value string) error {
 	return s.mutate(ctx, authorization.PersonsWrite, func(tx pgx.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
-		t, err := q.LockAdministrativeTrial(ctx, id)
+		t, err := s.trials.LockForUpdate(ctx, tx, id)
 		if err != nil {
 			return "", "", 0, err
 		}
@@ -273,21 +336,7 @@ func (s *Service) RequestMembership(ctx context.Context, r memberships.Request, 
 		if _, err := q.LockAdministrativePerson(ctx, r.PersonID); err != nil {
 			return "", "", 0, err
 		}
-		if sourceTrial != 0 {
-			t, err := q.LockAdministrativeTrial(ctx, sourceTrial)
-			if err != nil {
-				return "", "", 0, err
-			}
-			found := false
-			for _, a := range r.ActivityIDs {
-				if a == t.ActivityID {
-					found = true
-				}
-			}
-			if t.PersonID != r.PersonID || !found {
-				return "", "", 0, ErrInvalid
-			}
-		}
+		r.SourceTrialID = sourceTrial
 		m, err := s.memberships.CreateRequestTx(ctx, tx, r)
 		id = m.ID
 		return "membership_requested", "membership", id, err

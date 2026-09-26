@@ -3,7 +3,9 @@ package views
 import (
 	"embed"
 	"fmt"
+	"github.com/grapinou/club-core/internal/organization"
 	"github.com/grapinou/club-core/internal/trials"
+	"github.com/jackc/pgx/v5/pgtype"
 	"html/template"
 	"io"
 	"net/url"
@@ -37,6 +39,7 @@ type PublicImageView struct {
 	Width, Height        int32
 }
 type PublicClubView struct {
+	MaxTrialsPerPersonPerSeason                                              pgtype.Int4
 	Name, ShortName, Description, Email, Phone, PhoneLabel, Website          string
 	TrialSessionDescription, TrialEquipmentOffer, TrialEquipmentDetailPrompt string
 	TrialItemsToBring                                                        []string
@@ -58,7 +61,9 @@ type PublicPage struct {
 	SiteName, Title, Heading, Kind, Editorial string
 	Club                                      PublicClubView
 	Activities, MembershipTypes               []string
+	Prices                                    []organization.PublicPrice
 	Season                                    string
+	HasSlots                                  bool
 	Days                                      []PublicDayView
 	Offerings                                 []trials.PublicOffering
 	ActivityChoices                           []PublicActivityChoice

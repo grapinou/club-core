@@ -10,11 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/grapinou/club-core/internal/accounts"
 	"github.com/grapinou/club-core/internal/administration"
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/consents"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/guardianaccess"
 	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/grapinou/club-core/internal/trials"
 	"github.com/grapinou/club-core/internal/views"
@@ -42,7 +44,14 @@ func (h *AdministrativeHandler) render(w http.ResponseWriter, r *http.Request, v
 	status := 200
 	if err != nil {
 		var dbErr *pgconn.PgError
+		var quota *trials.QuotaExceededError
 		switch {
+		case errors.As(err, &quota):
+			status = 422
+			v.Error = fmt.Sprintf("Cette personne a atteint le nombre maximal de séances d’essai pour cette saison (%d sur %d).", quota.Used, quota.Limit)
+		case errors.Is(err, trials.ErrQuotaSeason):
+			status = 422
+			v.Error = "La saison des essais ne peut pas être déterminée sans ambiguïté. Choisissez un créneau ou vérifiez les dates et les saisons avant d’ajouter une place au quota."
 		case errors.Is(err, authorization.ErrForbidden):
 			http.Error(w, "Accès refusé", 403)
 			return
@@ -52,16 +61,31 @@ func (h *AdministrativeHandler) render(w http.ResponseWriter, r *http.Request, v
 		case errors.Is(err, administration.ErrConflict):
 			status = 409
 			v.Error = "Ce dossier a été modifié. Rechargez la page avant de réessayer."
+		case errors.Is(err, trials.ErrConverted):
+			status = 422
+			v.Error = "Cet essai est à l’origine d’une adhésion. Sa séance est conservée ; créez un nouvel essai pour une autre séance."
+		case errors.Is(err, guardianaccess.ErrIneligible) || errors.Is(err, accounts.ErrDisabled):
+			status = 422
+			v.Error = "Vérifiez la relation avec le responsable, l’âge de l’enfant, l’autorisation d’accès et l’état du compte."
 		case errors.Is(err, administration.ErrInvalid) || errors.Is(err, trials.ErrInvalidSchedule) || errors.Is(err, memberships.ErrInvalidRequest) || errors.Is(err, consents.ErrInvalidDecision) || errors.Is(err, consents.ErrUnauthorizedGiver):
 			status = 422
 			v.Error = "Vérifiez les informations du formulaire."
 			switch v.Mode {
 			case "person", "membership-notes":
 				v.Error = "Les notes doivent contenir au maximum 10 000 caractères."
-			case "trial", "trial-form":
+			case "trial":
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/status"):
+					v.Error = "Choisissez un résultat d’essai valide."
+				case strings.HasSuffix(r.URL.Path, "/notes"):
+					v.Error = "Les notes de l’essai doivent contenir au maximum 10 000 caractères."
+				default:
+					v.Error = "Choisissez une activité et un groupe actifs correspondants, puis une date compatible avec le jour et la période du créneau."
+				}
+			case "trial-form":
 				v.Error = "Choisissez une activité et un groupe actifs correspondants, puis une date compatible avec le jour et la période du créneau."
 			case "membership-new":
-				v.Error = "La date de naissance doit être renseignée dans la fiche personne. Sélectionnez une saison, un type et des activités actifs, puis toutes les décisions recueillies et leur auteur."
+				v.Error = "Vérifiez la date de naissance, la saison, le type, les activités et les décisions recueillies. L’essai d’origine doit être présent et correspondre à la personne et à une activité choisie."
 			case "membership-groups":
 				v.Error = "Le groupe doit être actif et correspondre à une activité de l’adhésion. Vérifiez les dates et l’absence de chevauchement avec l’historique."
 			}
@@ -75,6 +99,12 @@ func (h *AdministrativeHandler) render(w http.ResponseWriter, r *http.Request, v
 	}
 	if r.URL.Query().Get("saved") == "1" && err == nil {
 		v.Notice = "La modification a été enregistrée."
+	}
+	if r.URL.Query().Get("family_no_channel") == "1" && err == nil {
+		v.Error = "Le compte du responsable est préparé, mais son email doit être renseigné pour envoyer l’activation."
+	}
+	if r.URL.Query().Get("family_send_failed") == "1" && err == nil {
+		v.Error = "Le compte du responsable est préparé, mais l’email n’a pas pu être envoyé."
 	}
 	var b bytes.Buffer
 	if e := views.RenderAdministrative(&b, v); e != nil {
@@ -223,7 +253,11 @@ func (h *AdministrativeHandler) listTrials(w http.ResponseWriter, r *http.Reques
 		from.Time = from.Time.AddDate(0, 0, 1)
 	}
 	if e == nil {
-		v.Trials, e = h.s.Trials(r.Context(), on, from)
+		if v.Form.Get("pending") == "1" {
+			v.Trials, e = h.s.PastPendingTrials(r.Context())
+		} else {
+			v.Trials, e = h.s.Trials(r.Context(), on, from)
+		}
 	}
 	if len(v.Trials) > 100 {
 		v.More = true
@@ -250,6 +284,18 @@ func (h *AdministrativeHandler) trial(w http.ResponseWriter, r *http.Request) {
 	id, e := adminID(r, "id")
 	if e == nil {
 		v.Trial, e = h.s.Trial(r.Context(), id)
+	}
+	if e == nil {
+		v.TrialQuota, e = h.s.TrialQuota(r.Context(), id)
+	}
+	if e == nil {
+		var relations []dbsqlc.AdministrativeRelationsRow
+		relations, e = h.s.Relations(r.Context(), v.Trial.PersonID)
+		for _, relation := range relations {
+			if relation.IsGuardian {
+				v.TrialGuardians = append(v.TrialGuardians, relation)
+			}
+		}
 	}
 	if e == nil {
 		v.Choices, e = h.s.Choices(r.Context())
@@ -324,8 +370,16 @@ func (h *AdministrativeHandler) requestMembership(w http.ResponseWriter, r *http
 				e = pgx.ErrNoRows
 			}
 			if e == nil {
+				if t.MembershipID != 0 {
+					http.Redirect(w, r, fmt.Sprintf("/memberships/%d", t.MembershipID), http.StatusSeeOther)
+					return
+				}
+				v.Trial = t
 				v.Form.Set("source_trial", fmt.Sprint(source))
 				v.Form.Set("activities", fmt.Sprint(t.ActivityID))
+				if t.SuggestedSeasonID != 0 {
+					v.Form.Set("season_id", fmt.Sprint(t.SuggestedSeasonID))
+				}
 			}
 		}
 	}
@@ -339,6 +393,13 @@ func (h *AdministrativeHandler) requestMembership(w http.ResponseWriter, r *http
 		var source int32
 		if e == nil {
 			source, e = formID(v.Form, "source_trial", true)
+		}
+		if e == nil && source != 0 {
+			v.Trial, e = h.s.Trial(r.Context(), source)
+			if e == nil && v.Trial.PersonID != id {
+				v.Trial = dbsqlc.AdministrativeTrialsRow{}
+				e = memberships.ErrInvalidRequest
+			}
 		}
 		for _, raw := range v.Form["activities"] {
 			if e != nil {
@@ -369,6 +430,18 @@ func (h *AdministrativeHandler) requestMembership(w http.ResponseWriter, r *http
 			}
 		}
 	}
+	// Existing dossiers stay linked; occupied seasons cannot be selected again.
+	available := v.Choices.Seasons[:0]
+	for _, season := range v.Choices.Seasons {
+		occupied := false
+		for _, m := range v.Person.Memberships {
+			occupied = occupied || m.SeasonID == season.ID
+		}
+		if !occupied {
+			available = append(available, season)
+		}
+	}
+	v.Choices.Seasons = available
 	h.render(w, r, v, e)
 }
 func (h *AdministrativeHandler) groups(w http.ResponseWriter, r *http.Request) {

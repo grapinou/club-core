@@ -18,7 +18,7 @@
 {{if not .Club.Name}}<p class="empty-state">Les informations du club seront bientôt disponibles.</p>
 {{else}}
 {{if eq .Kind "/"}}
-<section class="public-feature" aria-labelledby="activities-title"><div class="public-feature__content"><h2 id="activities-title">À pratiquer au club</h2>
+<section class="public-feature" aria-labelledby="activities-title"><div class="public-feature__content"><h2 id="activities-title">Les activités de l’association</h2>
 {{if .Activities}}<ul class="public-cards list-unstyled">{{range .Activities}}<li class="card"><div class="card-body"><h3>{{.}}</h3><a href="/horaires">Consulter les créneaux</a></div></li>{{end}}</ul>{{else}}<p class="empty-state">Les activités seront annoncées prochainement.</p>{{end}}</div>
 {{if .Club.ActivityImage.Src}}{{template "public-image" .Club.ActivityImage}}{{end}}</section>
 <div class="public-columns"><section class="section-panel" aria-labelledby="home-location-title"><h2 id="home-location-title">Où nous retrouver</h2>{{template "public-locations" .Club}}<p><a href="/contact#lieux">Toutes les informations pratiques</a></p></section>
@@ -26,23 +26,23 @@
 
 {{else if eq .Kind "/horaires"}}
 {{if .Season}}<div class="schedule-intro"><div class="schedule-intro__content"><p class="page-intro">Saison <strong>{{.Season}}</strong> · Planning hebdomadaire en vigueur.</p>
-<p class="page-intro">Les âges indiqués sont des repères pédagogiques. L’équipe peut orienter chaque enfant selon son âge, son gabarit et sa maturité.</p>
+<p class="page-intro">Les indications d’âge dans les noms de groupes sont des repères. Contactez l’association si vous hésitez sur le groupe adapté.</p>
  </div>{{if .Club.ScheduleImage.Src}}<div class="schedule-intro__visual">{{template "public-image" .Club.ScheduleImage}}</div>{{end}}</div>
 
-<div class="schedule-days">{{range .Days}}<section class="section-panel" aria-labelledby="jour-{{.Name}}"><h2 id="jour-{{.Name}}">{{.Name}}</h2>
-{{if .Slots}}<ul class="list-unstyled schedule-slots">{{range .Slots}}<li class="public-slot">
+{{if .HasSlots}}<div class="schedule-days">{{range .Days}}{{if .Slots}}<section class="section-panel" aria-labelledby="jour-{{.Name}}"><h2 id="jour-{{.Name}}">{{.Name}}</h2>
+<ul class="list-unstyled schedule-slots">{{range .Slots}}<li class="public-slot">
 <p class="slot-time"><time>{{.Start}}</time>–<time>{{.End}}</time></p>
 <div><p class="slot-title">{{if .Practice}}{{.Practice}}{{else}}{{.Group}}{{end}}</p>
 {{if and .Practice .Group}}<p class="slot-group">{{.Group}}</p>{{end}}
 <p class="small text-body-secondary mb-1">{{.Activity}}</p>
 {{if .Location}}<p class="slot-location">{{.Location}}{{if .Address}}<br><span class="small">{{.Address}}</span>{{end}}</p>{{else}}<p class="small">Lieu à confirmer auprès du club.</p>{{end}}</div>
-</li>{{end}}</ul>{{else}}<p class="text-body-secondary mb-0">Aucun créneau annoncé.</p>{{end}}
-</section>{{end}}</div>
+</li>{{end}}</ul>
+</section>{{end}}{{end}}</div>{{else}}<p class="empty-state">Aucun horaire n’est annoncé pour cette saison.</p>{{end}}
 {{else}}<p class="empty-state">Aucun planning de saison courante n’est disponible pour le moment.</p>{{end}}
 
 {{else if eq .Kind "/tarifs"}}
-<section class="section-panel"><h2>Types d’adhésion</h2>{{if .MembershipTypes}}<ul>{{range .MembershipTypes}}<li>{{.}}</li>{{end}}</ul>{{else}}<p>Aucun type d’adhésion n’est annoncé pour le moment.</p>{{end}}
-<p>Les montants ne sont pas encore affichés sur ce site. Contactez le club pour connaître le tarif et les modalités adaptés à votre situation.</p>
+<section class="section-panel"><h2>Types d’adhésion</h2>{{if .Prices}}<ul>{{range .Prices}}<li><strong>{{.Name}}</strong>{{if .Amount}} · {{.Amount}} {{.Currency}}{{else}} · Tarif sur demande{{end}}{{if .Note}}<br>{{.Note}}{{end}}</li>{{end}}</ul>{{else}}<p>Aucun type d’adhésion n’est annoncé pour le moment.</p>{{end}}
+{{if .Prices}}<p>Contactez l’association pour les modalités d’adhésion.</p>{{end}}
 </section>
 {{else if eq .Kind "/contact"}}
 <div class="public-columns"><section class="section-panel"><h2>Joindre le club</h2>{{template "public-contact" .Club}}
@@ -63,6 +63,7 @@
 {{if .Club.TrialSessionDescription}}<h3>Comment se passe la première séance ?</h3><p>{{.Club.TrialSessionDescription}}</p>{{end}}
 {{if .Club.TrialItemsToBring}}<h3>Que faut-il apporter ?</h3><ul>{{range .Club.TrialItemsToBring}}<li>{{.}}</li>{{end}}</ul>{{end}}
 {{if .Club.TrialEquipmentOffer}}<h3>Prêt de matériel</h3><p>{{.Club.TrialEquipmentOffer}}</p>{{end}}
+{{if .Club.MaxTrialsPerPersonPerSeason.Valid}}<p>Vous pouvez participer à jusqu’à {{.Club.MaxTrialsPerPersonPerSeason.Int32}} séance{{if ne .Club.MaxTrialsPerPersonPerSeason.Int32 1}}s{{end}} d’essai par saison.</p>{{end}}
 <p>Choisissez ensuite une activité, un groupe et une date. Aucun compte n’est nécessaire.</p></section>
 {{if .E "form"}}<p class="alert alert-danger" role="alert">{{.E "form"}}</p>{{end}}
 {{if .Offerings}}

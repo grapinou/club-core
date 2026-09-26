@@ -9,11 +9,13 @@ import (
 	"github.com/grapinou/club-core/internal/administration"
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/authorization"
+	"github.com/grapinou/club-core/internal/clubconfig"
 	"github.com/grapinou/club-core/internal/config"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/guardianaccess"
 	"github.com/grapinou/club-core/internal/handlers"
 	"github.com/grapinou/club-core/internal/identityresolution"
+	"github.com/grapinou/club-core/internal/initialsetup"
 	"github.com/grapinou/club-core/internal/mailer"
 	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/grapinou/club-core/internal/minorsafety"
@@ -23,6 +25,7 @@ import (
 	"github.com/grapinou/club-core/internal/registrationapplications"
 	"github.com/grapinou/club-core/internal/router"
 	"github.com/grapinou/club-core/internal/trials"
+	"github.com/grapinou/club-core/internal/useraccess"
 	"github.com/grapinou/club-core/internal/websecurity"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -93,10 +96,14 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, 
 	publicClub := organization.New(db)
 	mux := router.NewWithPublic(cfg, queries, access, csrf, handlers.NewPublicHandler(publicClub, runtime.Location, cfg.Rules.Description, trials.NewPublic(db, runtime.Location), submissionLimiter, sender, runtime.SMTP.From), http.HandlerFunc(officeHandler.People))
 	officeHandler.Register(mux, access, csrf)
+	handlers.NewClubConfigHandler(cfg.SiteName, clubconfig.New(db)).Register(mux, access, csrf)
+	handlers.NewSetupHandler(cfg.SiteName, initialsetup.New(db)).Register(mux, csrf)
+	handlers.NewUsersHandler(cfg.SiteName, useraccess.New(db, permissions)).Register(mux, access, csrf)
 	handlers.NewJoinHandler(cfg.SiteName, applications, submissionLimiter).Register(mux, csrf)
 	guardians := guardianaccess.New(db, permissions, runtime.Location)
 	accountService := accounts.New(db, m, a, sender, runtime.SMTP.From, runtime.BaseURL, permissions)
 	accountService.SetGuardianAccess(guardians)
+	officeHandler.RegisterFamilyDossier(mux, access, csrf, guardians, accountService)
 	applications.SetGuardianServices(guardians, accountService)
 	personal := personalspace.New(queries, guardians, runtime.Location)
 	handlers.RegisterDashboard(mux, cfg.SiteName, personal, csrf)

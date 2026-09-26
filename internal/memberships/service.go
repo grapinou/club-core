@@ -51,6 +51,7 @@ type Decision struct {
 }
 type Request struct {
 	PersonID, SeasonID, MembershipTypeID int32
+	SourceTrialID                        int32 // zero means a direct request
 	ActivityIDs                          []int32
 	Consents                             []Decision
 }
@@ -68,6 +69,8 @@ type AccountState struct {
 }
 
 type Details struct {
+	SourceTrial         *dbsqlc.GetMembershipSourceTrialRow
+	Groups              []dbsqlc.ListMembershipGroupHistoryRow
 	Guardians           []dbsqlc.ListPersonGuardiansRow
 	EmergencyContacts   []dbsqlc.ListPersonEmergencyContactsRow
 	Account             AccountState
@@ -161,6 +164,22 @@ func (s *Service) createRequestTx(ctx context.Context, tx pgx.Tx, r Request, pre
 			return zero, invalid("inactive activity")
 		}
 	}
+	// Lock the source before insertion so rescheduling and concurrent conversion
+	// cannot change the facts being validated. A renewal has no source trial.
+	var source pgtype.Int4
+	if r.SourceTrialID != 0 {
+		t, e := dbsqlc.New(tx).LockAdministrativeTrial(ctx, r.SourceTrialID)
+		if errors.Is(e, pgx.ErrNoRows) {
+			return zero, invalid("source trial not found")
+		}
+		if e != nil {
+			return zero, e
+		}
+		if t.PersonID != r.PersonID || !seen[t.ActivityID] || t.Status != "attended" {
+			return zero, invalid("source trial must be attended and match person and activities")
+		}
+		source = pgtype.Int4{Int32: r.SourceTrialID, Valid: true}
+	}
 	// nil means the existing workflow snapshots currently active definitions.
 	// A non-nil slice is an already authenticated, immutable public presentation.
 	if presented == nil {
@@ -190,7 +209,7 @@ func (s *Service) createRequestTx(ctx context.Context, tx pgx.Tx, r Request, pre
 		return zero, invalid("unanswered or unexpected consent")
 	}
 	var id int32
-	err = tx.QueryRow(ctx, "INSERT INTO memberships(person_id,season_id,membership_type_id,status,requested_at) VALUES ($1,$2,$3,'pending',clock_timestamp()) RETURNING id", r.PersonID, r.SeasonID, r.MembershipTypeID).Scan(&id)
+	err = tx.QueryRow(ctx, "INSERT INTO memberships(person_id,season_id,membership_type_id,source_trial_id,status,requested_at) VALUES ($1,$2,$3,$4,'pending',clock_timestamp()) RETURNING id", r.PersonID, r.SeasonID, r.MembershipTypeID, source).Scan(&id)
 	if err != nil {
 		return zero, err
 	}
@@ -301,6 +320,17 @@ func (s *Service) GetDetails(ctx context.Context, id int32) (Details, error) {
 		IsActivated:     d.Membership.ActivatedAt.Valid,
 		NeedsActivation: d.Membership.UserID.Valid && !d.Membership.ActivatedAt.Valid,
 	}
+	if d.Membership.Membership.SourceTrialID.Valid {
+		source, e := q.GetMembershipSourceTrial(ctx, id)
+		if e != nil {
+			return d, e
+		}
+		d.SourceTrial = &source
+	}
+	d.Groups, err = q.ListMembershipGroupHistory(ctx, id)
+	if err != nil {
+		return d, err
+	}
 	d.Activities, err = q.ListMembershipActivities(ctx, id)
 	if err != nil {
 		return d, err
@@ -385,22 +415,31 @@ func (s *Service) ApproveMembership(ctx context.Context, id, approver int32, adm
 		return result, &IncompleteError{result.Completeness}
 	}
 	q := dbsqlc.New(tx)
-	user, err := provisioning.EnsureUserForPersonTx(ctx, tx, person)
-	if err != nil {
-		return result, err
-	}
-	_, err = tx.Exec(ctx, "UPDATE users SET is_active=true WHERE person_id=$1", person)
-	if err != nil {
-		return result, err
-	}
-	user, err = q.GetUserByPerson(ctx, person)
-	if err != nil {
-		return result, err
-	}
-	result.User = user
-	result.ActivationDelivery, err = s.activation.PrepareTx(ctx, tx, user.ID)
-	if err != nil {
-		return Approval{}, err
+	// Family access depends on the guardian's account and explicit grant, never
+	// on creating an account for the child. Preserve existing child accounts.
+	if result.Completeness.IsMinor == nil || !*result.Completeness.IsMinor {
+		user, err := provisioning.EnsureUserForPersonTx(ctx, tx, person)
+		if err != nil {
+			return result, err
+		}
+		_, err = tx.Exec(ctx, "UPDATE users SET is_active=true WHERE person_id=$1", person)
+		if err != nil {
+			return result, err
+		}
+		user, err = q.GetUserByPerson(ctx, person)
+		if err != nil {
+			return result, err
+		}
+		result.User = user
+		result.ActivationDelivery, err = s.activation.PrepareTx(ctx, tx, user.ID)
+		if err != nil {
+			return Approval{}, err
+		}
+	} else {
+		result.User, err = q.GetUserByPerson(ctx, person)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return Approval{}, err
+		}
 	}
 	_, err = tx.Exec(ctx, "UPDATE memberships SET status='active',approved_at=$2,approved_by_user_id=$3,admin_note=$4,joined_at=COALESCE(joined_at,$5::date),updated_at=$2 WHERE id=$1", id, now, approver, adminNote, now.Format("2006-01-02"))
 	if err != nil {

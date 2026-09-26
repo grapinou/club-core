@@ -148,6 +148,10 @@ func (s *PublicService) Book(ctx context.Context, b PublicBooking, now time.Time
 		return result, err
 	}
 	defer tx.Rollback(ctx)
+	// Acquire the policy before the calendar, matching office/configuration lock order.
+	if _, err = lockPolicy(ctx, tx); err != nil {
+		return result, err
+	}
 	// Lock the selected slot and its calendar before creating any person.
 	var active bool
 	var group, activity int32

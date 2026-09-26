@@ -296,7 +296,7 @@ func (q *Queries) ListRegistrationApplicationConsents(ctx context.Context, appli
 }
 
 const listRegistrationMembershipTypes = `-- name: ListRegistrationMembershipTypes :many
-SELECT id, name, is_active, created_at FROM membership_types WHERE is_active ORDER BY name,id
+SELECT id, name, is_active, created_at, amount_cents, currency, public_note FROM membership_types WHERE is_active ORDER BY name,id
 `
 
 func (q *Queries) ListRegistrationMembershipTypes(ctx context.Context) ([]MembershipType, error) {
@@ -313,6 +313,9 @@ func (q *Queries) ListRegistrationMembershipTypes(ctx context.Context) ([]Member
 			&i.Name,
 			&i.IsActive,
 			&i.CreatedAt,
+			&i.AmountCents,
+			&i.Currency,
+			&i.PublicNote,
 		); err != nil {
 			return nil, err
 		}

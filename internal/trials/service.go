@@ -1,5 +1,5 @@
 // Package trials owns creation and rescheduling rules. Backend callers must use
-// Service for scheduling; dbsqlc reads, status and note updates are independent.
+// Service for scheduling and status changes; dbsqlc writes are internal primitives.
 package trials
 
 import (
@@ -14,39 +14,37 @@ import (
 )
 
 var ErrInvalidSchedule = errors.New("invalid trial schedule")
+var ErrConverted = errors.New("trial already converted to membership")
 
 type Service struct{ db *pgxpool.Pool }
 
 func New(db *pgxpool.Pool) *Service { return &Service{db: db} }
 
 func (s *Service) Schedule(ctx context.Context, p dbsqlc.CreateTrialParams) (dbsqlc.TrialRegistration, error) {
-	return s.write(ctx, dbsqlc.RescheduleTrialParams{ActivityID: p.ActivityID, GroupID: p.GroupID, GroupSlotID: p.GroupSlotID, TrialDate: p.TrialDate}, func(q *dbsqlc.Queries) (dbsqlc.TrialRegistration, error) { return q.CreateTrial(ctx, p) })
-}
-
-// Reschedule preserves the person, status and notes, and validates the entire new target.
-func (s *Service) Reschedule(ctx context.Context, p dbsqlc.RescheduleTrialParams) (dbsqlc.TrialRegistration, error) {
-	return s.write(ctx, p, func(q *dbsqlc.Queries) (dbsqlc.TrialRegistration, error) { return q.RescheduleTrial(ctx, p) })
-}
-
-func (s *Service) write(ctx context.Context, p dbsqlc.RescheduleTrialParams, write func(*dbsqlc.Queries) (dbsqlc.TrialRegistration, error)) (dbsqlc.TrialRegistration, error) {
-	var zero dbsqlc.TrialRegistration
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return zero, err
+		return dbsqlc.TrialRegistration{}, err
 	}
 	defer tx.Rollback(ctx)
-	q := dbsqlc.New(tx)
-	if err = validate(ctx, q, p); err != nil {
-		return zero, err
-	}
-	result, err := write(q)
+	result, err := s.ScheduleTx(ctx, tx, p)
 	if err != nil {
-		return zero, err
+		return result, err
 	}
-	if err = tx.Commit(ctx); err != nil {
-		return zero, err
+	return result, tx.Commit(ctx)
+}
+
+// Reschedule preserves person, status, notes and the P3 origin protection.
+func (s *Service) Reschedule(ctx context.Context, p dbsqlc.RescheduleTrialParams) (dbsqlc.TrialRegistration, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return dbsqlc.TrialRegistration{}, err
 	}
-	return result, nil
+	defer tx.Rollback(ctx)
+	result, err := s.RescheduleTx(ctx, tx, p)
+	if err != nil {
+		return result, err
+	}
+	return result, tx.Commit(ctx)
 }
 
 func validate(ctx context.Context, q *dbsqlc.Queries, p dbsqlc.RescheduleTrialParams) error {
@@ -91,20 +89,54 @@ func validate(ctx context.Context, q *dbsqlc.Queries, p dbsqlc.RescheduleTrialPa
 // ScheduleTx and RescheduleTx compose the same domain rules with an audit transaction.
 func (s *Service) ScheduleTx(ctx context.Context, tx pgx.Tx, p dbsqlc.CreateTrialParams) (dbsqlc.TrialRegistration, error) {
 	q := dbsqlc.New(tx)
+	if _, err := lockPolicy(ctx, tx); err != nil {
+		return dbsqlc.TrialRegistration{}, err
+	}
 	if _, err := q.LockAdministrativePerson(ctx, p.PersonID); err != nil {
 		return dbsqlc.TrialRegistration{}, err
 	}
 	if err := validate(ctx, q, dbsqlc.RescheduleTrialParams{ActivityID: p.ActivityID, GroupID: p.GroupID, GroupSlotID: p.GroupSlotID, TrialDate: p.TrialDate}); err != nil {
 		return dbsqlc.TrialRegistration{}, err
 	}
+	if err := checkQuota(ctx, tx, p.PersonID, p.GroupSlotID, p.TrialDate, nil); err != nil {
+		return dbsqlc.TrialRegistration{}, err
+	}
 	return q.CreateTrial(ctx, p)
 }
 func (s *Service) RescheduleTx(ctx context.Context, tx pgx.Tx, p dbsqlc.RescheduleTrialParams) (dbsqlc.TrialRegistration, error) {
 	q := dbsqlc.New(tx)
+	old, err := s.LockForUpdate(ctx, tx, p.ID)
+	if err != nil {
+		return old, err
+	}
+	if err := checkReschedule(ctx, tx, p.ID); err != nil {
+		return dbsqlc.TrialRegistration{}, err
+	}
 	if err := validate(ctx, q, p); err != nil {
 		return dbsqlc.TrialRegistration{}, err
 	}
+	if consumes(old.Status) {
+		if err := checkQuota(ctx, tx, old.PersonID, p.GroupSlotID, p.TrialDate, &old); err != nil {
+			return dbsqlc.TrialRegistration{}, err
+		}
+	}
 	return q.RescheduleTrial(ctx, p)
+}
+
+// Keep the session behind a durable origin stable. Notes and outcome corrections
+// remain possible; a new session must be scheduled as a separate trial.
+func checkReschedule(ctx context.Context, tx pgx.Tx, id int32) error {
+	if _, err := dbsqlc.New(tx).LockAdministrativeTrial(ctx, id); err != nil {
+		return err
+	}
+	var converted bool
+	if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM memberships WHERE source_trial_id=$1)", id).Scan(&converted); err != nil {
+		return err
+	}
+	if converted {
+		return ErrConverted
+	}
+	return nil
 }
 func ValidStatus(status string) bool {
 	return status == "registered" || status == "attended" || status == "cancelled" || status == "no_show"
@@ -112,6 +144,15 @@ func ValidStatus(status string) bool {
 func (s *Service) UpdateStatusTx(ctx context.Context, tx pgx.Tx, p dbsqlc.UpdateTrialStatusParams) (dbsqlc.TrialRegistration, error) {
 	if !ValidStatus(p.Status) {
 		return dbsqlc.TrialRegistration{}, ErrInvalidSchedule
+	}
+	old, err := s.LockForUpdate(ctx, tx, p.ID)
+	if err != nil {
+		return old, err
+	}
+	if consumes(p.Status) && !consumes(old.Status) {
+		if err := checkQuota(ctx, tx, old.PersonID, old.GroupSlotID, old.TrialDate, &old); err != nil {
+			return dbsqlc.TrialRegistration{}, err
+		}
 	}
 	return dbsqlc.New(tx).UpdateTrialStatus(ctx, p)
 }

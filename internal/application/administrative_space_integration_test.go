@@ -204,7 +204,10 @@ func TestAdministrativeTrialWorkflowAndConcurrency(t *testing.T) {
 	form.Set("trial_date", "2026-09-23")
 	officePost(t, b, path+"/reschedule", form, 303)
 	officePost(t, b, path+"/status", url.Values{"revision": {"0"}, "status": {"attended"}}, 409)
-	officePost(t, b, path+"/status", url.Values{"revision": {"1"}, "status": {"invented"}}, 422)
+	invalidStatus := officePost(t, b, path+"/status", url.Values{"revision": {"1"}, "status": {"invented"}}, 422)
+	if !strings.Contains(invalidStatus.Body.String(), "résultat d’essai valide") {
+		t.Fatal("invalid result feedback")
+	}
 	officePost(t, b, path+"/status", url.Values{"revision": {"1"}, "status": {"attended"}}, 303)
 	officePost(t, b, path+"/notes", url.Values{"revision": {"2"}, "notes": {"<img src=x onerror=alert(1)>"}}, 303)
 	officeOK(t, b, path, "Présent", "&lt;img")
@@ -242,6 +245,70 @@ func TestAdministrativeTrialWorkflowAndConcurrency(t *testing.T) {
 	f.must(err)
 	if trial.Revision != 4 || trial.Notes.String == "MUST_ROLL_BACK" {
 		t.Fatal("non-atomic audit")
+	}
+}
+
+func TestAdministrativeAttentionAndFamilyWorkflow(t *testing.T) {
+	f := newFixture(t)
+	b := f.membershipAdminBrowser()
+	group, slot := f.officeGroup()
+	f.exec("UPDATE group_slots SET practice_label='Séance découverte' WHERE id=$1", slot)
+	today := f.app.Administration.Today().Time
+	past, present, future := today.AddDate(0, 0, -1).Format("2006-01-02"), today.Format("2006-01-02"), today.AddDate(0, 0, 1).Format("2006-01-02")
+	child := f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES('Lina','Parcours',$1) RETURNING id", today.AddDate(-9, 0, 0))
+	guardian := f.id("INSERT INTO persons(first_name,last_name,birth_date,email,phone_number) VALUES('Camille','Parcours',$1,'camille@example.test','0601020304') RETURNING id", today.AddDate(-35, 0, 0))
+	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type,is_primary_contact) VALUES($1,$2,'mother',true)", child, guardian)
+	f.exec("UPDATE persons SET phone_number='0605060708' WHERE id=$1", f.person)
+	pastTrial := f.id("INSERT INTO trial_registrations(person_id,activity_id,group_id,group_slot_id,trial_date,status,notes) VALUES($1,$2,$3,$4,$5,'registered','Matériel demandé : taille M') RETURNING id", child, f.activity, group, slot, past)
+	todayTrial := f.id("INSERT INTO trial_registrations(person_id,activity_id,group_id,group_slot_id,trial_date,status) VALUES($1,$2,$3,$4,$5,'registered') RETURNING id", f.person, f.activity, group, slot, present)
+	futureTrial := f.id("INSERT INTO trial_registrations(person_id,activity_id,group_id,group_slot_id,trial_date,status) VALUES($1,$2,$3,$4,$5,'registered') RETURNING id", f.person, f.activity, group, slot, future)
+	f.request()
+
+	home := officeOK(t, b, "/admin", "Essais passés sans résultat", "Aujourd’hui et à venir", "Lina Parcours", "Note à consulter", "Séance découverte")
+	if !strings.Contains(home, officeTrial(pastTrial)) || !strings.Contains(home, officeTrial(todayTrial)) || !strings.Contains(home, officeTrial(futureTrial)) {
+		t.Fatal("dashboard trial navigation")
+	}
+	pending := officeOK(t, b, "/trials?pending=1", "Lina Parcours", "Résultat à renseigner")
+	if strings.Contains(pending, "Rémi Dupont") {
+		t.Fatal("pending list includes upcoming trial")
+	}
+	officeOK(t, b, "/trials", "Lina Parcours", "Rémi Dupont", "À venir", "Passé", "Programmé")
+	childDetail := officeOK(t, b, officeTrial(pastTrial), "Lina Parcours", "Camille Parcours", "camille@example.test", "0601020304", "Contact principal", "Matériel demandé : taille M", "Séance découverte")
+	if !strings.Contains(childDetail, officePerson(child)) || !strings.Contains(childDetail, officePerson(guardian)) {
+		t.Fatal("family navigation")
+	}
+	adultDetail := officeOK(t, b, officeTrial(todayTrial), "Rémi Dupont", "0605060708", "Marquer absent")
+	if strings.Contains(adultDetail, "<h2>Responsable</h2>") {
+		t.Fatal("adult trial has guardian section")
+	}
+	officeOK(t, b, officePerson(child), "Camille Parcours", "Contact principal", "camille@example.test", "0601020304", "Séance découverte", "Programmé")
+	officeOK(t, b, officePerson(guardian), "Enfant", "Lina Parcours")
+	people := officeOK(t, b, "/persons", "Prospect après essai", "Adhésion", "Responsable")
+	if !strings.Contains(people, officePerson(child)) || !strings.Contains(people, officePerson(guardian)) {
+		t.Fatal("person list navigation")
+	}
+	officePost(t, b, officeTrial(pastTrial)+"/status", url.Values{"revision": {"0"}, "status": {"attended"}}, 303)
+	officeOK(t, b, officeTrial(pastTrial), "Présent", "Corriger le statut")
+	if strings.Contains(officeOK(t, b, "/admin"), "Lina Parcours") {
+		t.Fatal("resolved trial remains in pending dashboard")
+	}
+	officePost(t, b, officeTrial(todayTrial)+"/status", url.Values{"revision": {"0"}, "status": {"no_show"}}, 303)
+	officePost(t, b, officeTrial(futureTrial)+"/status", url.Values{"revision": {"0"}, "status": {"cancelled"}}, 303)
+	officeOK(t, b, officeTrial(todayTrial), "Absent")
+	officeOK(t, b, officeTrial(futureTrial), "Annulée")
+	if f.count("SELECT count(*) FROM trial_registrations WHERE status='registered'") != 0 {
+		t.Fatal("trial outcomes not persisted")
+	}
+	for _, path := range []string{"/admin", "/trials?pending=1", officeTrial(pastTrial), officePerson(child)} {
+		if response := newBrowser(f.app.Handler).call("GET", path, nil); response.Code != 303 {
+			t.Fatal("anonymous office access", path, response.Code)
+		}
+	}
+	_, member := f.personalBrowser(f.person, "member.p21")
+	for _, path := range []string{"/admin", "/trials?pending=1", officeTrial(pastTrial), officePerson(child)} {
+		if response := member.call("GET", path, nil); response.Code != 403 {
+			t.Fatal("member office access", path, response.Code)
+		}
 	}
 }
 

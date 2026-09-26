@@ -151,7 +151,9 @@ func TestPublicChildValidation(t *testing.T) {
 		{"bad child email", func(v url.Values) { v.Set("email", "bad") }, 422},
 		{"missing birth", func(v url.Values) { v.Del("birth_date") }, 422},
 		{"future", func(v url.Values) { v.Set("birth_date", time.Now().AddDate(1, 0, 0).Format("2006-01-02")) }, 422},
-		{"adult", func(v url.Values) { v.Set("birth_date", time.Now().AddDate(-18, 0, 0).Format("2006-01-02")) }, 422},
+		// Stay clear of the eighteenth birthday: the fixture validates in UTC,
+		// while a developer may run this test near local midnight.
+		{"adult", func(v url.Values) { v.Set("birth_date", time.Now().AddDate(-19, 0, 0).Format("2006-01-02")) }, 422},
 		{"relationship", func(v url.Values) { v.Set("relationship_type", "invented") }, 422},
 		{"emergency", func(v url.Values) { v.Del("emergency_contact") }, 422},
 		{"activity", func(v url.Values) { v.Del("activity_id") }, 422},

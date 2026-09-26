@@ -1,0 +1,22 @@
+{{define "content"}}
+<section class="auth-panel">
+<h1 class="h3 mb-3">Configuration initiale</h1>
+{{if eq .Mode "configured"}}<p>Cette installation a déjà été configurée.</p><a class="btn btn-primary" href="/login">Se connecter</a>
+{{else if eq .Mode "unavailable"}}<p>Le code de configuration n’a pas encore été préparé. Demandez-le à la personne qui a installé Club Core.</p>
+{{else}}
+<p>Bienvenue dans Club Core. Saisissez le code fourni lors de l’installation pour créer le premier compte administrateur.</p>
+{{if .Error}}<p class="alert alert-danger" role="alert" id="setup-error">{{.Error}}</p>{{end}}
+<form method="post" action="/setup">
+<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+<div class="mb-3"><label class="form-label" for="setup_secret">Code de configuration</label><input class="form-control" id="setup_secret" name="setup_secret" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" required></div>
+<div class="mb-3"><label class="form-label" for="first_name">Prénom</label><input class="form-control" id="first_name" name="first_name" type="text" maxlength="200" autocomplete="given-name" value="{{.FirstName}}" required></div>
+<div class="mb-3"><label class="form-label" for="last_name">Nom</label><input class="form-control" id="last_name" name="last_name" type="text" maxlength="200" autocomplete="family-name" value="{{.LastName}}" required></div>
+<div class="mb-3"><label class="form-label" for="username">Identifiant de connexion</label><input class="form-control" id="username" name="username" type="text" minlength="3" maxlength="64" pattern="[a-z0-9][a-z0-9._-]{2,63}" autocomplete="username" autocapitalize="none" spellcheck="false" value="{{.Username}}" aria-describedby="setup-username-help" required><p class="form-text" id="setup-username-help">3 à 64 caractères : lettres minuscules, chiffres, point, tiret ou souligné.</p></div>
+<div class="mb-3"><label class="form-label" for="email">Email</label><input class="form-control" id="email" name="email" type="email" maxlength="254" autocomplete="email" value="{{.Email}}" required></div>
+<div class="mb-3"><label class="form-label" for="password">Mot de passe</label><input class="form-control" id="password" name="password" type="password" autocomplete="new-password" minlength="12" aria-describedby="setup-password-help" required><p class="form-text" id="setup-password-help">12 caractères minimum, 72 octets maximum.</p></div>
+<div class="mb-3"><label class="form-label" for="confirmation">Confirmer le mot de passe</label><input class="form-control" id="confirmation" name="confirmation" type="password" autocomplete="new-password" required></div>
+<button class="btn btn-primary" type="submit">Créer mon compte administrateur</button>
+</form>
+{{end}}
+</section>
+{{end}}

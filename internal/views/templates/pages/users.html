@@ -1,0 +1,14 @@
+{{define "content"}}<div class="content-readable text-break">
+<header class="page-header"><h1>{{if eq .Mode "list"}}Utilisateurs{{else}}Accès de {{.User.FirstName}} {{.User.LastName}}{{end}}</h1><p>Comptes et rôles du club.</p></header>
+{{if .Error}}<div class="alert alert-danger" role="alert">{{.Error}}</div>{{end}}
+{{if .Notice}}<div class="alert alert-success" role="status">{{.Notice}}</div>{{end}}
+{{if eq .Mode "list"}}
+<section class="section-panel"><form method="get" action="/admin/users"><label class="form-label" for="search">Rechercher un nom, identifiant ou email</label><div class="d-flex flex-wrap gap-2"><input class="form-control flex-grow-1" type="search" id="search" name="q" maxlength="120" value="{{.Search}}"><button class="btn btn-primary">Rechercher</button></div></form></section>
+{{range .Users}}<article class="section-panel"><h2><a href="/admin/users/{{.ID}}">{{.FirstName}} {{.LastName}}</a></h2><p><strong>Identifiant :</strong> {{.Username}}{{if .Email}}<br><strong>Email de connexion :</strong> {{.Email}}{{end}}<br><strong>Compte :</strong> {{if not .Active}}Désactivé{{else if .Activated}}Actif{{else}}En attente d’activation{{end}}</p><p><strong>Rôles :</strong> {{range .Roles}}<span class="badge text-bg-secondary">{{$.Label .}}</span> {{else}}Aucun rôle{{end}}</p></article>{{else}}<div class="empty-state">Aucun utilisateur trouvé.</div>{{end}}
+{{if .Page}}<a href="/admin/users?q={{urlquery .Search}}&page={{.PreviousPage}}">Page précédente</a>{{end}}{{if .More}} <a href="/admin/users?q={{urlquery .Search}}&page={{.NextPage}}">Page suivante</a>{{end}}
+{{else}}
+<p><a href="/admin/users">Retour aux utilisateurs</a></p>
+<section class="section-panel"><h2>Identité</h2><dl><dt>Personne associée</dt><dd>{{.User.FirstName}} {{.User.LastName}}{{if .CanReadPersons}} · <a href="/persons/{{.User.PersonID}}">Voir la fiche</a>{{end}}</dd><dt>Identifiant</dt><dd>{{.User.Username}}</dd><dt>Email de connexion</dt><dd>{{if .User.Email}}{{.User.Email}}{{else}}Non renseigné{{end}}</dd><dt>Compte</dt><dd>{{if not .User.Active}}Désactivé{{else if .User.Activated}}Actif{{else}}En attente d’activation{{end}}</dd></dl></section>
+<section class="section-panel"><h2>Rôles</h2><p>Les rôles déterminent les accès aux fonctions du club.</p>
+{{range .Roles}}<div class="border-top py-3"><div class="d-flex flex-wrap align-items-center justify-content-between gap-2"><strong>{{.Label}}</strong>{{if $.CanManageRoles}}<form method="post" action="/admin/users/{{$.User.ID}}/roles"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="role" value="{{.Name}}">{{if .Assigned}}<button class="btn btn-outline-danger" name="action" value="remove">Retirer le rôle</button>{{else}}<button class="btn btn-outline-primary" name="action" value="add">Attribuer le rôle</button>{{end}}</form>{{else}}{{if .Assigned}}Attribué{{else}}Non attribué{{end}}{{end}}</div></div>{{end}}</section>
+{{end}}</div>{{end}}

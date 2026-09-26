@@ -9,9 +9,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Service struct{ queries *dbsqlc.Queries }
+type Service struct {
+	queries *dbsqlc.Queries
+	db      *pgxpool.Pool
+}
 
-func New(db *pgxpool.Pool) *Service { return &Service{queries: dbsqlc.New(db)} }
+func New(db *pgxpool.Pool) *Service { return &Service{queries: dbsqlc.New(db), db: db} }
 
 // Identity is read afresh; no club-specific runtime configuration or cache.
 type Identity struct {

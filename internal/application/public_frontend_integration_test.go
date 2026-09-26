@@ -99,7 +99,7 @@ func TestPublicFrontendPostgres(t *testing.T) {
 	if !strings.Contains(contact, "instagram.com/budokan_sud_oise/") || !strings.Contains(contact, "Seb Colosse") || strings.Contains(contact, "Site principal du club") {
 		t.Fatal("social link")
 	}
-	if prices := body("/tarifs"); !strings.Contains(prices, "Les montants ne sont pas encore affichés") || strings.Contains(prices, "Demander les tarifs") || strings.Contains(prices, "Demander une adhésion") {
+	if prices := body("/tarifs"); !strings.Contains(prices, "Tarif sur demande") || strings.Contains(prices, "Demander les tarifs") || strings.Contains(prices, "Demander une adhésion") {
 		t.Fatal("pricing limitation")
 	}
 	if strings.Contains(home, `class="btn btn-primary" href="/join"`) {

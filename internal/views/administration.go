@@ -9,10 +9,12 @@ import (
 
 	"github.com/grapinou/club-core/internal/administration"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/trials"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type AdministrativeView struct {
+	TrialQuota []trials.QuotaUsage
 	SecurityData
 	SiteName, Title, Mode, Error, Notice string
 	Search, NextURL, PreviousURL         string
@@ -22,6 +24,7 @@ type AdministrativeView struct {
 	Person                               administration.Person
 	Trials                               []dbsqlc.AdministrativeTrialsRow
 	Trial                                dbsqlc.AdministrativeTrialsRow
+	TrialGuardians                       []dbsqlc.AdministrativeRelationsRow
 	Choices                              administration.Choices
 	Membership                           administration.Membership
 	Today                                pgtype.Date
@@ -39,6 +42,9 @@ func (v AdministrativeView) Selected(key string, id int32) bool {
 }
 func (v AdministrativeView) Current(joined, left pgtype.Date) bool {
 	return !joined.Time.After(v.Today.Time) && (!left.Valid || left.Time.After(v.Today.Time))
+}
+func (v AdministrativeView) Past(d pgtype.Date) bool {
+	return d.Valid && d.Time.Before(v.Today.Time)
 }
 
 //go:embed templates/layouts/base.html templates/pages/administration.html

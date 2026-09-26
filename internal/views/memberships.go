@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -39,7 +40,11 @@ type AccountView struct {
 	Username, Label                            string
 }
 type MembershipDetailView struct {
-	CanManage bool
+	PersonID, SourceTrialID                                  int32
+	SourceTrialDate, SourceActivity, SourceGroup, SourceTime string
+	Groups                                                   []dbsqlc.ListMembershipGroupHistoryRow
+	FamilyManaged                                            bool
+	CanManage                                                bool
 	SecurityData
 	SiteName, Title, Notice, NoticeClass                                                      string
 	ID                                                                                        int32
@@ -151,10 +156,17 @@ func MembershipDetail(d memberships.Details, loc *time.Location, approve, resend
 		Phone: textOrDash(p.PhoneNumber.String), Email: textOrDash(p.Email.String), Address: textOrDash(p.Address.String), PersonNotes: textOrDash(p.Notes.String),
 		Season: row.Season.Name, Type: row.MembershipType.Name, Status: status, StatusClass: class, RequestedAt: timestamp(m.RequestedAt, loc), JoinedAt: date(m.JoinedAt), ApprovedAt: timestamp(m.ApprovedAt, loc), Approver: textOrDash(row.ApproverUsername.String), AdminNote: m.AdminNote.String, HasApproval: m.ApprovedAt.Valid,
 		Pending: m.Status == "pending", Ready: len(d.Completeness.BlockingIssues) == 0}
+	v.PersonID, v.Groups = p.ID, d.Groups
+	if d.SourceTrial != nil {
+		v.SourceTrialID = d.SourceTrial.ID
+		v.SourceTrialDate = date(d.SourceTrial.TrialDate)
+		v.SourceActivity, v.SourceGroup, v.SourceTime = d.SourceTrial.ActivityName, d.SourceTrial.GroupName, d.SourceTrial.StartTime
+	}
 	if d.Completeness.IsMinor != nil {
 		v.Majority = "Majeur"
 		if *d.Completeness.IsMinor {
 			v.Majority = "Mineur"
+			v.FamilyManaged = true
 		}
 	}
 	v.CompletenessTitle = "Dossier prêt à être validé"
@@ -190,6 +202,8 @@ func MembershipDetail(d memberships.Details, loc *time.Location, approve, resend
 	v.CanResend = resend && d.Account.Exists && d.Account.IsActive && d.Account.NeedsActivation
 	return v
 }
+
+func (MembershipDetailView) Date(d pgtype.Date) string { return date(d) }
 
 func (v MembershipListView) HasPending() bool {
 	for _, r := range v.Rows {

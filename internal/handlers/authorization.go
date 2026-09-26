@@ -69,6 +69,9 @@ type navigationKey struct{}
 type personWriteNavigationKey struct{}
 type membershipNavigationKey struct{}
 type registrationNavigationKey struct{}
+type userNavigationKey struct{}
+type roleManagementNavigationKey struct{}
+type clubConfigurationNavigationKey struct{}
 type registrationNavigation struct {
 	allowed bool
 	count   int64
@@ -90,6 +93,18 @@ func (a *Access) Navigation(next http.Handler) http.Handler {
 			if membershipErr == nil {
 				r = r.WithContext(context.WithValue(r.Context(), membershipNavigationKey{}, membershipRead))
 			}
+			usersRead, usersErr := a.checker.HasPermission(r.Context(), id, authorization.RolesRead)
+			if usersErr == nil {
+				r = r.WithContext(context.WithValue(r.Context(), userNavigationKey{}, usersRead))
+			}
+			rolesManage, rolesErr := a.checker.HasPermission(r.Context(), id, authorization.RolesManage)
+			if rolesErr == nil {
+				r = r.WithContext(context.WithValue(r.Context(), roleManagementNavigationKey{}, rolesManage))
+			}
+			clubConfigure, clubErr := a.checker.HasPermission(r.Context(), id, authorization.ClubConfigure)
+			if clubErr == nil {
+				r = r.WithContext(context.WithValue(r.Context(), clubConfigurationNavigationKey{}, clubConfigure))
+			}
 			review, reviewErr := a.checker.HasPermission(r.Context(), id, authorization.RegistrationsReview)
 			if reviewErr == nil && review {
 				var count int64
@@ -109,5 +124,8 @@ func pageSecurity(r *http.Request) views.SecurityData {
 	review, _ := r.Context().Value(registrationNavigationKey{}).(registrationNavigation)
 	_, authenticated := auth.UserID(r.Context())
 	canWrite, _ := r.Context().Value(personWriteNavigationKey{}).(bool)
-	return views.SecurityData{Authenticated: authenticated, CanWritePersons: canWrite, CurrentPath: r.URL.Path, CanReviewRegistrations: review.allowed, RegistrationReviewCount: review.count, CanReadMemberships: canReadMemberships, CanReadPersons: canRead, CSRFToken: websecurity.Token(r.Context())}
+	canReadUsers, _ := r.Context().Value(userNavigationKey{}).(bool)
+	canManageRoles, _ := r.Context().Value(roleManagementNavigationKey{}).(bool)
+	canConfigureClub, _ := r.Context().Value(clubConfigurationNavigationKey{}).(bool)
+	return views.SecurityData{Authenticated: authenticated, CanWritePersons: canWrite, CurrentPath: r.URL.Path, CanReviewRegistrations: review.allowed, RegistrationReviewCount: review.count, CanReadMemberships: canReadMemberships, CanReadPersons: canRead, CanReadUsers: canReadUsers, CanManageRoles: canManageRoles, CanConfigureClub: canConfigureClub, CSRFToken: websecurity.Token(r.Context())}
 }

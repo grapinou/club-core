@@ -269,4 +269,23 @@ func TestPublicTrialVisibleInOffice(t *testing.T) {
 	officeOK(t, b, "/trials?date="+booking.Date, "Visiteur Essai", "Groupe adultes", "18:30", "Dojo municipal", "Programmé")
 	officeOK(t, b, fmt.Sprintf("/trials/%d", confirmation.TrialID), "Visiteur Essai", "Dojo municipal", "Programmé", "taille M")
 	officeOK(t, b, fmt.Sprintf("/persons/%d", personID), "visiteur@example.test", "0611223344")
+	child := booking
+	child.FirstName = "Enfant"
+	child.BirthDate = now.AddDate(-9, 0, 0).Format("2006-01-02")
+	child.Email, child.Phone = "", ""
+	child.Minor = true
+	child.GuardianFirstName, child.GuardianLastName = "Parent", "Essai"
+	child.GuardianEmail, child.GuardianPhone = "parent@example.test", "0611223355"
+	child.Relationship = "mother"
+	child.EquipmentDetails = "taille enfant"
+	minor, err := service.Book(t.Context(), child, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	officeOK(t, b, fmt.Sprintf("/trials/%d", minor.TrialID), "Enfant Essai", "Parent Essai", "parent@example.test", "0611223355", "taille enfant")
+	var childPersonID int32
+	if err := f.db.QueryRow(t.Context(), "SELECT person_id FROM trial_registrations WHERE id=$1", minor.TrialID).Scan(&childPersonID); err != nil {
+		t.Fatal(err)
+	}
+	officeOK(t, b, fmt.Sprintf("/persons/%d", childPersonID), "Parent Essai", "Contact principal", "0611223355")
 }

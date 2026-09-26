@@ -30,6 +30,7 @@ type AdministrativeEvent struct {
 	ResourceType string
 	ResourceID   int32
 	CreatedAt    pgtype.Timestamptz
+	RoleName     pgtype.Text
 }
 
 type ChildRegistrationApplication struct {
@@ -123,6 +124,15 @@ type GuardianIdentityClaimCandidate struct {
 	DetectedAt       pgtype.Timestamptz
 }
 
+type InstallationSetup struct {
+	ID               bool
+	InitializedAt    pgtype.Timestamptz
+	FirstAdminUserID pgtype.Int4
+	SecretHash       []byte
+	SecretIssuedAt   pgtype.Timestamptz
+	SecretGeneration int32
+}
+
 type Location struct {
 	ID             int32
 	OrganizationID int32
@@ -147,6 +157,7 @@ type Membership struct {
 	ApprovedAt       pgtype.Timestamptz
 	ApprovedByUserID pgtype.Int4
 	AdminNote        pgtype.Text
+	SourceTrialID    pgtype.Int4
 }
 
 type MembershipActivity struct {
@@ -180,29 +191,34 @@ type MembershipGroup struct {
 }
 
 type MembershipType struct {
-	ID        int32
-	Name      string
-	IsActive  bool
-	CreatedAt pgtype.Timestamptz
+	ID          int32
+	Name        string
+	IsActive    bool
+	CreatedAt   pgtype.Timestamptz
+	AmountCents pgtype.Int4
+	Currency    string
+	PublicNote  pgtype.Text
 }
 
 type Organization struct {
-	ID                         int32
-	Name                       string
-	ShortName                  pgtype.Text
-	Description                pgtype.Text
-	PublicEmail                pgtype.Text
-	PublicPhone                pgtype.Text
-	CorrespondenceAddress      pgtype.Text
-	WebsiteUrl                 pgtype.Text
-	IsActive                   bool
-	CreatedAt                  pgtype.Timestamptz
-	UpdatedAt                  pgtype.Timestamptz
-	PublicPhoneLabel           pgtype.Text
-	TrialSessionDescription    pgtype.Text
-	TrialItemsToBring          []string
-	TrialEquipmentOffer        pgtype.Text
-	TrialEquipmentDetailPrompt pgtype.Text
+	ID                          int32
+	Name                        string
+	ShortName                   pgtype.Text
+	Description                 pgtype.Text
+	PublicEmail                 pgtype.Text
+	PublicPhone                 pgtype.Text
+	CorrespondenceAddress       pgtype.Text
+	WebsiteUrl                  pgtype.Text
+	IsActive                    bool
+	CreatedAt                   pgtype.Timestamptz
+	UpdatedAt                   pgtype.Timestamptz
+	PublicPhoneLabel            pgtype.Text
+	TrialSessionDescription     pgtype.Text
+	TrialItemsToBring           []string
+	TrialEquipmentOffer         pgtype.Text
+	TrialEquipmentDetailPrompt  pgtype.Text
+	PublicRulesDescription      pgtype.Text
+	MaxTrialsPerPersonPerSeason pgtype.Int4
 }
 
 type OrganizationLink struct {

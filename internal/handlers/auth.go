@@ -71,6 +71,9 @@ func (h *AuthHandler) postActivate(w http.ResponseWriter, r *http.Request) {
 }
 func (h *AuthHandler) getLogin(w http.ResponseWriter, r *http.Request) {
 	message := ""
+	if r.URL.Query().Get("setup") == "1" {
+		message = "Votre compte administrateur est prêt. Vous pouvez maintenant vous connecter."
+	}
 	if r.URL.Query().Get("activated") == "1" {
 		message = "Votre compte est activé. Vous pouvez maintenant vous connecter."
 	}

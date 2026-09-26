@@ -20,17 +20,33 @@ const (
 	RegistrationsReview Permission = "registrations.review"
 	RolesRead           Permission = "roles.read"
 	RolesManage         Permission = "roles.manage"
+	ClubConfigure       Permission = "club.configure"
 )
 
 var ErrForbidden = errors.New("permission denied")
 var policy = map[string][]Permission{
-	"president": {PersonsRead, PersonsWrite, MembershipsRead, MembershipsApprove, ActivationResend, RegistrationsReview, RolesRead, RolesManage},
+	"president": {PersonsRead, PersonsWrite, MembershipsRead, MembershipsApprove, ActivationResend, RegistrationsReview, RolesRead, RolesManage, ClubConfigure},
 	"secretary": {PersonsRead, PersonsWrite, MembershipsRead, MembershipsApprove, ActivationResend, RegistrationsReview},
 	"treasurer": {},
 	"coach":     {},
 }
 
 func KnownRole(name string) bool { _, ok := policy[name]; return ok }
+
+// RolesWith keeps the administrative lockout check tied to the same policy as
+// request authorization, including if the policy changes later.
+func RolesWith(permission Permission) []string {
+	var names []string
+	for name, permissions := range policy {
+		for _, p := range permissions {
+			if p == permission {
+				names = append(names, name)
+				break
+			}
+		}
+	}
+	return names
+}
 
 type Permissions map[Permission]bool
 

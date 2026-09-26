@@ -561,7 +561,8 @@ func TestUnactivatedRenewalAndSharedFamilyEmail(t *testing.T) {
 	parent := f.person("Parent", "1980-01-01")
 	f.exec("UPDATE persons SET email='family@example.test' WHERE id=$1", parent)
 	for range 2 {
-		p := f.person("Child", "2020-01-01")
+		// Adult accounts retain the historical shared-family email fallback.
+		p := f.person("Adult", "1990-01-01")
 		f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES ($1,$2,'guardian')", p, parent)
 		// A later guardian with a valid email must not replace the first fallback.
 		f.guardian(p, "later@example.test", false)

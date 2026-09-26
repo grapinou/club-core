@@ -3,6 +3,8 @@ package organization
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
@@ -19,8 +21,10 @@ type PublicImage struct {
 	Width, Height        int32
 }
 type PublicClub struct {
+	MaxTrialsPerPersonPerSeason                                              pgtype.Int4
 	Name, ShortName, Description, Email, Phone, PhoneLabel, Website          string
 	TrialSessionDescription, TrialEquipmentOffer, TrialEquipmentDetailPrompt string
+	RulesDescription                                                         string
 	TrialItemsToBring                                                        []string
 	Images                                                                   map[string]PublicImage
 	Locations                                                                []PublicLocation
@@ -46,8 +50,8 @@ func (s *Service) PublicIdentity(ctx context.Context) (PublicClub, error) {
 		return PublicClub{}, err
 	}
 	o := identity.Organization
-	c := PublicClub{Name: o.Name, ShortName: o.ShortName.String, Description: o.Description.String, Email: o.PublicEmail.String, Phone: o.PublicPhone.String, PhoneLabel: o.PublicPhoneLabel.String, Website: o.WebsiteUrl.String,
-		TrialSessionDescription: o.TrialSessionDescription.String, TrialItemsToBring: o.TrialItemsToBring, TrialEquipmentOffer: o.TrialEquipmentOffer.String, TrialEquipmentDetailPrompt: o.TrialEquipmentDetailPrompt.String, Images: map[string]PublicImage{}}
+	c := PublicClub{MaxTrialsPerPersonPerSeason: o.MaxTrialsPerPersonPerSeason, Name: o.Name, ShortName: o.ShortName.String, Description: o.Description.String, Email: o.PublicEmail.String, Phone: o.PublicPhone.String, PhoneLabel: o.PublicPhoneLabel.String, Website: o.WebsiteUrl.String,
+		TrialSessionDescription: o.TrialSessionDescription.String, TrialItemsToBring: o.TrialItemsToBring, TrialEquipmentOffer: o.TrialEquipmentOffer.String, TrialEquipmentDetailPrompt: o.TrialEquipmentDetailPrompt.String, RulesDescription: o.PublicRulesDescription.String, Images: map[string]PublicImage{}}
 	for _, l := range identity.Locations {
 		if l.IsActive {
 			c.Locations = append(c.Locations, PublicLocation{l.Name, l.Address})
@@ -84,6 +88,29 @@ func (s *Service) PublicMembershipTypes(ctx context.Context) ([]string, error) {
 		names = append(names, r.Name)
 	}
 	return names, nil
+}
+
+type PublicPrice struct{ Name, Amount, Currency, Note string }
+
+func (s *Service) PublicPrices(ctx context.Context) ([]PublicPrice, error) {
+	rows, err := s.db.Query(ctx, "SELECT name,amount_cents,currency,coalesce(public_note,'') FROM membership_types WHERE is_active ORDER BY name,id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var prices []PublicPrice
+	for rows.Next() {
+		var p PublicPrice
+		var amount *int32
+		if err := rows.Scan(&p.Name, &amount, &p.Currency, &p.Note); err != nil {
+			return nil, err
+		}
+		if amount != nil {
+			p.Amount = strings.ReplaceAll(fmt.Sprintf("%.2f", float64(*amount)/100), ".", ",")
+		}
+		prices = append(prices, p)
+	}
+	return prices, rows.Err()
 }
 
 // now must be expressed in the application timezone. Re-read every request;

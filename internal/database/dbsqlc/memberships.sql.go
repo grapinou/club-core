@@ -12,7 +12,7 @@ import (
 )
 
 const getMembership = `-- name: GetMembership :one
-SELECT id, person_id, season_id, membership_type_id, status, joined_at, ended_at, created_at, updated_at, requested_at, approved_at, approved_by_user_id, admin_note FROM memberships WHERE id = $1
+SELECT id, person_id, season_id, membership_type_id, status, joined_at, ended_at, created_at, updated_at, requested_at, approved_at, approved_by_user_id, admin_note, source_trial_id FROM memberships WHERE id = $1
 `
 
 func (q *Queries) GetMembership(ctx context.Context, id int32) (Membership, error) {
@@ -32,12 +32,13 @@ func (q *Queries) GetMembership(ctx context.Context, id int32) (Membership, erro
 		&i.ApprovedAt,
 		&i.ApprovedByUserID,
 		&i.AdminNote,
+		&i.SourceTrialID,
 	)
 	return i, err
 }
 
 const getMembershipDetails = `-- name: GetMembershipDetails :one
-SELECT m.id, m.person_id, m.season_id, m.membership_type_id, m.status, m.joined_at, m.ended_at, m.created_at, m.updated_at, m.requested_at, m.approved_at, m.approved_by_user_id, m.admin_note, p.id, p.first_name, p.last_name, p.birth_date, p.phone_number, p.email, p.address, p.created_at, p.archived_at, p.notes, p.updated_at, s.id, s.name, s.starts_at, s.ends_at, s.is_active, s.created_at, t.id, t.name, t.is_active, t.created_at,
+SELECT m.id, m.person_id, m.season_id, m.membership_type_id, m.status, m.joined_at, m.ended_at, m.created_at, m.updated_at, m.requested_at, m.approved_at, m.approved_by_user_id, m.admin_note, m.source_trial_id, p.id, p.first_name, p.last_name, p.birth_date, p.phone_number, p.email, p.address, p.created_at, p.archived_at, p.notes, p.updated_at, s.id, s.name, s.starts_at, s.ends_at, s.is_active, s.created_at, t.id, t.name, t.is_active, t.created_at, t.amount_cents, t.currency, t.public_note,
        u.id AS user_id, u.username, u.is_active AS user_is_active, u.activated_at,
        approver.username AS approver_username
 FROM memberships m
@@ -78,6 +79,7 @@ func (q *Queries) GetMembershipDetails(ctx context.Context, id int32) (GetMember
 		&i.Membership.ApprovedAt,
 		&i.Membership.ApprovedByUserID,
 		&i.Membership.AdminNote,
+		&i.Membership.SourceTrialID,
 		&i.Person.ID,
 		&i.Person.FirstName,
 		&i.Person.LastName,
@@ -99,6 +101,9 @@ func (q *Queries) GetMembershipDetails(ctx context.Context, id int32) (GetMember
 		&i.MembershipType.Name,
 		&i.MembershipType.IsActive,
 		&i.MembershipType.CreatedAt,
+		&i.MembershipType.AmountCents,
+		&i.MembershipType.Currency,
+		&i.MembershipType.PublicNote,
 		&i.UserID,
 		&i.Username,
 		&i.UserIsActive,
@@ -123,6 +128,36 @@ func (q *Queries) GetMembershipIDForUser(ctx context.Context, arg GetMembershipI
 	var id int32
 	err := row.Scan(&id)
 	return id, err
+}
+
+const getMembershipSourceTrial = `-- name: GetMembershipSourceTrial :one
+SELECT t.id,t.trial_date,a.name AS activity_name,coalesce(g.name,'')::text AS group_name,
+ coalesce(to_char(gs.start_time,'HH24:MI'),'')::text AS start_time
+FROM memberships m JOIN trial_registrations t ON t.id=m.source_trial_id
+JOIN activities a ON a.id=t.activity_id
+LEFT JOIN groups g ON g.id=t.group_id LEFT JOIN group_slots gs ON gs.id=t.group_slot_id
+WHERE m.id=$1
+`
+
+type GetMembershipSourceTrialRow struct {
+	ID           int32
+	TrialDate    pgtype.Date
+	ActivityName string
+	GroupName    string
+	StartTime    string
+}
+
+func (q *Queries) GetMembershipSourceTrial(ctx context.Context, id int32) (GetMembershipSourceTrialRow, error) {
+	row := q.db.QueryRow(ctx, getMembershipSourceTrial, id)
+	var i GetMembershipSourceTrialRow
+	err := row.Scan(
+		&i.ID,
+		&i.TrialDate,
+		&i.ActivityName,
+		&i.GroupName,
+		&i.StartTime,
+	)
+	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
@@ -186,7 +221,7 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 }
 
 const listAdministrativeMemberships = `-- name: ListAdministrativeMemberships :many
-SELECT m.id, m.person_id, m.season_id, m.membership_type_id, m.status, m.joined_at, m.ended_at, m.created_at, m.updated_at, m.requested_at, m.approved_at, m.approved_by_user_id, m.admin_note, p.first_name, p.last_name, s.name AS season_name,
+SELECT m.id, m.person_id, m.season_id, m.membership_type_id, m.status, m.joined_at, m.ended_at, m.created_at, m.updated_at, m.requested_at, m.approved_at, m.approved_by_user_id, m.admin_note, m.source_trial_id, p.first_name, p.last_name, s.name AS season_name,
        t.name AS membership_type_name,
        u.id AS user_id, u.username, u.is_active AS user_is_active, u.activated_at
 FROM memberships m
@@ -234,6 +269,7 @@ func (q *Queries) ListAdministrativeMemberships(ctx context.Context) ([]ListAdmi
 			&i.Membership.ApprovedAt,
 			&i.Membership.ApprovedByUserID,
 			&i.Membership.AdminNote,
+			&i.Membership.SourceTrialID,
 			&i.FirstName,
 			&i.LastName,
 			&i.SeasonName,

@@ -50,6 +50,9 @@ func (h *PublicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := views.PublicPage{SecurityData: pageSecurity(r), Kind: r.URL.Path, Heading: title, SiteName: c.Name, Editorial: h.rules}
+	if c.RulesDescription != "" {
+		data.Editorial = c.RulesDescription
+	}
 	if data.SiteName == "" {
 		data.SiteName = "Club Core"
 	}
@@ -61,7 +64,7 @@ func (h *PublicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	data.Title = title + " · " + data.SiteName
 	data.MetaDescription = title + " : découvrez les informations pratiques et contactez " + data.SiteName + "."
-	data.Club = views.PublicClubView{Name: c.Name, ShortName: c.ShortName, Description: c.Description, Email: c.Email, Phone: c.Phone, PhoneLabel: c.PhoneLabel, Website: c.Website,
+	data.Club = views.PublicClubView{MaxTrialsPerPersonPerSeason: c.MaxTrialsPerPersonPerSeason, Name: c.Name, ShortName: c.ShortName, Description: c.Description, Email: c.Email, Phone: c.Phone, PhoneLabel: c.PhoneLabel, Website: c.Website,
 		TrialSessionDescription: c.TrialSessionDescription, TrialEquipmentOffer: c.TrialEquipmentOffer, TrialEquipmentDetailPrompt: c.TrialEquipmentDetailPrompt, TrialItemsToBring: c.TrialItemsToBring}
 	imageView := func(key string) views.PublicImageView {
 		i := c.Images[key]
@@ -84,11 +87,12 @@ func (h *PublicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			data.Heading = c.Name
 			data.Activities, err = h.service.PublicActivities(r.Context())
 		case "/tarifs":
-			data.MembershipTypes, err = h.service.PublicMembershipTypes(r.Context())
+			data.Prices, err = h.service.PublicPrices(r.Context())
 		case "/horaires":
 			var schedule organization.PublicTimetable
 			schedule, err = h.service.PublicSchedule(r.Context(), time.Now().In(h.location))
 			data.Season = schedule.Season
+			data.HasSlots = len(schedule.Slots) > 0
 			days := []string{"Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"}
 			for _, name := range days {
 				data.Days = append(data.Days, views.PublicDayView{Name: name})

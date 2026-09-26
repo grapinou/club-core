@@ -39,7 +39,7 @@ func SeedBudokan(ctx context.Context, db *pgxpool.Pool, confirmed bool) error {
 	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(260914)"); err != nil {
 		return err
 	}
-	rows, err := tx.Query(ctx, "SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename NOT IN ('goose_db_version','roles') ORDER BY tablename")
+	rows, err := tx.Query(ctx, "SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename NOT IN ('goose_db_version','roles','installation_setup') ORDER BY tablename")
 	if err != nil {
 		return err
 	}

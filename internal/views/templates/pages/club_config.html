@@ -1,0 +1,28 @@
+{{define "content"}}<div class="content-readable">
+{{if .Editing}}
+<header class="page-header"><p><a href="/admin/config/{{.Section.Key}}">← {{.Section.Label}}</a></p><h1>{{if .Record.ID}}Modifier{{else}}Ajouter{{end}} — {{.Section.Label}}</h1><p>{{.Section.Hint}}</p></header>
+{{if .Error}}<p class="alert alert-danger" role="alert">{{.Error}}</p>{{end}}
+<section class="section-panel"><form method="post" action="/admin/config/{{.Section.Key}}/{{if .Record.ID}}{{.Record.ID}}{{else}}new{{end}}"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+{{range .Section.Fields}}{{$f:=.}}<div class="mb-3"><label class="form-label" for="field-{{.Name}}">{{.Label}}{{if .Required}} *{{end}}</label>
+{{if eq .Type "textarea"}}<textarea class="form-control" id="field-{{.Name}}" name="{{.Name}}" rows="3" maxlength="10000" {{if .Required}}required{{end}}>{{index $.Record.Values .Name}}</textarea>
+{{else if eq .Type "select"}}<select class="form-select" id="field-{{.Name}}" name="{{.Name}}" {{if .Required}}required{{end}}><option value="">Choisir</option>{{range .Options}}<option value="{{.Value}}" {{if eq (index $.Record.Values $f.Name) .Value}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+{{else if eq .Type "checkbox"}}<div class="form-check"><input class="form-check-input" type="checkbox" id="field-{{.Name}}" name="{{.Name}}" value="yes" {{if eq (index $.Record.Values .Name) "yes"}}checked{{end}}><label class="form-check-label" for="field-{{.Name}}">Oui</label></div>
+{{else}}<input class="form-control" type="{{.Type}}" id="field-{{.Name}}" name="{{.Name}}" value="{{index $.Record.Values .Name}}" {{if .Required}}required{{end}} {{if eq .Type "number"}}min="{{if eq .Name "max_trials_per_person_per_season"}}1{{else}}0{{end}}" step="{{if eq .Name "amount"}}0.01{{else}}1{{end}}"{{end}}>{{end}}
+{{if .Help}}<p class="form-text">{{.Help}}</p>{{end}}{{with index $.FieldErrors .Name}}<p class="field-error" role="alert">{{.}}</p>{{end}}</div>{{end}}
+{{if not .Section.Singleton}}<div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="is_active" name="is_active" value="yes" {{if or (not .Record.ID) .Record.Active}}checked{{end}}><label class="form-check-label" for="is_active">Actif et visible lorsque pertinent</label></div>{{end}}
+{{if and (not .Section.Singleton) (ne .Section.Key "images")}}<p class="form-text">Les données déjà utilisées restent conservées lorsque vous désactivez cet élément.</p>{{end}}<button class="btn btn-primary" type="submit">Enregistrer</button> <a href="/admin/config/{{.Section.Key}}">Annuler</a></form></section>
+{{if and (eq .Section.Key "images") .Record.ID}}<form method="post" action="/admin/config/images/{{.Record.ID}}" class="mt-3"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="remove" value="yes"><button class="btn btn-outline-danger" type="submit">Retirer cette image du site</button></form>{{end}}
+{{else if .Section.Key}}
+<header class="page-header"><p><a href="/admin/config">← Configuration</a></p><h1>{{.Section.Label}}</h1><p>{{.Section.Hint}}</p></header>
+{{if .Notice}}<p class="alert alert-success" role="status">{{.Notice}}</p>{{end}}
+{{if .Section.Blocked}}<p class="alert alert-info">{{.Section.Blocked}} <a href="/admin/config">Voir les étapes</a></p>{{else}}
+{{if and (not .Section.Singleton) (ne .Section.Key "images")}}<p><a class="btn btn-primary" href="/admin/config/{{.Section.Key}}/new">Ajouter</a></p>{{end}}
+{{if and (eq .Section.Key "images") (lt (len .Section.Records) 5)}}<p><a class="btn btn-primary" href="/admin/config/images/new">Référencer une image</a></p>{{end}}
+{{range .Section.Records}}<article class="section-panel"><h2>{{.Name}}</h2><p>{{if .Active}}<span class="badge text-bg-success">Actif</span>{{else}}<span class="badge text-bg-secondary">Inactif</span>{{end}}</p><a href="/admin/config/{{$.Section.Key}}/{{.ID}}">Modifier</a></article>{{else}}<p class="empty-state">Aucun élément renseigné.</p>{{end}}
+{{if and .Section.Singleton (not .Section.Records)}}<p><a class="btn btn-primary" href="/admin/config/{{.Section.Key}}/new">Renseigner</a></p>{{end}}
+{{end}}
+{{else}}
+<header class="page-header"><h1>Configurer votre association</h1><p>Bienvenue dans Club Core. Suivez ces étapes pour ouvrir votre site au public. Vous pouvez revenir sur chaque réglage à tout moment.</p><div class="actions"><a class="btn btn-outline-primary" href="/">Voir le site public</a>{{if .CanReadPersons}}<a href="/admin">Retour à l’administration</a>{{end}}</div></header>
+{{if .Snapshot.Ready}}<p class="alert alert-success">Les informations essentielles sont prêtes. Vérifiez votre site public et complétez les rubriques facultatives selon vos besoins.</p>{{else}}<p class="alert alert-info">Votre site sera prêt lorsque l’association, une saison, un lieu, une activité, un groupe et un horaire seront renseignés.</p>{{end}}
+<ol class="config-steps">{{range .Snapshot.Sections}}<li class="section-panel"><h2>{{.Label}} {{if .Done}}<span class="badge text-bg-success">Renseigné</span>{{else if .Required}}<span class="badge text-bg-warning">À faire</span>{{else}}<span class="badge text-bg-light">Facultatif</span>{{end}}</h2><p>{{.Hint}}</p>{{if .Blocked}}<p class="text-body-secondary">{{.Blocked}}</p>{{else}}<a href="/admin/config/{{.Key}}">Ouvrir</a>{{end}}</li>{{end}}</ol>
+{{end}}</div>{{end}}

@@ -45,10 +45,12 @@
 <a href="/contact" {{if eq .CurrentPath "/contact"}}aria-current="page"{{end}}>Contact</a>
 {{if .Authenticated}}<a href="/dashboard" {{if eq .CurrentPath "/dashboard"}}aria-current="page"{{end}}>Mon espace</a><a href="/me/account" {{if eq .CurrentPath "/me/account"}}aria-current="page"{{end}}>Mon compte</a>{{else}}<a href="/login" {{if eq .CurrentPath "/login"}}aria-current="page"{{end}}>Connexion</a>{{end}}
 </div></nav>
-{{if or .CanReadPersons .CanReadMemberships .CanReviewRegistrations}}<nav class="admin-nav" aria-label="Administration"><div class="container">{{if .CanReadPersons}}<a href="/admin" {{if eq .CurrentPath "/admin"}}aria-current="page"{{end}}>Administration</a>{{else}}<span class="small text-body-secondary">Administration</span>{{end}}
+{{if or .CanReadPersons .CanReadMemberships .CanReviewRegistrations .CanReadUsers .CanConfigureClub}}<nav class="admin-nav" aria-label="Administration"><div class="container">{{if .CanReadPersons}}<a href="/admin" {{if eq .CurrentPath "/admin"}}aria-current="page"{{end}}>Administration</a>{{else}}<span class="small text-body-secondary">Administration</span>{{end}}
+{{if .CanConfigureClub}}<a href="/admin/config" {{if eq .CurrentPath "/admin/config"}}aria-current="page"{{end}}>Configurer le club</a>{{end}}
 {{if .CanReadMemberships}}<a href="/memberships">Adhésions</a>{{end}}
 {{if .CanReviewRegistrations}}<a href="/registration-reviews">Vérifications ({{.RegistrationReviewCount}})</a>{{end}}
 {{if .CanReadPersons}}<a href="/trials">Essais</a><a href="/persons">Personnes</a>{{end}}
+{{if .CanReadUsers}}<a href="/admin/users" {{if eq .CurrentPath "/admin/users"}}aria-current="page"{{end}}>Utilisateurs</a>{{end}}
 </div></nav>{{end}}</header>
 
     <main id="main-content" class="container py-4" tabindex="-1">

@@ -7,6 +7,9 @@ type SecurityData struct {
 	CanWritePersons         bool
 	CurrentPath             string
 	CanReadPersons          bool
+	CanReadUsers            bool
+	CanManageRoles          bool
+	CanConfigureClub        bool
 	CanReadMemberships      bool
 	CanReviewRegistrations  bool
 	RegistrationReviewCount int64

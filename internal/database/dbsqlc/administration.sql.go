@@ -44,19 +44,26 @@ const administrativeCounts = `-- name: AdministrativeCounts :one
 SELECT
  (SELECT count(*) FROM trial_registrations WHERE trial_date=$1::date AND status='registered') AS today_trials,
  (SELECT count(*) FROM trial_registrations WHERE trial_date>$1::date AND status='registered') AS upcoming_trials,
+ (SELECT count(*) FROM trial_registrations WHERE trial_date<$1::date AND status='registered') AS past_pending_trials,
  (SELECT count(*) FROM memberships WHERE status='pending') AS pending_memberships
 `
 
 type AdministrativeCountsRow struct {
 	TodayTrials        int64
 	UpcomingTrials     int64
+	PastPendingTrials  int64
 	PendingMemberships int64
 }
 
 func (q *Queries) AdministrativeCounts(ctx context.Context, today pgtype.Date) (AdministrativeCountsRow, error) {
 	row := q.db.QueryRow(ctx, administrativeCounts, today)
 	var i AdministrativeCountsRow
-	err := row.Scan(&i.TodayTrials, &i.UpcomingTrials, &i.PendingMemberships)
+	err := row.Scan(
+		&i.TodayTrials,
+		&i.UpcomingTrials,
+		&i.PastPendingTrials,
+		&i.PendingMemberships,
+	)
 	return i, err
 }
 
@@ -90,7 +97,7 @@ func (q *Queries) AdministrativeMembershipTypes(ctx context.Context) ([]Administ
 }
 
 const administrativeMemberships = `-- name: AdministrativeMemberships :many
-SELECT m.id,m.status,s.name AS season_name,t.name AS type_name,
+SELECT m.id,m.status,m.season_id,m.source_trial_id,m.requested_at,m.approved_at,s.name AS season_name,t.name AS type_name,
  ARRAY(SELECT g.name FROM membership_groups mg JOIN groups g ON g.id=mg.group_id WHERE mg.membership_id=m.id AND g.is_active AND mg.joined_at<=$1::date AND (mg.left_at IS NULL OR mg.left_at>$1::date) ORDER BY g.name)::text[] AS groups
 FROM memberships m JOIN seasons s ON s.id=m.season_id JOIN membership_types t ON t.id=m.membership_type_id
 WHERE m.person_id=$2 ORDER BY s.starts_at DESC,m.id DESC
@@ -102,11 +109,15 @@ type AdministrativeMembershipsParams struct {
 }
 
 type AdministrativeMembershipsRow struct {
-	ID         int32
-	Status     string
-	SeasonName string
-	TypeName   string
-	Groups     []string
+	ID            int32
+	Status        string
+	SeasonID      int32
+	SourceTrialID pgtype.Int4
+	RequestedAt   pgtype.Timestamptz
+	ApprovedAt    pgtype.Timestamptz
+	SeasonName    string
+	TypeName      string
+	Groups        []string
 }
 
 func (q *Queries) AdministrativeMemberships(ctx context.Context, arg AdministrativeMembershipsParams) ([]AdministrativeMembershipsRow, error) {
@@ -121,6 +132,10 @@ func (q *Queries) AdministrativeMemberships(ctx context.Context, arg Administrat
 		if err := rows.Scan(
 			&i.ID,
 			&i.Status,
+			&i.SeasonID,
+			&i.SourceTrialID,
+			&i.RequestedAt,
+			&i.ApprovedAt,
 			&i.SeasonName,
 			&i.TypeName,
 			&i.Groups,
@@ -200,7 +215,9 @@ func (q *Queries) AdministrativePersonAccount(ctx context.Context, personID int3
 }
 
 const administrativeRelations = `-- name: AdministrativeRelations :many
-SELECT p.id,p.first_name,p.last_name,r.relationship_type,r.is_primary_contact,
+SELECT p.id,p.first_name,p.last_name,p.email,p.phone_number,r.relationship_type,r.is_primary_contact,
+ EXISTS(SELECT 1 FROM guardian_access_grants ga WHERE ga.child_person_id=r.child_person_id AND ga.guardian_person_id=r.guardian_person_id AND ga.revoked_at IS NULL)::boolean AS has_access,
+ EXISTS(SELECT 1 FROM person_emergency_contacts ec WHERE ec.person_id=$1 AND ec.contact_person_id=p.id)::boolean AS is_emergency,
  (r.child_person_id=$1)::boolean AS is_guardian, (p.archived_at IS NOT NULL)::boolean AS archived
 FROM person_guardians r JOIN persons p ON p.id=CASE WHEN r.child_person_id=$1 THEN r.guardian_person_id ELSE r.child_person_id END
 WHERE r.child_person_id=$1 OR r.guardian_person_id=$1
@@ -211,8 +228,12 @@ type AdministrativeRelationsRow struct {
 	ID               int32
 	FirstName        string
 	LastName         string
+	Email            pgtype.Text
+	PhoneNumber      pgtype.Text
 	RelationshipType string
 	IsPrimaryContact bool
+	HasAccess        bool
+	IsEmergency      bool
 	IsGuardian       bool
 	Archived         bool
 }
@@ -230,8 +251,12 @@ func (q *Queries) AdministrativeRelations(ctx context.Context, personID int32) (
 			&i.ID,
 			&i.FirstName,
 			&i.LastName,
+			&i.Email,
+			&i.PhoneNumber,
 			&i.RelationshipType,
 			&i.IsPrimaryContact,
+			&i.HasAccess,
+			&i.IsEmergency,
 			&i.IsGuardian,
 			&i.Archived,
 		); err != nil {
@@ -319,42 +344,66 @@ func (q *Queries) AdministrativeSlots(ctx context.Context) ([]AdministrativeSlot
 }
 
 const administrativeTrials = `-- name: AdministrativeTrials :many
-SELECT t.id,t.person_id,p.first_name,p.last_name,t.activity_id,a.name AS activity_name,t.group_id,coalesce(g.name,'')::text AS group_name,
+SELECT t.id,t.person_id,p.first_name,p.last_name,p.birth_date,p.email,p.phone_number,
+ COALESCE(p.birth_date > t.trial_date - INTERVAL '18 years',false)::boolean AS is_minor,
+ t.activity_id,a.name AS activity_name,t.group_id,coalesce(g.name,'')::text AS group_name,
  t.group_slot_id,coalesce(to_char(gs.start_time,'HH24:MI'),'')::text AS start_time,coalesce(to_char(gs.end_time,'HH24:MI'),'')::text AS end_time,
- coalesce((SELECT l.name FROM locations l WHERE l.id=gs.location_id),gs.location,'')::text AS location,t.trial_date,t.status,t.notes,t.revision
+ coalesce(gs.practice_label,'')::text AS practice_label,
+ coalesce((SELECT l.name FROM locations l WHERE l.id=gs.location_id),gs.location,'')::text AS location,
+ coalesce((SELECT l.address FROM locations l WHERE l.id=gs.location_id),'')::text AS location_address,
+ t.trial_date,t.status,t.notes,t.revision,
+ coalesce((SELECT m.id FROM memberships m JOIN seasons s ON s.id=m.season_id
+   WHERE m.source_trial_id=t.id OR (m.person_id=t.person_id AND
+     (m.season_id=gs.season_id OR (gs.id IS NULL AND t.trial_date BETWEEN s.starts_at AND s.ends_at)))
+   ORDER BY (m.source_trial_id=t.id) DESC NULLS LAST,m.id DESC LIMIT 1),0)::integer AS membership_id,
+ coalesce(gs.season_id,(SELECT s.id FROM seasons s WHERE s.is_active AND t.trial_date BETWEEN s.starts_at AND s.ends_at ORDER BY s.starts_at DESC,s.id LIMIT 1),0)::integer AS suggested_season_id
 FROM trial_registrations t JOIN persons p ON p.id=t.person_id JOIN activities a ON a.id=t.activity_id
 LEFT JOIN groups g ON g.id=t.group_id LEFT JOIN group_slots gs ON gs.id=t.group_slot_id
 WHERE ($1::integer=0 OR t.person_id=$1)
 AND ($2::integer=0 OR t.id=$2)
 AND ($3::date IS NULL OR t.trial_date=$3)
 AND ($4::date IS NULL OR (t.trial_date>=$4 AND t.status='registered'))
-ORDER BY t.trial_date,t.id LIMIT 101
+AND ($5::date IS NULL OR (t.trial_date<$5 AND t.status='registered'))
+ORDER BY (t.trial_date<$6::date),
+ CASE WHEN t.trial_date>=$6::date THEN t.trial_date END ASC,
+ CASE WHEN t.trial_date<$6::date THEN t.trial_date END DESC,
+ t.id LIMIT 101
 `
 
 type AdministrativeTrialsParams struct {
-	PersonID int32
-	TrialID  int32
-	OnDate   pgtype.Date
-	FromDate pgtype.Date
+	PersonID   int32
+	TrialID    int32
+	OnDate     pgtype.Date
+	FromDate   pgtype.Date
+	BeforeDate pgtype.Date
+	Today      pgtype.Date
 }
 
 type AdministrativeTrialsRow struct {
-	ID           int32
-	PersonID     int32
-	FirstName    string
-	LastName     string
-	ActivityID   int32
-	ActivityName string
-	GroupID      pgtype.Int4
-	GroupName    string
-	GroupSlotID  pgtype.Int4
-	StartTime    string
-	EndTime      string
-	Location     string
-	TrialDate    pgtype.Date
-	Status       string
-	Notes        pgtype.Text
-	Revision     int32
+	ID                int32
+	PersonID          int32
+	FirstName         string
+	LastName          string
+	BirthDate         pgtype.Date
+	Email             pgtype.Text
+	PhoneNumber       pgtype.Text
+	IsMinor           bool
+	ActivityID        int32
+	ActivityName      string
+	GroupID           pgtype.Int4
+	GroupName         string
+	GroupSlotID       pgtype.Int4
+	StartTime         string
+	EndTime           string
+	PracticeLabel     string
+	Location          string
+	LocationAddress   string
+	TrialDate         pgtype.Date
+	Status            string
+	Notes             pgtype.Text
+	Revision          int32
+	MembershipID      int32
+	SuggestedSeasonID int32
 }
 
 func (q *Queries) AdministrativeTrials(ctx context.Context, arg AdministrativeTrialsParams) ([]AdministrativeTrialsRow, error) {
@@ -363,6 +412,8 @@ func (q *Queries) AdministrativeTrials(ctx context.Context, arg AdministrativeTr
 		arg.TrialID,
 		arg.OnDate,
 		arg.FromDate,
+		arg.BeforeDate,
+		arg.Today,
 	)
 	if err != nil {
 		return nil, err
@@ -376,6 +427,10 @@ func (q *Queries) AdministrativeTrials(ctx context.Context, arg AdministrativeTr
 			&i.PersonID,
 			&i.FirstName,
 			&i.LastName,
+			&i.BirthDate,
+			&i.Email,
+			&i.PhoneNumber,
+			&i.IsMinor,
 			&i.ActivityID,
 			&i.ActivityName,
 			&i.GroupID,
@@ -383,11 +438,15 @@ func (q *Queries) AdministrativeTrials(ctx context.Context, arg AdministrativeTr
 			&i.GroupSlotID,
 			&i.StartTime,
 			&i.EndTime,
+			&i.PracticeLabel,
 			&i.Location,
+			&i.LocationAddress,
 			&i.TrialDate,
 			&i.Status,
 			&i.Notes,
 			&i.Revision,
+			&i.MembershipID,
+			&i.SuggestedSeasonID,
 		); err != nil {
 			return nil, err
 		}
@@ -421,7 +480,7 @@ func (q *Queries) CreateAdministrativeEvent(ctx context.Context, arg CreateAdmin
 }
 
 const lockAdministrativeMembership = `-- name: LockAdministrativeMembership :one
-SELECT id, person_id, season_id, membership_type_id, status, joined_at, ended_at, created_at, updated_at, requested_at, approved_at, approved_by_user_id, admin_note FROM memberships WHERE id=$1 FOR UPDATE
+SELECT id, person_id, season_id, membership_type_id, status, joined_at, ended_at, created_at, updated_at, requested_at, approved_at, approved_by_user_id, admin_note, source_trial_id FROM memberships WHERE id=$1 FOR UPDATE
 `
 
 func (q *Queries) LockAdministrativeMembership(ctx context.Context, id int32) (Membership, error) {
@@ -441,6 +500,7 @@ func (q *Queries) LockAdministrativeMembership(ctx context.Context, id int32) (M
 		&i.ApprovedAt,
 		&i.ApprovedByUserID,
 		&i.AdminNote,
+		&i.SourceTrialID,
 	)
 	return i, err
 }
@@ -509,11 +569,14 @@ func (q *Queries) RecentAdministrativePersons(ctx context.Context) ([]RecentAdmi
 }
 
 const searchAdministrativePersons = `-- name: SearchAdministrativePersons :many
-SELECT id,first_name,last_name,birth_date,email,phone_number,address,created_at
-FROM persons WHERE archived_at IS NULL AND
- ($1::text='' OR position(lower($1) in lower(first_name||' '||last_name||' '||coalesce(email,'')||' '||coalesce(phone_number,'')))>0
- OR ($2::text<>'' AND position($2 in regexp_replace(coalesce(phone_number,''),'[^0-9]','','g'))>0))
-ORDER BY last_name,first_name,id LIMIT 51 OFFSET $3
+SELECT p.id,p.first_name,p.last_name,p.birth_date,p.email,p.phone_number,p.address,p.created_at,
+ EXISTS(SELECT 1 FROM trial_registrations t WHERE t.person_id=p.id)::boolean AS has_trial,
+ EXISTS(SELECT 1 FROM memberships m WHERE m.person_id=p.id)::boolean AS has_membership,
+ EXISTS(SELECT 1 FROM person_guardians g WHERE g.guardian_person_id=p.id)::boolean AS is_guardian
+FROM persons p WHERE p.archived_at IS NULL AND
+ ($1::text='' OR position(lower($1) in lower(p.first_name||' '||p.last_name||' '||coalesce(p.email,'')||' '||coalesce(p.phone_number,'')))>0
+ OR ($2::text<>'' AND position($2 in regexp_replace(coalesce(p.phone_number,''),'[^0-9]','','g'))>0))
+ORDER BY p.last_name,p.first_name,p.id LIMIT 51 OFFSET $3
 `
 
 type SearchAdministrativePersonsParams struct {
@@ -523,14 +586,17 @@ type SearchAdministrativePersonsParams struct {
 }
 
 type SearchAdministrativePersonsRow struct {
-	ID          int32
-	FirstName   string
-	LastName    string
-	BirthDate   pgtype.Date
-	Email       pgtype.Text
-	PhoneNumber pgtype.Text
-	Address     pgtype.Text
-	CreatedAt   pgtype.Timestamptz
+	ID            int32
+	FirstName     string
+	LastName      string
+	BirthDate     pgtype.Date
+	Email         pgtype.Text
+	PhoneNumber   pgtype.Text
+	Address       pgtype.Text
+	CreatedAt     pgtype.Timestamptz
+	HasTrial      bool
+	HasMembership bool
+	IsGuardian    bool
 }
 
 func (q *Queries) SearchAdministrativePersons(ctx context.Context, arg SearchAdministrativePersonsParams) ([]SearchAdministrativePersonsRow, error) {
@@ -551,6 +617,9 @@ func (q *Queries) SearchAdministrativePersons(ctx context.Context, arg SearchAdm
 			&i.PhoneNumber,
 			&i.Address,
 			&i.CreatedAt,
+			&i.HasTrial,
+			&i.HasMembership,
+			&i.IsGuardian,
 		); err != nil {
 			return nil, err
 		}

@@ -50,6 +50,9 @@ dd, td, .card, .alert { overflow-wrap: anywhere; }
 .data-list td small { display: block; margin-top: .3rem; }
 .detail-links { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin-block: 1rem 1.5rem; }
 details > summary { cursor: pointer; font-weight: 600; padding-block: .4rem; }
+.admin-trial-summary + .admin-trial-summary { border-top: 1px solid var(--club-border); padding-top: 1rem; }
+.admin-trial-summary h3 { margin-bottom: .3rem; }
+details.section-panel form { margin-top: 1rem; }
 footer { background: white; margin-top: 2rem; }
 @media (max-width: 767px) {
  .site-nav { gap: .5rem; }

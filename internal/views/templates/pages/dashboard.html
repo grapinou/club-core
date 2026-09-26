@@ -8,9 +8,10 @@
 {{range .Memberships}}<p>{{.SeasonName}} · <span class="badge {{$.StatusClassFor .Status}}">{{$.StatusLabel .Status}}</span></p><p>{{.MembershipTypeName}}</p><ul>{{range .Activities}}<li>{{.}}</li>{{else}}<li>Aucune activité renseignée.</li>{{end}}</ul><a href="/me/children/{{$childID}}/memberships/{{.ID}}">Consulter cette adhésion</a>
 {{else}}<p>Aucune adhésion enregistrée.</p>{{end}}</div></article>
 {{else}}<div class="empty-state">Vous ne gérez actuellement aucun enfant.</div>{{end}}</section>
-{{if or .CanReadPersons .CanReadMemberships .CanReviewRegistrations}}<section class="section-panel"><h2><a href="/admin">Administration</a></h2><p>Accédez aux dossiers que vous êtes autorisé à traiter.</p><div class="actions">
+{{if or .CanReadPersons .CanReadMemberships .CanReviewRegistrations .CanReadUsers .CanConfigureClub}}<section class="section-panel"><h2>Administration</h2><p>Accédez aux dossiers que vous êtes autorisé à traiter.</p><div class="actions">
+{{if .CanConfigureClub}}<a class="btn btn-primary" href="/admin/config">Configurer mon association</a>{{end}}
 {{if .CanReadMemberships}}<a class="btn btn-outline-primary" href="/memberships">Adhésions</a>{{end}}
 {{if .CanReviewRegistrations}}<a class="btn btn-outline-primary" href="/registration-reviews">Vérifications ({{.RegistrationReviewCount}})</a>{{end}}
-{{if .CanReadPersons}}<a class="btn btn-outline-primary" href="/persons">Personnes</a>{{end}}</div></section>{{end}}
+{{if .CanReadPersons}}<a class="btn btn-outline-primary" href="/admin">Vue d’ensemble</a><a class="btn btn-outline-primary" href="/persons">Personnes</a>{{end}}{{if .CanReadUsers}}<a class="btn btn-outline-primary" href="/admin/users">Utilisateurs</a>{{end}}</div></section>{{end}}
 <div class="actions"><a href="/contact">Contacter le club</a><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button class="btn btn-outline-secondary" type="submit">Se déconnecter</button></form></div>
 </div>{{end}}

@@ -38,7 +38,7 @@ func (q *Queries) CreateLocation(ctx context.Context, arg CreateLocationParams) 
 
 const createOrganization = `-- name: CreateOrganization :one
 INSERT INTO organizations (name,short_name,description,public_email,public_phone,correspondence_address,website_url)
-VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, name, short_name, description, public_email, public_phone, correspondence_address, website_url, is_active, created_at, updated_at, public_phone_label, trial_session_description, trial_items_to_bring, trial_equipment_offer, trial_equipment_detail_prompt
+VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, name, short_name, description, public_email, public_phone, correspondence_address, website_url, is_active, created_at, updated_at, public_phone_label, trial_session_description, trial_items_to_bring, trial_equipment_offer, trial_equipment_detail_prompt, public_rules_description, max_trials_per_person_per_season
 `
 
 type CreateOrganizationParams struct {
@@ -79,6 +79,8 @@ func (q *Queries) CreateOrganization(ctx context.Context, arg CreateOrganization
 		&i.TrialItemsToBring,
 		&i.TrialEquipmentOffer,
 		&i.TrialEquipmentDetailPrompt,
+		&i.PublicRulesDescription,
+		&i.MaxTrialsPerPersonPerSeason,
 	)
 	return i, err
 }
@@ -119,7 +121,7 @@ func (q *Queries) CreateOrganizationLink(ctx context.Context, arg CreateOrganiza
 }
 
 const getActiveOrganization = `-- name: GetActiveOrganization :one
-SELECT id, name, short_name, description, public_email, public_phone, correspondence_address, website_url, is_active, created_at, updated_at, public_phone_label, trial_session_description, trial_items_to_bring, trial_equipment_offer, trial_equipment_detail_prompt FROM organizations WHERE is_active
+SELECT id, name, short_name, description, public_email, public_phone, correspondence_address, website_url, is_active, created_at, updated_at, public_phone_label, trial_session_description, trial_items_to_bring, trial_equipment_offer, trial_equipment_detail_prompt, public_rules_description, max_trials_per_person_per_season FROM organizations WHERE is_active
 `
 
 func (q *Queries) GetActiveOrganization(ctx context.Context) (Organization, error) {
@@ -142,6 +144,8 @@ func (q *Queries) GetActiveOrganization(ctx context.Context) (Organization, erro
 		&i.TrialItemsToBring,
 		&i.TrialEquipmentOffer,
 		&i.TrialEquipmentDetailPrompt,
+		&i.PublicRulesDescription,
+		&i.MaxTrialsPerPersonPerSeason,
 	)
 	return i, err
 }
@@ -390,7 +394,7 @@ func (q *Queries) UpdateLocation(ctx context.Context, arg UpdateLocationParams) 
 
 const updateOrganization = `-- name: UpdateOrganization :one
 UPDATE organizations SET name=$2,short_name=$3,description=$4,public_email=$5,public_phone=$6,
- correspondence_address=$7,website_url=$8,is_active=$9,updated_at=NOW() WHERE id=$1 RETURNING id, name, short_name, description, public_email, public_phone, correspondence_address, website_url, is_active, created_at, updated_at, public_phone_label, trial_session_description, trial_items_to_bring, trial_equipment_offer, trial_equipment_detail_prompt
+ correspondence_address=$7,website_url=$8,is_active=$9,updated_at=NOW() WHERE id=$1 RETURNING id, name, short_name, description, public_email, public_phone, correspondence_address, website_url, is_active, created_at, updated_at, public_phone_label, trial_session_description, trial_items_to_bring, trial_equipment_offer, trial_equipment_detail_prompt, public_rules_description, max_trials_per_person_per_season
 `
 
 type UpdateOrganizationParams struct {
@@ -435,6 +439,8 @@ func (q *Queries) UpdateOrganization(ctx context.Context, arg UpdateOrganization
 		&i.TrialItemsToBring,
 		&i.TrialEquipmentOffer,
 		&i.TrialEquipmentDetailPrompt,
+		&i.PublicRulesDescription,
+		&i.MaxTrialsPerPersonPerSeason,
 	)
 	return i, err
 }
