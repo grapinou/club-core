@@ -35,6 +35,8 @@ type Service struct {
 func New(db *pgxpool.Pool, p *authorization.Service, m *memberships.Service, loc *time.Location) *Service {
 	return &Service{db: db, q: dbsqlc.New(db), permissions: p, trials: trials.New(db), memberships: m, loc: loc}
 }
+func (s *Service) Location() *time.Location { return s.loc }
+
 func (s *Service) Today() pgtype.Date {
 	now := time.Now().In(s.loc)
 	return pgtype.Date{Time: time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC), Valid: true}
@@ -92,6 +94,7 @@ type Home struct {
 	Counts      dbsqlc.AdministrativeCountsRow
 	Upcoming    []dbsqlc.AdministrativeTrialsRow
 	PastPending []dbsqlc.AdministrativeTrialsRow
+	Memberships []memberships.ListEntry
 }
 
 func (s *Service) Dashboard(ctx context.Context) (Home, error) {
@@ -116,9 +119,15 @@ func (s *Service) Dashboard(ctx context.Context) (Home, error) {
 		d.Upcoming = d.Upcoming[:8]
 	}
 	d.PastPending, err = s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{BeforeDate: today, Today: today})
+	if err != nil {
+		return d, err
+	}
 	if len(d.PastPending) > 8 {
 		d.PastPending = d.PastPending[:8]
 	}
+	// Reuse the same completeness snapshot as the membership list. No new
+	// task state is stored, and both read permissions have been checked above.
+	d.Memberships, err = s.memberships.List(ctx)
 	return d, err
 }
 func (s *Service) People(ctx context.Context, search string, page int32) ([]dbsqlc.SearchAdministrativePersonsRow, error) {

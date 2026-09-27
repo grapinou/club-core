@@ -436,7 +436,7 @@ func TestEmailAdministrativeAuditAndMigrationDown(t *testing.T) {
 		t.Fatal("email counted as review")
 	}
 	r := b.call("GET", "/registration-reviews", nil)
-	if !strings.Contains(r.Body.String(), "Vérification email en cours") || !strings.Contains(r.Body.String(), "Vérifications (0)") {
+	if !strings.Contains(r.Body.String(), "Vérification email en cours") || !strings.Contains(r.Body.String(), "Inscriptions à vérifier (0)") {
 		t.Fatal("pending email presentation")
 	}
 	f.must(f.app.Verifications.VerifyEmail(t.Context(), reference, code))

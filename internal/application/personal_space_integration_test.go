@@ -66,7 +66,7 @@ func TestPersonalAccountOwnershipAndHistory(t *testing.T) {
 	f := newFixture(t)
 	f.exec(`UPDATE persons SET notes='SECRET_PERSON_NOTE',phone_number='0601020304' WHERE id=$1`, f.person)
 	user, b := f.personalBrowser(f.person, "member")
-	f.personalOK(b, "/dashboard", "Vous n’avez actuellement aucune adhésion", "Vous ne gérez actuellement aucun enfant")
+	f.personalOK(b, "/dashboard", "Vous n’avez actuellement aucune adhésion")
 	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='secretary'`, user)
 	f.personalOK(b, "/me/account", "Fonctions au club", "Secrétariat")
 	f.exec(`DELETE FROM user_roles WHERE user_id=$1`, user)

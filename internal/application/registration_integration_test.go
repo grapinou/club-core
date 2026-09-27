@@ -303,7 +303,7 @@ func TestRegistrationHTTPDetailAndResolution(t *testing.T) {
 	other := f.submit(no)
 	b := f.membershipAdminBrowser()
 	list := b.call("GET", "/registration-reviews", nil)
-	if !strings.Contains(list.Body.String(), "Vérifications (2)") || strings.Contains(list.Body.String(), "New@example.test") || strings.Index(list.Body.String(), reviewPath(id)) > strings.Index(list.Body.String(), reviewPath(other)) {
+	if !strings.Contains(list.Body.String(), "Inscriptions à vérifier (2)") || strings.Contains(list.Body.String(), "New@example.test") || strings.Index(list.Body.String(), reviewPath(id)) > strings.Index(list.Body.String(), reviewPath(other)) {
 		t.Fatal("queue count/order/minimal PII")
 	}
 	page := b.call("GET", reviewPath(id), nil)
@@ -329,7 +329,7 @@ func TestRegistrationHTTPDetailAndResolution(t *testing.T) {
 		t.Fatal("actor or Person overwritten")
 	}
 	page = b.call("GET", r.Header().Get("Location"), nil)
-	if !strings.Contains(page.Body.String(), "Résolution enregistrée") || !strings.Contains(page.Body.String(), "admin") || !strings.Contains(page.Body.String(), "Vérifications (1)") || strings.Contains(page.Body.String(), "Rattacher à cette personne") || strings.Contains(page.Body.String(), "Créer une nouvelle fiche") {
+	if !strings.Contains(page.Body.String(), "Résolution enregistrée") || !strings.Contains(page.Body.String(), "admin") || !strings.Contains(page.Body.String(), "Inscriptions à vérifier (1)") || strings.Contains(page.Body.String(), "Rattacher à cette personne") || strings.Contains(page.Body.String(), "Créer une nouvelle fiche") {
 		t.Fatal("historical detail")
 	}
 	r = b.call("POST", reviewPath(id)+"/create-person", url.Values{"csrf_token": {token}})

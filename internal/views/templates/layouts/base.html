@@ -36,6 +36,7 @@
 <nav class="container site-nav" aria-label="Navigation principale">
 <a class="site-brand" href="/">{{.SiteName}}</a>
 <div class="public-nav">
+{{if .PrivatePage}}<details class="site-links"><summary>Site du club</summary><div class="site-links-menu">{{end}}
 <a href="/" {{if eq .CurrentPath "/"}}aria-current="page"{{end}}>Accueil</a>
 
 <a href="/horaires" {{if eq .CurrentPath "/horaires"}}aria-current="page"{{end}}>Horaires</a>
@@ -43,14 +44,16 @@
 <a href="/essai" {{if eq .CurrentPath "/essai"}}aria-current="page"{{end}}>Essayer</a>
 <a href="/join">Adhérer</a>
 <a href="/contact" {{if eq .CurrentPath "/contact"}}aria-current="page"{{end}}>Contact</a>
+{{if .PrivatePage}}</div></details>{{end}}
 {{if .Authenticated}}<a href="/dashboard" {{if eq .CurrentPath "/dashboard"}}aria-current="page"{{end}}>Mon espace</a><a href="/me/account" {{if eq .CurrentPath "/me/account"}}aria-current="page"{{end}}>Mon compte</a>{{else}}<a href="/login" {{if eq .CurrentPath "/login"}}aria-current="page"{{end}}>Connexion</a>{{end}}
 </div></nav>
 {{if or .CanReadPersons .CanReadMemberships .CanReviewRegistrations .CanReadUsers .CanConfigureClub}}<nav class="admin-nav" aria-label="Administration"><div class="container">{{if .CanReadPersons}}<a href="/admin" {{if eq .CurrentPath "/admin"}}aria-current="page"{{end}}>Administration</a>{{else}}<span class="small text-body-secondary">Administration</span>{{end}}
-{{if .CanConfigureClub}}<a href="/admin/config" {{if eq .CurrentPath "/admin/config"}}aria-current="page"{{end}}>Configurer le club</a>{{end}}
-{{if .CanReadMemberships}}<a href="/memberships">Adhésions</a>{{end}}
-{{if .CanReviewRegistrations}}<a href="/registration-reviews">Vérifications ({{.RegistrationReviewCount}})</a>{{end}}
-{{if .CanReadPersons}}<a href="/trials">Essais</a><a href="/persons">Personnes</a>{{end}}
-{{if .CanReadUsers}}<a href="/admin/users" {{if eq .CurrentPath "/admin/users"}}aria-current="page"{{end}}>Utilisateurs</a>{{end}}
+{{if .CanReadPersons}}<a href="/trials" {{if .InSection "/trials"}}aria-current="page"{{end}}>Essais</a>{{end}}
+{{if .CanReadMemberships}}<a href="/memberships" {{if .InSection "/memberships"}}aria-current="page"{{end}}>Adhésions</a>{{end}}
+{{if .CanReadPersons}}<a href="/persons" {{if .InSection "/persons"}}aria-current="page"{{end}}>Personnes</a>{{end}}
+{{if .CanReviewRegistrations}}<a href="/registration-reviews" {{if .InSection "/registration-reviews"}}aria-current="page"{{end}}>Inscriptions à vérifier ({{.RegistrationReviewCount}})</a>{{end}}
+{{if .CanReadUsers}}<a href="/admin/users" {{if .InSection "/admin/users"}}aria-current="page"{{end}}>Utilisateurs</a>{{end}}
+{{if .CanConfigureClub}}<a href="/admin/config" {{if .InSection "/admin/config"}}aria-current="page"{{end}}>Configurer le club</a>{{end}}
 </div></nav>{{end}}</header>
 
     <main id="main-content" class="container py-4" tabindex="-1">

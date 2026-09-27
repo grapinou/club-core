@@ -22,7 +22,7 @@ type MembershipListView struct {
 type MembershipRowView struct {
 	ID                                                                                      int32
 	Name, Season, Type, Status, StatusClass, RequestedAt, ApprovedAt, Completeness, Account string
-	Pending                                                                                 bool
+	Pending, NeedsActivation                                                                bool
 	BlockingCount, WarningCount                                                             int
 }
 type ContactView struct {
@@ -144,7 +144,7 @@ func MembershipRows(entries []memberships.ListEntry, loc *time.Location) []Membe
 		if len(e.Completeness.BlockingIssues) > 0 {
 			complete = "À compléter"
 		}
-		rows = append(rows, MembershipRowView{ID: m.Membership.ID, Name: m.LastName + " " + m.FirstName, Season: m.SeasonName, Type: m.MembershipTypeName, Status: status, StatusClass: class, RequestedAt: timestamp(m.Membership.RequestedAt, loc), ApprovedAt: timestamp(m.Membership.ApprovedAt, loc), Completeness: complete, Account: accountLabel(e.Account), Pending: m.Membership.Status == "pending", BlockingCount: len(e.Completeness.BlockingIssues), WarningCount: len(e.Completeness.Warnings)})
+		rows = append(rows, MembershipRowView{NeedsActivation: m.Membership.Status == "active" && e.Account.IsActive && e.Account.NeedsActivation, ID: m.Membership.ID, Name: m.LastName + " " + m.FirstName, Season: m.SeasonName, Type: m.MembershipTypeName, Status: status, StatusClass: class, RequestedAt: timestamp(m.Membership.RequestedAt, loc), ApprovedAt: timestamp(m.Membership.ApprovedAt, loc), Completeness: complete, Account: accountLabel(e.Account), Pending: m.Membership.Status == "pending", BlockingCount: len(e.Completeness.BlockingIssues), WarningCount: len(e.Completeness.Warnings)})
 	}
 	return rows
 }
@@ -216,11 +216,11 @@ func (v MembershipListView) HasPending() bool {
 func (v MembershipRowView) ActionLabel() string {
 	if v.Pending {
 		if v.BlockingCount > 0 {
-			return "Compléter le dossier avant approbation."
+			return "Compléter le dossier."
 		}
-		return "Examiner la demande pour approbation."
+		return "Prête à valider."
 	}
-	if v.Account == "Activation nécessaire" {
+	if v.NeedsActivation {
 		return "Renvoyer l’activation si nécessaire."
 	}
 	return "Aucune action immédiate."

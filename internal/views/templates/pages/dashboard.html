@@ -3,15 +3,16 @@
 <section class="section-panel"><h2>Mes adhésions</h2>
 {{range .Memberships}}<article class="mb-3"><h3>{{.SeasonName}} <span class="badge {{$.StatusClassFor .Status}}">{{$.StatusLabel .Status}}</span></h3><p>{{.MembershipTypeName}}</p><ul>{{range .Activities}}<li>{{.}}</li>{{else}}<li>Aucune activité renseignée.</li>{{end}}</ul><a href="/me/memberships/{{.ID}}">Consulter mon adhésion</a></article>
 {{else}}<div class="empty-state">Vous n’avez actuellement aucune adhésion.</div>{{end}}</section>
-<section class="section-panel"><h2>Enfants que je peux gérer</h2><p class="text-body-secondary">Seuls les enfants pour lesquels votre accès est actuellement autorisé apparaissent ici.</p>
-{{range .Children}}{{$childID:=.ID}}<article class="card mb-3"><div class="card-body"><h3><a href="/me/children/{{.ID}}">{{.Name}}</a></h3><p><a href="/me/children/{{.ID}}">Voir le dossier de l’enfant</a></p>
+{{if .Children}}<section class="section-panel"><h2>Mon espace familial</h2>
+{{range .Children}}{{$childID:=.ID}}<article class="card mb-3"><div class="card-body"><h3><a href="/me/children/{{.ID}}">{{.Name}}</a></h3>
 {{range .Memberships}}<p>{{.SeasonName}} · <span class="badge {{$.StatusClassFor .Status}}">{{$.StatusLabel .Status}}</span></p><p>{{.MembershipTypeName}}</p><ul>{{range .Activities}}<li>{{.}}</li>{{else}}<li>Aucune activité renseignée.</li>{{end}}</ul><a href="/me/children/{{$childID}}/memberships/{{.ID}}">Consulter cette adhésion</a>
 {{else}}<p>Aucune adhésion enregistrée.</p>{{end}}</div></article>
-{{else}}<div class="empty-state">Vous ne gérez actuellement aucun enfant.</div>{{end}}</section>
+{{end}}</section>{{end}}
 {{if or .CanReadPersons .CanReadMemberships .CanReviewRegistrations .CanReadUsers .CanConfigureClub}}<section class="section-panel"><h2>Administration</h2><p>Accédez aux dossiers que vous êtes autorisé à traiter.</p><div class="actions">
-{{if .CanConfigureClub}}<a class="btn btn-primary" href="/admin/config">Configurer mon association</a>{{end}}
+{{if .CanReadPersons}}<a class="btn btn-primary" href="/admin">Ouvrir l’administration</a>{{end}}
+{{if .CanConfigureClub}}<a class="btn btn-outline-primary" href="/admin/config">Configurer mon association</a>{{end}}
 {{if .CanReadMemberships}}<a class="btn btn-outline-primary" href="/memberships">Adhésions</a>{{end}}
-{{if .CanReviewRegistrations}}<a class="btn btn-outline-primary" href="/registration-reviews">Vérifications ({{.RegistrationReviewCount}})</a>{{end}}
-{{if .CanReadPersons}}<a class="btn btn-outline-primary" href="/admin">Vue d’ensemble</a><a class="btn btn-outline-primary" href="/persons">Personnes</a>{{end}}{{if .CanReadUsers}}<a class="btn btn-outline-primary" href="/admin/users">Utilisateurs</a>{{end}}</div></section>{{end}}
+{{if .CanReviewRegistrations}}<a class="btn btn-outline-primary" href="/registration-reviews">Inscriptions à vérifier ({{.RegistrationReviewCount}})</a>{{end}}
+{{if .CanReadPersons}}<a class="btn btn-outline-primary" href="/persons">Personnes</a>{{end}}{{if .CanReadUsers}}<a class="btn btn-outline-primary" href="/admin/users">Utilisateurs</a>{{end}}</div></section>{{end}}
 <div class="actions"><a href="/contact">Contacter le club</a><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button class="btn btn-outline-secondary" type="submit">Se déconnecter</button></form></div>
 </div>{{end}}

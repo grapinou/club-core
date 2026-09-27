@@ -117,7 +117,7 @@ func TestMembershipUIReadsAndPermissions(t *testing.T) {
 					if strings.Contains(body, "Alice") || !strings.Contains(body, "Contact d'urgence conseillé") {
 						t.Fatal("mixed dossier or missing warning")
 					}
-				} else if !strings.Contains(body, "alice@example.test") || strings.Contains(body, "Approuver l'adhésion") {
+				} else if !strings.Contains(body, "alice@example.test") || strings.Contains(body, "Valider l’adhésion") {
 					t.Fatal("active dossier")
 				}
 			}
@@ -244,7 +244,7 @@ func TestMembershipUIApprovalAndResend(t *testing.T) {
 			t.Fatal("approval detail", value)
 		}
 	}
-	if strings.Contains(body, "Approuver l'adhésion") {
+	if strings.Contains(body, "Valider l’adhésion") {
 		t.Fatal("approval button after approval")
 	}
 	f.assertNoDeliverySecrets(body)

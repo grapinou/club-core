@@ -34,7 +34,7 @@ func TestUXDashboardScopeAndComposition(t *testing.T) {
 	user := f.id(`INSERT INTO users(person_id,username,password_hash,activated_at) VALUES($1,'member',$2,now()) RETURNING id`, f.person, string(hash))
 	member := f.loginBrowser("member")
 	page = member.call("GET", "/dashboard?person_id=999&user_id=999", nil)
-	if page.Code != 200 || !strings.Contains(page.Body.String(), "Practice") || !strings.Contains(page.Body.String(), "En attente") || !strings.Contains(page.Body.String(), "Vous ne gérez actuellement aucun enfant.") {
+	if page.Code != 200 || !strings.Contains(page.Body.String(), "Practice") || !strings.Contains(page.Body.String(), "En attente") || strings.Contains(page.Body.String(), "Mon espace familial") {
 		t.Fatal("own membership", page.Code)
 	}
 	if page.Header().Get("Cache-Control") != "no-store" || !strings.Contains(page.Body.String(), `name="csrf_token"`) {

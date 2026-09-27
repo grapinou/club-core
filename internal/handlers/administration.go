@@ -192,6 +192,7 @@ func (h *AdministrativeHandler) home(w http.ResponseWriter, r *http.Request) {
 	v := h.base(r, "home")
 	var e error
 	v.Home, e = h.s.Dashboard(r.Context())
+	v.SetMembershipAttention(v.Home.Memberships, h.s.Location())
 	h.render(w, r, v, e)
 }
 func (h *AdministrativeHandler) People(w http.ResponseWriter, r *http.Request) {

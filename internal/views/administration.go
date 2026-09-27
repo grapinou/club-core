@@ -6,15 +6,18 @@ import (
 	"io"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/grapinou/club-core/internal/administration"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/grapinou/club-core/internal/trials"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type AdministrativeView struct {
-	TrialQuota []trials.QuotaUsage
+	PendingMemberships, ActivationMemberships []MembershipRowView
+	TrialQuota                                []trials.QuotaUsage
 	SecurityData
 	SiteName, Title, Mode, Error, Notice string
 	Search, NextURL, PreviousURL         string
@@ -29,6 +32,23 @@ type AdministrativeView struct {
 	Membership                           administration.Membership
 	Today                                pgtype.Date
 	Form                                 url.Values
+}
+
+func (v *AdministrativeView) SetMembershipAttention(entries []memberships.ListEntry, loc *time.Location) {
+	for _, row := range MembershipRows(entries, loc) {
+		if row.Pending {
+			v.PendingMemberships = append(v.PendingMemberships, row)
+		} else if row.NeedsActivation {
+			v.ActivationMemberships = append(v.ActivationMemberships, row)
+		}
+	}
+}
+
+func (AdministrativeView) Preview(rows []MembershipRowView) []MembershipRowView {
+	if len(rows) > 5 {
+		return rows[:5]
+	}
+	return rows
 }
 
 func (v AdministrativeView) V(key string) string { return v.Form.Get(key) }

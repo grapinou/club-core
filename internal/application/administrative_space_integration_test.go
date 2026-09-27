@@ -101,7 +101,7 @@ func TestAdministrativeMultiSessionAndPersons(t *testing.T) {
 		officeOK(t, b, path)
 	}
 	officeOK(t, b, officePerson(f.person), "member.a", "Compte utilisateur")
-	officeOK(t, b, officePerson(child), "Aucun compte utilisateur associé", "Responsable", "Parent", "Contact principal", "ne constituent pas")
+	officeOK(t, b, officePerson(child), "Responsable", "Parent", "Contact principal", "autorisé séparément")
 	officeOK(t, b, officePerson(parent), "Enfant")
 	for _, path := range []string{"/admin", officePerson(f.person), "/trials", officePerson(f.person) + "/trials/new"} {
 		r := newBrowser(f.app.Handler).call("GET", path, nil)

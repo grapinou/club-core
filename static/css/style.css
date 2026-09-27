@@ -123,3 +123,13 @@ footer { background: white; margin-top: 2rem; }
 .booking-form:has(input[name="equipment_needed"][value="no"]:checked) .booking-equipment-details,.booking-form:not(:has(input[name="equipment_needed"][value="yes"]:checked)) .booking-equipment-details {display:none}
 .schedule-intro__visual .public-picture {height:100%}
 .schedule-intro__visual img {width:100%;height:100%;max-height:none;aspect-ratio:auto;object-fit:cover}
+
+/* Private pages keep public destinations available without crowding office tasks. */
+.site-links { position: relative; }
+.site-links summary { padding: .55rem .7rem; font-weight: 400; }
+.site-links-menu { position: absolute; right: 0; z-index: 10; min-width: 13rem; max-width: 90vw; padding: .5rem; background: white; border: 1px solid var(--club-border); border-radius: .5rem; box-shadow: 0 .3rem .7rem #081a2d18; }
+.site-links-menu a { display: block; }
+.admin-nav a[aria-current=page] { font-weight: 700; text-decoration-thickness: .18em; }
+.detail-links a, .admin-nav a { min-height: 2.75rem; display: inline-flex; align-items: center; }
+#resultat:has(> form) { border-left: .25rem solid var(--club-blue); }
+@media(max-width:767px) { .site-links-menu { right: auto; left: 0; } }
