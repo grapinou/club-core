@@ -20,6 +20,7 @@ type AdministrativeView struct {
 	TrialQuota                                []trials.QuotaUsage
 	SecurityData
 	SiteName, Title, Mode, Error, Notice string
+	Category                             string
 	Search, NextURL, PreviousURL         string
 	More, CanManageMemberships           bool
 	Home                                 administration.Home

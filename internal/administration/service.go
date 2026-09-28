@@ -130,14 +130,19 @@ func (s *Service) Dashboard(ctx context.Context) (Home, error) {
 	d.Memberships, err = s.memberships.List(ctx)
 	return d, err
 }
-func (s *Service) People(ctx context.Context, search string, page int32) ([]dbsqlc.SearchAdministrativePersonsRow, error) {
+func (s *Service) People(ctx context.Context, search string, page int32, filter string) ([]dbsqlc.SearchAdministrativePersonsRow, error) {
 	if _, err := s.require(ctx, authorization.PersonsRead); err != nil {
 		return nil, err
 	}
 	if page < 0 || page > 10000 || len(search) > 254 {
 		return nil, ErrInvalid
 	}
-	return s.q.SearchAdministrativePersons(ctx, dbsqlc.SearchAdministrativePersonsParams{Search: strings.TrimSpace(search), Phone: identityresolution.NormalizePhone(search), PageOffset: page * 50})
+	switch filter {
+	case "", "memberships", "prospects", "guardians":
+	default:
+		return nil, ErrInvalid
+	}
+	return s.q.SearchAdministrativePersons(ctx, dbsqlc.SearchAdministrativePersonsParams{Category: filter, Search: strings.TrimSpace(search), Phone: identityresolution.NormalizePhone(search), PageOffset: page * 50})
 }
 
 type Person struct {

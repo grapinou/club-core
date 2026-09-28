@@ -197,6 +197,7 @@ func (h *AdministrativeHandler) home(w http.ResponseWriter, r *http.Request) {
 }
 func (h *AdministrativeHandler) People(w http.ResponseWriter, r *http.Request) {
 	v := h.base(r, "people")
+	v.Category = r.URL.Query().Get("category")
 	page := int32(0)
 	var e error
 	if raw := r.URL.Query().Get("page"); raw != "" {
@@ -209,20 +210,21 @@ func (h *AdministrativeHandler) People(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == "POST" {
 		v.Search = r.PostForm.Get("search")
+		v.Category = r.PostForm.Get("category")
 		page = 0
 	}
 	if e == nil {
-		v.People, e = h.s.People(r.Context(), v.Search, page)
+		v.People, e = h.s.People(r.Context(), v.Search, page, v.Category)
 	}
 	if len(v.People) > 50 {
 		v.More = true
 		v.People = v.People[:50]
 		if v.Search == "" {
-			v.NextURL = fmt.Sprintf("/persons?page=%d", page+1)
+			v.NextURL = fmt.Sprintf("/persons?category=%s&page=%d", url.QueryEscape(v.Category), page+1)
 		}
 	}
 	if page > 0 {
-		v.PreviousURL = fmt.Sprintf("/persons?page=%d", page-1)
+		v.PreviousURL = fmt.Sprintf("/persons?category=%s&page=%d", url.QueryEscape(v.Category), page-1)
 	}
 	h.render(w, r, v, e)
 }

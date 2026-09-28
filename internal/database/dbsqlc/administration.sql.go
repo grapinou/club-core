@@ -576,12 +576,17 @@ SELECT p.id,p.first_name,p.last_name,p.birth_date,p.email,p.phone_number,p.addre
 FROM persons p WHERE p.archived_at IS NULL AND
  ($1::text='' OR position(lower($1) in lower(p.first_name||' '||p.last_name||' '||coalesce(p.email,'')||' '||coalesce(p.phone_number,'')))>0
  OR ($2::text<>'' AND position($2 in regexp_replace(coalesce(p.phone_number,''),'[^0-9]','','g'))>0))
-ORDER BY p.last_name,p.first_name,p.id LIMIT 51 OFFSET $3
+AND ($3::text='' OR
+ ($3='memberships' AND EXISTS(SELECT 1 FROM memberships m WHERE m.person_id=p.id)) OR
+ ($3='prospects' AND EXISTS(SELECT 1 FROM trial_registrations t WHERE t.person_id=p.id) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.person_id=p.id)) OR
+ ($3='guardians' AND EXISTS(SELECT 1 FROM person_guardians g WHERE g.guardian_person_id=p.id)))
+ORDER BY p.last_name,p.first_name,p.id LIMIT 51 OFFSET $4
 `
 
 type SearchAdministrativePersonsParams struct {
 	Search     string
 	Phone      string
+	Category   string
 	PageOffset int32
 }
 
@@ -600,7 +605,12 @@ type SearchAdministrativePersonsRow struct {
 }
 
 func (q *Queries) SearchAdministrativePersons(ctx context.Context, arg SearchAdministrativePersonsParams) ([]SearchAdministrativePersonsRow, error) {
-	rows, err := q.db.Query(ctx, searchAdministrativePersons, arg.Search, arg.Phone, arg.PageOffset)
+	rows, err := q.db.Query(ctx, searchAdministrativePersons,
+		arg.Search,
+		arg.Phone,
+		arg.Category,
+		arg.PageOffset,
+	)
 	if err != nil {
 		return nil, err
 	}

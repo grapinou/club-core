@@ -35,18 +35,20 @@ func validEmail(e pgtype.Text, required bool) bool {
 	address, err := mail.ParseAddress(value)
 	return err == nil && address.Address == value && !strings.ContainsAny(value, "\r\n")
 }
-func (s *Service) validateChild(in Input, fields ValidationErrors) {
+func (s *Service) validateChild(in Input, fields ValidationErrors, family bool) {
 	if !s.memberships.IsEligibleMinor(in.Identity.BirthDate) {
 		fields["birth_date"] = "Indiquez une date de naissance valide pour un enfant mineur. À partir de 18 ans, utilisez /join pour vous inscrire."
 	}
 	if !validEmail(in.Identity.Email, false) {
 		fields["email"] = "Indiquez une adresse email valide ou laissez ce champ vide."
 	}
-	for _, key := range identityresolution.InvalidInputFields(in.Child.Guardian) {
-		fields["guardian_"+key] = "Vérifiez ce champ."
-	}
-	if !validEmail(in.Child.Guardian.Email, true) {
-		fields["guardian_email"] = "Indiquez votre adresse email valide."
+	if !family {
+		for _, key := range identityresolution.InvalidInputFields(in.Child.Guardian) {
+			fields["guardian_"+key] = "Vérifiez ce champ."
+		}
+		if !validEmail(in.Child.Guardian.Email, true) {
+			fields["guardian_email"] = "Indiquez votre adresse email valide."
+		}
 	}
 	switch in.Child.RelationshipType {
 	case "mother", "father", "guardian", "other":

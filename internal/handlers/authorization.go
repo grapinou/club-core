@@ -7,6 +7,7 @@ import (
 
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/authorization"
+	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/views"
 	"github.com/grapinou/club-core/internal/websecurity"
 )
@@ -18,6 +19,7 @@ type Access struct {
 	counter interface {
 		CountOpen(context.Context, int32) (int64, error)
 	}
+	roles    authorization.RoleReader
 	checker  PermissionChecker
 	siteName string
 }
@@ -25,6 +27,8 @@ type Access struct {
 func NewAccess(siteName string, checker PermissionChecker) *Access {
 	return &Access{checker: checker, siteName: siteName}
 }
+func (a *Access) SetRoleReader(roles authorization.RoleReader) { a.roles = roles }
+
 func (a *Access) SetRegistrationCounter(counter interface {
 	CountOpen(context.Context, int32) (int64, error)
 }) {
@@ -65,6 +69,7 @@ func (a *Access) RequirePermission(permission authorization.Permission, next htt
 	}))
 }
 
+type administrativeRolesKey struct{}
 type navigationKey struct{}
 type personWriteNavigationKey struct{}
 type membershipNavigationKey struct{}
@@ -80,6 +85,11 @@ type registrationNavigation struct {
 func (a *Access) Navigation(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if id, ok := auth.UserID(r.Context()); ok {
+			if a.roles != nil {
+				if roles, err := a.roles.ListUserRoles(r.Context(), id); err == nil {
+					r = r.WithContext(context.WithValue(r.Context(), administrativeRolesKey{}, administrativeRoleLabels(roles)))
+				}
+			}
 			write, writeErr := a.checker.HasPermission(r.Context(), id, authorization.PersonsWrite)
 			if writeErr == nil {
 				r = r.WithContext(context.WithValue(r.Context(), personWriteNavigationKey{}, write))
@@ -127,5 +137,22 @@ func pageSecurity(r *http.Request) views.SecurityData {
 	canReadUsers, _ := r.Context().Value(userNavigationKey{}).(bool)
 	canManageRoles, _ := r.Context().Value(roleManagementNavigationKey{}).(bool)
 	canConfigureClub, _ := r.Context().Value(clubConfigurationNavigationKey{}).(bool)
-	return views.SecurityData{Authenticated: authenticated, CanWritePersons: canWrite, CurrentPath: r.URL.Path, CanReviewRegistrations: review.allowed, RegistrationReviewCount: review.count, CanReadMemberships: canReadMemberships, CanReadPersons: canRead, CanReadUsers: canReadUsers, CanManageRoles: canManageRoles, CanConfigureClub: canConfigureClub, CSRFToken: websecurity.Token(r.Context())}
+	labels, _ := r.Context().Value(administrativeRolesKey{}).([]string)
+	return views.SecurityData{AdministrativeRoles: labels, Authenticated: authenticated, CanWritePersons: canWrite, CurrentPath: r.URL.Path, CanReviewRegistrations: review.allowed, RegistrationReviewCount: review.count, CanReadMemberships: canReadMemberships, CanReadPersons: canRead, CanReadUsers: canReadUsers, CanManageRoles: canManageRoles, CanConfigureClub: canConfigureClub, CSRFToken: websecurity.Token(r.Context())}
+}
+
+// Display only: permissions remain exclusively controlled by authorization.Service.
+func administrativeRoleLabels(roles []dbsqlc.Role) []string {
+	labels := []string{}
+	for _, role := range roles {
+		switch role.Name {
+		case "president":
+			labels = append(labels, "Président")
+		case "secretary":
+			labels = append(labels, "Secrétaire")
+		case "treasurer":
+			labels = append(labels, "Trésorier")
+		}
+	}
+	return labels
 }

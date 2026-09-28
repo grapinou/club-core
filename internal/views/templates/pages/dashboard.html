@@ -3,8 +3,8 @@
 <section class="section-panel"><h2>Mes adhésions</h2>
 {{range .Memberships}}<article class="mb-3"><h3>{{.SeasonName}} <span class="badge {{$.StatusClassFor .Status}}">{{$.StatusLabel .Status}}</span></h3><p>{{.MembershipTypeName}}</p><ul>{{range .Activities}}<li>{{.}}</li>{{else}}<li>Aucune activité renseignée.</li>{{end}}</ul><a href="/me/memberships/{{.ID}}">Consulter mon adhésion</a></article>
 {{else}}<div class="empty-state">Vous n’avez actuellement aucune adhésion.</div>{{end}}</section>
-{{if .Children}}<section class="section-panel"><h2>Mon espace familial</h2>
-{{range .Children}}{{$childID:=.ID}}<article class="card mb-3"><div class="card-body"><h3><a href="/me/children/{{.ID}}">{{.Name}}</a></h3>
+{{if .Children}}<section class="section-panel"><h2>Mon espace familial</h2><p><a class="btn btn-primary" href="/me/children/new">Ajouter un enfant</a></p>
+{{range .Children}}{{$childID:=.ID}}<article class="card mb-3"><div class="card-body"><h3><a href="/me/children/{{.ID}}">{{.Name}}</a></h3>{{range .Actions}}<p>{{.Season}} · <a class="btn btn-outline-primary" href="{{.URL}}">{{.Label}}</a></p>{{end}}
 {{range .Memberships}}<p>{{.SeasonName}} · <span class="badge {{$.StatusClassFor .Status}}">{{$.StatusLabel .Status}}</span></p><p>{{.MembershipTypeName}}</p><ul>{{range .Activities}}<li>{{.}}</li>{{else}}<li>Aucune activité renseignée.</li>{{end}}</ul><a href="/me/children/{{$childID}}/memberships/{{.ID}}">Consulter cette adhésion</a>
 {{else}}<p>Aucune adhésion enregistrée.</p>{{end}}</div></article>
 {{end}}</section>{{end}}

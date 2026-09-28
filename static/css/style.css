@@ -133,3 +133,11 @@ footer { background: white; margin-top: 2rem; }
 .detail-links a, .admin-nav a { min-height: 2.75rem; display: inline-flex; align-items: center; }
 #resultat:has(> form) { border-left: .25rem solid var(--club-blue); }
 @media(max-width:767px) { .site-links-menu { right: auto; left: 0; } }
+
+.administrative-roles { display: inline-flex; flex-wrap: wrap; gap: .35rem; }
+.detail-links a[aria-current=page] { font-weight: 700; text-decoration-thickness: .18em; }
+.dossier-context { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; padding: 1rem; margin-bottom: 1.5rem; border-block: 1px solid var(--club-border); }
+.dossier-context p { margin: 0; }
+.dossier-primary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; }
+.dossier-decision { margin-block: 1rem; }
+@media(max-width:767px) { .dossier-primary { grid-template-columns: 1fr; gap: 0; } }

@@ -14,7 +14,7 @@ SELECT p.first_name,p.last_name,p.birth_date,
 FROM persons p WHERE p.id=sqlc.arg(child_person_id) AND p.archived_at IS NULL;
 
 -- name: ListPersonalMembershipSummaries :many
-SELECT m.id,m.person_id,m.status,s.name AS season_name,t.name AS membership_type_name,
+SELECT m.id,m.person_id,m.season_id,m.status,s.name AS season_name,t.name AS membership_type_name,
  ARRAY(SELECT a.name FROM activities a JOIN membership_activities ma ON ma.activity_id=a.id
  WHERE ma.membership_id=m.id ORDER BY a.name,a.id)::text[] AS activities
 FROM memberships m JOIN seasons s ON s.id=m.season_id JOIN membership_types t ON t.id=m.membership_type_id

@@ -228,7 +228,7 @@ func (q *Queries) ListPersonalGroups(ctx context.Context, arg ListPersonalGroups
 }
 
 const listPersonalMembershipSummaries = `-- name: ListPersonalMembershipSummaries :many
-SELECT m.id,m.person_id,m.status,s.name AS season_name,t.name AS membership_type_name,
+SELECT m.id,m.person_id,m.season_id,m.status,s.name AS season_name,t.name AS membership_type_name,
  ARRAY(SELECT a.name FROM activities a JOIN membership_activities ma ON ma.activity_id=a.id
  WHERE ma.membership_id=m.id ORDER BY a.name,a.id)::text[] AS activities
 FROM memberships m JOIN seasons s ON s.id=m.season_id JOIN membership_types t ON t.id=m.membership_type_id
@@ -238,6 +238,7 @@ WHERE m.person_id=ANY($1::integer[]) ORDER BY s.starts_at DESC,m.id DESC
 type ListPersonalMembershipSummariesRow struct {
 	ID                 int32
 	PersonID           int32
+	SeasonID           int32
 	Status             string
 	SeasonName         string
 	MembershipTypeName string
@@ -256,6 +257,7 @@ func (q *Queries) ListPersonalMembershipSummaries(ctx context.Context, dollar_1 
 		if err := rows.Scan(
 			&i.ID,
 			&i.PersonID,
+			&i.SeasonID,
 			&i.Status,
 			&i.SeasonName,
 			&i.MembershipTypeName,

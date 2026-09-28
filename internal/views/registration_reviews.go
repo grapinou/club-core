@@ -43,6 +43,7 @@ type RegistrationApplicationView struct {
 	Consents                     []dbsqlc.ListRegistrationApplicationConsentsRow
 }
 type RegistrationDetailView struct {
+	Membership          *MembershipDetailView
 	Location            *time.Location
 	ActionReason        string
 	CanRetryApplication bool

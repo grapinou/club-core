@@ -20,7 +20,7 @@
     <tbody>
         {{ range .Persons }}
         <tr>
-            <td data-label="Prénom">{{ .FirstName }}</td>
+            <td data-label="Prénom"><a href="/persons/{{.ID}}">{{ .FirstName }}</a></td>
             <td data-label="Nom">{{ .LastName }}</td>
             <td data-label="Naissance">{{ .BirthDate }}</td>
             <td data-label="Email">{{ .Email }}</td>

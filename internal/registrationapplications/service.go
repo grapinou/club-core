@@ -149,7 +149,7 @@ type Input struct {
 type ValidationErrors map[string]string
 
 func (e ValidationErrors) Error() string { return "invalid public registration form" }
-func (s *Service) validate(ctx context.Context, q *dbsqlc.Queries, in Input, csrf string) (presentation, error) {
+func (s *Service) validate(ctx context.Context, q *dbsqlc.Queries, in Input, csrf string, family bool) (presentation, error) {
 	fields := ValidationErrors{}
 	in.Identity.FirstName = strings.TrimSpace(in.Identity.FirstName)
 	in.Identity.LastName = strings.TrimSpace(in.Identity.LastName)
@@ -165,7 +165,7 @@ func (s *Service) validate(ctx context.Context, q *dbsqlc.Queries, in Input, csr
 		}
 	}
 	if in.Child != nil {
-		s.validateChild(in, fields)
+		s.validateChild(in, fields, family)
 	} else {
 		if !in.Identity.BirthDate.Valid || in.Identity.BirthDate.InfinityModifier != pgtype.Finite {
 			fields["birth_date"] = "Indiquez une date de naissance valide."
@@ -249,11 +249,14 @@ func (s *Service) validate(ctx context.Context, q *dbsqlc.Queries, in Input, csr
 	return p, nil
 }
 func (s *Service) Validate(ctx context.Context, in Input, csrf string) error {
-	_, err := s.validate(ctx, dbsqlc.New(s.db), in, csrf)
+	_, err := s.validate(ctx, dbsqlc.New(s.db), in, csrf, false)
 	return err
 }
 
 func (s *Service) Submit(ctx context.Context, in Input, csrf string) (identityresolution.Acceptance, error) {
+	return s.submit(ctx, in, csrf, false)
+}
+func (s *Service) submit(ctx context.Context, in Input, csrf string, family bool) (identityresolution.Acceptance, error) {
 	zero := identityresolution.Acceptance{}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -275,7 +278,7 @@ func (s *Service) Submit(ctx context.Context, in Input, csrf string) (identityre
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return zero, err
 	}
-	if _, err = s.validate(ctx, q, in, csrf); err != nil {
+	if _, err = s.validate(ctx, q, in, csrf, family); err != nil {
 		return zero, err
 	}
 	in.Identity.FirstName = strings.TrimSpace(in.Identity.FirstName)
@@ -287,7 +290,11 @@ func (s *Service) Submit(ctx context.Context, in Input, csrf string) (identityre
 	var claim dbsqlc.GuardianIdentityClaim
 	submitter := s.identities
 	if in.Child != nil {
-		claim, err = identityresolution.CreateGuardianClaim(ctx, tx, in.Child.Guardian)
+		if family {
+			claim, err = identityresolution.CreateAuthenticatedGuardianClaim(ctx, tx)
+		} else {
+			claim, err = identityresolution.CreateGuardianClaim(ctx, tx, in.Child.Guardian)
+		}
 		if err != nil {
 			return zero, err
 		}

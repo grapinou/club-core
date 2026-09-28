@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/grapinou/club-core/internal/accounts"
 	"net/http"
 	"time"
 
+	"github.com/grapinou/club-core/internal/accounts"
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/identityresolution"
@@ -17,14 +17,16 @@ import (
 )
 
 type RegistrationHandler struct {
+	memberships  MembershipReader
+	permissions  PermissionChecker
 	applications *registrationapplications.Service
 	site         string
 	loc          *time.Location
 	reviews      *identityresolution.ReviewService
 }
 
-func NewRegistrationHandler(site string, loc *time.Location, reviews *identityresolution.ReviewService, applications *registrationapplications.Service) *RegistrationHandler {
-	return &RegistrationHandler{applications, site, loc, reviews}
+func NewRegistrationHandler(site string, loc *time.Location, reviews *identityresolution.ReviewService, applications *registrationapplications.Service, memberships MembershipReader, permissions PermissionChecker) *RegistrationHandler {
+	return &RegistrationHandler{memberships, permissions, applications, site, loc, reviews}
 }
 func (h *RegistrationHandler) Register(mux *http.ServeMux, access *Access, csrf *websecurity.CSRF) {
 	for _, route := range []struct {
@@ -60,6 +62,28 @@ func (h *RegistrationHandler) detail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := views.RegistrationDetail(d, h.loc)
+	if v.Application != nil && v.Application.MembershipID != 0 {
+		read, e := h.permissions.HasPermission(r.Context(), actor, authorization.MembershipsRead)
+		if e != nil {
+			membershipError(w, r, e)
+			return
+		}
+		if read {
+			detail, e := h.memberships.GetDetails(r.Context(), v.Application.MembershipID)
+			if e != nil {
+				membershipError(w, r, e)
+				return
+			}
+			approve, e := h.permissions.HasPermission(r.Context(), actor, authorization.MembershipsApprove)
+			if e != nil {
+				membershipError(w, r, e)
+				return
+			}
+			mv := views.MembershipDetail(detail, h.loc, approve, false)
+			mv.CanApprove = approve && mv.Pending && mv.Ready
+			v.Membership = &mv
+		}
+	}
 	v.SecurityData = pageSecurity(r)
 	v.SiteName = h.site
 	v.Title = "Vérification d'identité - " + h.site

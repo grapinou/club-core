@@ -17,6 +17,7 @@
 {{end}}{{end}}
 {{if .Child}}{{with .Child}}
 <header class="page-header mt-3"><h1>{{.Name}}</h1><p>Le suivi de ses adhésions au club.</p></header>
+{{range .Actions}}<p>{{.Season}} · <a class="btn btn-primary" href="{{.URL}}">{{.Label}}</a></p>{{end}}
 <section class="section-panel"><h2>Informations de l’enfant</h2><dl><dt>Date de naissance</dt><dd>{{.BirthDate}}</dd></dl>
 <p>{{if .ViewerIsEmergency}}Vous êtes enregistré comme contact d’urgence.{{else if .HasEmergency}}Contact d’urgence enregistré.{{else}}Un contact d’urgence doit encore être enregistré par le club.{{end}}</p></section>
 <section class="section-panel"><h2>Ses adhésions</h2>
@@ -43,6 +44,6 @@
 {{if .RecordedAt}}<p>Le {{.RecordedAt}}</p><p>{{if .GivenByViewer}}Décision enregistrée par vous.{{else}}Décision enregistrée par un responsable.{{end}}</p>{{end}}
 </div></article>{{else}}<div class="empty-state">Aucun consentement n’est enregistré pour cette adhésion.</div>{{end}}</section>
 {{end}}{{end}}
-{{if not .Account}}<p class="text-body-secondary">Cet espace est en lecture seule. Pour toute question sur votre dossier, <a href="/contact">contactez le club</a>.</p>{{end}}
+{{if not .Account}}<p class="text-body-secondary">Pour toute question sur votre dossier, <a href="/contact">contactez le club</a>.</p>{{end}}
 </div>
 {{end}}

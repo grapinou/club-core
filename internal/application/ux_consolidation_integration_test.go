@@ -89,8 +89,8 @@ func TestP41OfficeAttentionAndNextActions(t *testing.T) {
 		}
 	}
 	body = officeOK(t, b, dossierPath(ready.ID), "Dossier prêt à être validé", "Valider l’adhésion")
-	if strings.Contains(body, `disabled>Valider`) || strings.Index(body, "/approve") > strings.Index(body, `id="identite"`) {
-		t.Fatal("ready approval must be available before details")
+	if strings.Contains(body, `disabled>Valider`) || strings.Index(body, "/approve") > strings.Index(body, `id="groupes"`) {
+		t.Fatal("ready approval must be available in the primary dossier before secondary details")
 	}
 	body = officeOK(t, b, dossierPath(incomplete.ID), "Contact d&#39;urgence manquant", "disabled>Valider", officePerson(child))
 	if r := b.call("POST", approvePath(ready.ID), url.Values{}); r.Code != 403 {

@@ -141,3 +141,26 @@ func (s *ReviewService) afterResolution(ctx context.Context, id int32) {
 		f.AfterResolution(ctx, id)
 	}
 }
+
+// CreateAuthenticatedGuardianClaim records the caller's known Person, never a
+// declared target ID. Authentication proves only this identity, not parentage.
+func CreateAuthenticatedGuardianClaim(ctx context.Context, tx pgx.Tx) (dbsqlc.GuardianIdentityClaim, error) {
+	actor, ok := auth.UserID(ctx)
+	if !ok {
+		return dbsqlc.GuardianIdentityClaim{}, authorization.ErrForbidden
+	}
+	q := dbsqlc.New(tx)
+	p, err := q.GetPersonalAccount(ctx, actor)
+	if err != nil {
+		return dbsqlc.GuardianIdentityClaim{}, err
+	}
+	c, err := q.CreateGuardianIdentityClaim(ctx, dbsqlc.CreateGuardianIdentityClaimParams{FirstName: p.FirstName, LastName: p.LastName, BirthDate: p.BirthDate, Email: p.Email.String, PhoneNumber: p.PhoneNumber, Address: p.Address})
+	if err != nil {
+		return c, err
+	}
+	err = q.ResolveGuardianIdentityClaim(ctx, dbsqlc.ResolveGuardianIdentityClaimParams{ID: c.ID, ResolvedPersonID: pgtype.Int4{Int32: p.PersonID, Valid: true}, ResolutionType: pgtype.Text{String: "existing_person", Valid: true}, ResolvedByUserID: pgtype.Int4{Int32: actor, Valid: true}})
+	if err != nil {
+		return c, err
+	}
+	return q.GetGuardianIdentityClaim(ctx, c.ID)
+}

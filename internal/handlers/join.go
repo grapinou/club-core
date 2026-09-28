@@ -3,12 +3,15 @@ package handlers
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/grapinou/club-core/internal/auth"
+	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/identityresolution"
 	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/grapinou/club-core/internal/registrationapplications"
@@ -43,9 +46,36 @@ func (h *JoinHandler) Register(mux *http.ServeMux, csrf *websecurity.CSRF) {
 	})
 	mux.Handle("POST /join", post)
 	mux.Handle("POST /join/child", post)
+	for _, path := range []string{"/me/children/new", "/me/children/{childID}/join"} {
+		mux.Handle("GET "+path, RequireAuthenticated(csrf.Protect(http.HandlerFunc(h.get))))
+		mux.Handle("POST "+path, RequireAuthenticated(csrf.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			actor, _ := auth.UserID(r.Context())
+			// Revisions do not spend the budget; family members sharing a network
+			// do not consume the anonymous public IP budget.
+			if r.PostForm.Get("action") == "submit" && !h.limiter.Allow(fmt.Sprintf("family:%d", actor)) {
+				w.Header().Set("Retry-After", "900")
+				http.Error(w, "Trop de demandes ont été effectuées. Réessayez plus tard.", http.StatusTooManyRequests)
+				return
+			}
+			h.post(w, r)
+		}))))
+	}
+	mux.Handle("GET /me/children/new/submitted", RequireAuthenticated(csrf.Protect(http.HandlerFunc(h.submitted))))
 }
 func (h *JoinHandler) render(w http.ResponseWriter, r *http.Request, v views.JoinView, status int) {
-	v.Child = strings.HasPrefix(r.URL.Path, "/join/child")
+	v.Family = strings.HasPrefix(r.URL.Path, "/me/children/")
+	v.Child = v.Family || strings.HasPrefix(r.URL.Path, "/join/child")
+	v.KnownChild = r.PathValue("childID") != ""
+	if v.Family {
+		v.ActionPath = strings.TrimSuffix(r.URL.Path, "/submitted")
+		if v.Values == nil {
+			v.Values = url.Values{}
+		}
+		if err := h.familyValues(r, v.Values); err != nil {
+			membershipError(w, r, err)
+			return
+		}
+	}
 	v.SecurityData = pageSecurity(r)
 	v.SiteName = h.site
 	v.Title = "Adhérer - " + h.site
@@ -59,6 +89,12 @@ func (h *JoinHandler) render(w http.ResponseWriter, r *http.Request, v views.Joi
 	_, _ = w.Write(buf.Bytes())
 }
 func (h *JoinHandler) get(w http.ResponseWriter, r *http.Request) {
+	values := url.Values{}
+	values.Set("season_id", r.URL.Query().Get("season"))
+	if err := h.familyValues(r, values); err != nil {
+		membershipError(w, r, err)
+		return
+	}
 	c, err := h.applications.Catalog(r.Context())
 	if err != nil {
 		http.Error(w, "Le formulaire est momentanément indisponible.", 500)
@@ -69,7 +105,7 @@ func (h *JoinHandler) get(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Le formulaire est momentanément indisponible.", 500)
 		return
 	}
-	h.render(w, r, views.JoinView{Catalog: c, Presentation: token, Values: url.Values{}, Unavailable: len(c.Seasons) == 0 || len(c.Types) == 0 || len(c.Activities) == 0}, 200)
+	h.render(w, r, views.JoinView{Catalog: c, Presentation: token, Values: values, Unavailable: len(c.Seasons) == 0 || len(c.Types) == 0 || len(c.Activities) == 0}, 200)
 }
 func (h *JoinHandler) submitted(w http.ResponseWriter, r *http.Request) {
 	h.render(w, r, views.JoinView{Submitted: true}, 200)
@@ -114,8 +150,14 @@ func joinInput(form url.Values) (registrationapplications.Input, registrationapp
 	return in, fields
 }
 func (h *JoinHandler) post(w http.ResponseWriter, r *http.Request) {
+	if err := h.familyValues(r, r.PostForm); err != nil {
+		membershipError(w, r, err)
+		return
+	}
+	family := strings.HasPrefix(r.URL.Path, "/me/children/")
+	child, _ := parseID(r.PathValue("childID"))
 	in, fields := joinInput(r.PostForm)
-	if r.URL.Path == "/join/child" {
+	if r.URL.Path == "/join/child" || family {
 		guardianForm := url.Values{}
 		for _, key := range []string{"first_name", "last_name", "birth_date", "email", "phone_number", "address"} {
 			guardianForm[key] = r.PostForm["guardian_"+key]
@@ -144,17 +186,35 @@ func (h *JoinHandler) post(w http.ResponseWriter, r *http.Request) {
 	}
 	var err error
 	if len(fields) == 0 && action == "submit" {
-		_, err = h.applications.Submit(r.Context(), in, websecurity.Token(r.Context()))
+		if family && child != 0 {
+			var membership int32
+			membership, err = h.applications.SubmitManagedChild(r.Context(), in, websecurity.Token(r.Context()), child)
+			if err == nil {
+				http.Redirect(w, r, fmt.Sprintf("/me/children/%d/memberships/%d", child, membership), http.StatusSeeOther)
+				return
+			}
+		} else if family {
+			_, err = h.applications.SubmitFamily(r.Context(), in, websecurity.Token(r.Context()))
+		} else {
+			_, err = h.applications.Submit(r.Context(), in, websecurity.Token(r.Context()))
+		}
 		if err == nil {
 			path := "/join/submitted"
 			if in.Child != nil {
 				path = "/join/child/submitted"
 			}
+			if family {
+				path = "/me/children/new/submitted"
+			}
 			http.Redirect(w, r, path, http.StatusSeeOther)
 			return
 		}
 	} else {
-		err = h.applications.Validate(r.Context(), in, websecurity.Token(r.Context()))
+		if family {
+			err = h.applications.ValidateFamily(r.Context(), in, websecurity.Token(r.Context()), child)
+		} else {
+			err = h.applications.Validate(r.Context(), in, websecurity.Token(r.Context()))
+		}
 	}
 	var validation registrationapplications.ValidationErrors
 	if errors.As(err, &validation) {
@@ -188,7 +248,7 @@ func (h *JoinHandler) post(w http.ResponseWriter, r *http.Request) {
 	v := views.JoinView{Catalog: c, Presentation: token, Values: r.PostForm, Errors: fields, Review: len(fields) == 0 && action == "review"}
 	if v.Review {
 		for key, values := range r.PostForm {
-			if key == "action" {
+			if key == "action" || (family && (strings.HasPrefix(key, "guardian_") || key == "person_id" || key == "child_person_id")) {
 				continue
 			}
 			for _, value := range values {
@@ -201,4 +261,40 @@ func (h *JoinHandler) post(w http.ResponseWriter, r *http.Request) {
 		status = 422
 	}
 	h.render(w, r, v, status)
+}
+
+func (h *JoinHandler) familyValues(r *http.Request, values url.Values) error {
+	if !strings.HasPrefix(r.URL.Path, "/me/children/") {
+		return nil
+	}
+	child := int32(0)
+	if raw := r.PathValue("childID"); raw != "" {
+		var err error
+		child, err = parseID(raw)
+		if err != nil || child <= 0 {
+			return authorization.ErrForbidden
+		}
+	}
+	f, err := h.applications.FamilyIdentity(r.Context(), child)
+	if err != nil {
+		return err
+	}
+	fill := func(prefix string, p identityresolution.SubmissionInput) {
+		values.Set(prefix+"first_name", p.FirstName)
+		values.Set(prefix+"last_name", p.LastName)
+		values.Set(prefix+"birth_date", "")
+		if p.BirthDate.Valid {
+			values.Set(prefix+"birth_date", p.BirthDate.Time.Format("2006-01-02"))
+		}
+		values.Set(prefix+"email", p.Email.String)
+		values.Set(prefix+"phone_number", p.PhoneNumber.String)
+		values.Set(prefix+"address", p.Address.String)
+	}
+	fill("guardian_", f.Guardian)
+	if f.Child != nil {
+		fill("", *f.Child)
+		values.Set("relationship_type", f.Relationship)
+		values.Set("emergency_contact", "no")
+	}
+	return nil
 }

@@ -271,3 +271,26 @@ func (s *Service) GrantTx(ctx context.Context, tx pgx.Tx, child, guardian int32)
 	}
 	return grant, err
 }
+
+// AuthorizeManagedChildTx keeps existing effective access stable for a family
+// membership request. It does not create a relationship or grant any access.
+func (s *Service) AuthorizeManagedChildTx(ctx context.Context, tx pgx.Tx, child int32) (int32, error) {
+	actor, ok := auth.UserID(ctx)
+	if !ok {
+		return 0, ErrIneligible
+	}
+	q := dbsqlc.New(tx)
+	account, err := q.GetPersonalAccount(ctx, actor)
+	if err != nil {
+		return 0, ErrIneligible
+	}
+	if err = s.lockEligible(ctx, tx, child, account.PersonID); err != nil {
+		return 0, err
+	}
+	var id int32
+	err = tx.QueryRow(ctx, `SELECT id FROM guardian_access_grants WHERE child_person_id=$1 AND guardian_person_id=$2 AND revoked_at IS NULL FOR SHARE`, child, account.PersonID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrIneligible
+	}
+	return account.PersonID, err
+}

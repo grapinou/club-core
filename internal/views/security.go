@@ -4,6 +4,7 @@ import "strings"
 
 // SecurityData contains display hints only. Middleware enforces access.
 type SecurityData struct {
+	AdministrativeRoles     []string
 	MetaDescription         string
 	Authenticated           bool
 	CanWritePersons         bool

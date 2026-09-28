@@ -5,6 +5,7 @@ package personalspace
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/grapinou/club-core/internal/auth"
@@ -42,11 +43,13 @@ type Account struct {
 	Functions                                                       []string
 }
 type Summary struct {
-	ID                                     int32
+	ID, SeasonID                           int32
 	SeasonName, MembershipTypeName, Status string
 	Activities                             []string
 }
+type FamilyAction struct{ Season, Label, URL string }
 type ChildSummary struct {
+	Actions     []FamilyAction
 	ID          int32
 	Name        string
 	Memberships []Summary
@@ -57,6 +60,7 @@ type Dashboard struct {
 	Children    []ChildSummary
 }
 type Child struct {
+	Actions                         []FamilyAction
 	ID                              int32
 	Name, BirthDate                 string
 	HasEmergency, ViewerIsEmergency bool
@@ -117,7 +121,7 @@ func (s *Service) GetMyAccount(ctx context.Context) (Account, error) {
 	return account, nil
 }
 func summary(r dbsqlc.ListPersonalMembershipSummariesRow) Summary {
-	return Summary{r.ID, r.SeasonName, r.MembershipTypeName, r.Status, r.Activities}
+	return Summary{ID: r.ID, SeasonID: r.SeasonID, SeasonName: r.SeasonName, MembershipTypeName: r.MembershipTypeName, Status: r.Status, Activities: r.Activities}
 }
 func (s *Service) GetDashboard(ctx context.Context) (Dashboard, error) {
 	a, err := s.identity(ctx)
@@ -141,9 +145,13 @@ func (s *Service) GetDashboard(ctx context.Context) (Dashboard, error) {
 	for _, r := range rows {
 		byPerson[r.PersonID] = append(byPerson[r.PersonID], summary(r))
 	}
+	seasons, err := s.q.ListRegistrationSeasons(ctx)
+	if err != nil {
+		return Dashboard{}, err
+	}
 	d := Dashboard{Name: a.FirstName + " " + a.LastName, Memberships: byPerson[a.PersonID]}
 	for _, c := range children {
-		d.Children = append(d.Children, ChildSummary{c.PersonID, c.FirstName + " " + c.LastName, byPerson[c.PersonID]})
+		d.Children = append(d.Children, ChildSummary{ID: c.PersonID, Name: c.FirstName + " " + c.LastName, Memberships: byPerson[c.PersonID], Actions: familyActions(c.PersonID, byPerson[c.PersonID], seasons)})
 	}
 	return d, nil
 }
@@ -178,6 +186,11 @@ func (s *Service) GetManagedChild(ctx context.Context, child int32) (Child, erro
 	for _, r := range rows {
 		c.Memberships = append(c.Memberships, summary(r))
 	}
+	seasons, err := s.q.ListRegistrationSeasons(ctx)
+	if err != nil {
+		return Child{}, err
+	}
+	c.Actions = familyActions(child, c.Memberships, seasons)
 	return c, nil
 }
 func (s *Service) GetMyMembership(ctx context.Context, id int32) (Membership, error) {
@@ -201,7 +214,7 @@ func (s *Service) membership(ctx context.Context, id, person, viewer int32) (Mem
 	if err != nil {
 		return Membership{}, unavailable(err)
 	}
-	m := Membership{Summary: Summary{r.ID, r.SeasonName, r.MembershipTypeName, r.Status, r.Activities}, RequestedAt: r.RequestedAt.Time.In(s.location).Format("02/01/2006")}
+	m := Membership{Summary: Summary{ID: r.ID, SeasonName: r.SeasonName, MembershipTypeName: r.MembershipTypeName, Status: r.Status, Activities: r.Activities}, RequestedAt: r.RequestedAt.Time.In(s.location).Format("02/01/2006")}
 	if r.JoinedAt.Valid {
 		m.JoinedAt = r.JoinedAt.Time.Format("02/01/2006")
 	}
@@ -248,4 +261,25 @@ func (s *Service) membership(ctx context.Context, id, person, viewer int32) (Mem
 		}
 	}
 	return m, nil
+}
+
+// Open seasons come from the registration catalog. Every existing status blocks
+// a second request; active and pending receive distinct, truthful next actions.
+func familyActions(child int32, rows []Summary, seasons []dbsqlc.Season) []FamilyAction {
+	actions := []FamilyAction{}
+	for _, season := range seasons {
+		a := FamilyAction{Season: season.Name, Label: "Demander une adhésion", URL: fmt.Sprintf("/me/children/%d/join?season=%d", child, season.ID)}
+		for _, m := range rows {
+			if m.SeasonID == season.ID {
+				a.Label = "Voir le dossier"
+				if m.Status == "active" {
+					a.Label = "Voir l’adhésion"
+				}
+				a.URL = fmt.Sprintf("/me/children/%d/memberships/%d", child, m.ID)
+				break
+			}
+		}
+		actions = append(actions, a)
+	}
+	return actions
 }

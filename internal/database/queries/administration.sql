@@ -13,6 +13,10 @@ SELECT p.id,p.first_name,p.last_name,p.birth_date,p.email,p.phone_number,p.addre
 FROM persons p WHERE p.archived_at IS NULL AND
  (sqlc.arg(search)::text='' OR position(lower(sqlc.arg(search)) in lower(p.first_name||' '||p.last_name||' '||coalesce(p.email,'')||' '||coalesce(p.phone_number,'')))>0
  OR (sqlc.arg(phone)::text<>'' AND position(sqlc.arg(phone) in regexp_replace(coalesce(p.phone_number,''),'[^0-9]','','g'))>0))
+AND (sqlc.arg(category)::text='' OR
+ (sqlc.arg(category)='memberships' AND EXISTS(SELECT 1 FROM memberships m WHERE m.person_id=p.id)) OR
+ (sqlc.arg(category)='prospects' AND EXISTS(SELECT 1 FROM trial_registrations t WHERE t.person_id=p.id) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.person_id=p.id)) OR
+ (sqlc.arg(category)='guardians' AND EXISTS(SELECT 1 FROM person_guardians g WHERE g.guardian_person_id=p.id)))
 ORDER BY p.last_name,p.first_name,p.id LIMIT 51 OFFSET sqlc.arg(page_offset);
 
 -- name: RecentAdministrativePersons :many
