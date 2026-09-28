@@ -442,7 +442,7 @@ func TestEmailAdministrativeAuditAndMigrationDown(t *testing.T) {
 	f.must(f.app.Verifications.VerifyEmail(t.Context(), reference, code))
 	r = b.call("GET", reviewPath(id), nil)
 	body := html.UnescapeString(r.Body.String())
-	for _, v := range []string{"Vérification d’un email connu", "Intervention administrative : Aucune", "Résolue le"} {
+	for _, v := range []string{"Vérification d’un email connu", "Intervention administrative : Aucune", "Identité résolue le"} {
 		if !strings.Contains(body, v) {
 			t.Fatal("missing automatic audit", v)
 		}

@@ -69,6 +69,7 @@ type AccountState struct {
 }
 
 type Details struct {
+	EffectiveGuardians  []dbsqlc.ListActiveGuardiansForChildRow
 	SourceTrial         *dbsqlc.GetMembershipSourceTrialRow
 	Groups              []dbsqlc.ListMembershipGroupHistoryRow
 	Guardians           []dbsqlc.ListPersonGuardiansRow
@@ -350,6 +351,12 @@ func (s *Service) GetDetails(ctx context.Context, id int32) (Details, error) {
 	d.Completeness, err = completeness(ctx, tx, id, time.Now().In(s.location))
 	if err != nil {
 		return d, err
+	}
+	if d.Completeness.IsMinor != nil && *d.Completeness.IsMinor {
+		d.EffectiveGuardians, err = q.ListActiveGuardiansForChild(ctx, d.Membership.Person.ID)
+		if err != nil {
+			return d, err
+		}
 	}
 	return d, tx.Commit(ctx)
 }

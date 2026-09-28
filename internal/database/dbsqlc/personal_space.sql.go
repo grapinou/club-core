@@ -119,6 +119,53 @@ func (q *Queries) GetPersonalMembership(ctx context.Context, arg GetPersonalMemb
 	return i, err
 }
 
+const listPendingFamilyRequests = `-- name: ListPendingFamilyRequests :many
+SELECT s.first_name,s.last_name,s.created_at
+FROM registration_applications a
+JOIN registration_submissions s ON s.id=a.submission_id
+JOIN child_registration_applications c ON c.application_id=a.id
+JOIN guardian_identity_claims g ON g.id=c.guardian_claim_id
+WHERE g.resolved_by_user_id=$1
+ AND g.resolved_person_id=$2
+ AND a.status IN ('awaiting_identity','needs_review')
+ AND (s.resolved_person_id IS NULL OR NOT(s.resolved_person_id=ANY($3::integer[])))
+ORDER BY s.created_at DESC,s.id DESC
+`
+
+type ListPendingFamilyRequestsParams struct {
+	ViewerUserID    pgtype.Int4
+	ViewerPersonID  pgtype.Int4
+	ManagedChildren []int32
+}
+
+type ListPendingFamilyRequestsRow struct {
+	FirstName string
+	LastName  string
+	CreatedAt pgtype.Timestamptz
+}
+
+// Only authenticated family submissions made by this account. Declared child
+// data stays in staging; matching and resolved identities are never projected.
+func (q *Queries) ListPendingFamilyRequests(ctx context.Context, arg ListPendingFamilyRequestsParams) ([]ListPendingFamilyRequestsRow, error) {
+	rows, err := q.db.Query(ctx, listPendingFamilyRequests, arg.ViewerUserID, arg.ViewerPersonID, arg.ManagedChildren)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPendingFamilyRequestsRow
+	for rows.Next() {
+		var i ListPendingFamilyRequestsRow
+		if err := rows.Scan(&i.FirstName, &i.LastName, &i.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPersonalConsents = `-- name: ListPersonalConsents :many
 SELECT d.title,d.version,d.description,c.decision,c.recorded_at,
  COALESCE(c.given_by_person_id=$1,false)::boolean AS given_by_viewer

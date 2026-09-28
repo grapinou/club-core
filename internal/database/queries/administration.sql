@@ -6,14 +6,22 @@ SELECT
  (SELECT count(*) FROM memberships WHERE status='pending') AS pending_memberships;
 
 -- name: SearchAdministrativePersons :many
-SELECT p.id,p.first_name,p.last_name,p.birth_date,p.email,p.phone_number,p.address,p.created_at,
+SELECT coalesce(lm.id,0)::integer AS membership_id, coalesce(lm.season_name,'')::text AS membership_season, coalesce(lm.status,'')::text AS membership_status,
+ coalesce(lt.id,0)::integer AS trial_id, lt.trial_date AS last_trial_date,
+ p.id,p.first_name,p.last_name,p.birth_date,p.email,p.phone_number,p.address,p.created_at,
  EXISTS(SELECT 1 FROM trial_registrations t WHERE t.person_id=p.id)::boolean AS has_trial,
  EXISTS(SELECT 1 FROM memberships m WHERE m.person_id=p.id)::boolean AS has_membership,
  EXISTS(SELECT 1 FROM person_guardians g WHERE g.guardian_person_id=p.id)::boolean AS is_guardian
-FROM persons p WHERE p.archived_at IS NULL AND
+FROM persons p
+LEFT JOIN LATERAL (SELECT m.id,m.status,s.name AS season_name FROM memberships m JOIN seasons s ON s.id=m.season_id WHERE m.person_id=p.id
+ AND (sqlc.arg(category)::text<>'members' OR (m.status='active' AND s.is_active AND sqlc.arg(today)::date BETWEEN s.starts_at AND s.ends_at))
+ ORDER BY s.starts_at DESC,m.id DESC LIMIT 1) lm ON true
+LEFT JOIN LATERAL (SELECT t.id,t.trial_date FROM trial_registrations t WHERE t.person_id=p.id ORDER BY t.trial_date DESC,t.id DESC LIMIT 1) lt ON true
+WHERE p.archived_at IS NULL AND
  (sqlc.arg(search)::text='' OR position(lower(sqlc.arg(search)) in lower(p.first_name||' '||p.last_name||' '||coalesce(p.email,'')||' '||coalesce(p.phone_number,'')))>0
  OR (sqlc.arg(phone)::text<>'' AND position(sqlc.arg(phone) in regexp_replace(coalesce(p.phone_number,''),'[^0-9]','','g'))>0))
 AND (sqlc.arg(category)::text='' OR
+ (sqlc.arg(category)='members' AND EXISTS(SELECT 1 FROM memberships m JOIN seasons s ON s.id=m.season_id WHERE m.person_id=p.id AND m.status='active' AND s.is_active AND sqlc.arg(today)::date BETWEEN s.starts_at AND s.ends_at)) OR
  (sqlc.arg(category)='memberships' AND EXISTS(SELECT 1 FROM memberships m WHERE m.person_id=p.id)) OR
  (sqlc.arg(category)='prospects' AND EXISTS(SELECT 1 FROM trial_registrations t WHERE t.person_id=p.id) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.person_id=p.id)) OR
  (sqlc.arg(category)='guardians' AND EXISTS(SELECT 1 FROM person_guardians g WHERE g.guardian_person_id=p.id)))

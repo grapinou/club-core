@@ -192,7 +192,7 @@ func TestP42RolesFiltersArchiveAndHistory(t *testing.T) {
 	office := f.membershipAdminBrowser()
 	f.exec(`DELETE FROM user_roles WHERE user_id=$1`, f.approver)
 	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='secretary'`, f.approver)
-	officeOK(t, office, "/admin", "Administration", "Secrétaire")
+	officeOK(t, office, "/admin", "Mon tableau de bord", "Secrétaire")
 	if r := office.call("GET", "/admin/users", nil); r.Code != 403 {
 		t.Fatal("secretary gained president permission")
 	}

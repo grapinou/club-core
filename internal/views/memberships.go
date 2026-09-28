@@ -40,6 +40,8 @@ type AccountView struct {
 	Username, Label                            string
 }
 type MembershipDetailView struct {
+	SourceGroupAdopted, SourceGroupNeedsReview               bool
+	EffectiveGuardians                                       []dbsqlc.ListActiveGuardiansForChildRow
 	PersonID, SourceTrialID                                  int32
 	SourceTrialDate, SourceActivity, SourceGroup, SourceTime string
 	Groups                                                   []dbsqlc.ListMembershipGroupHistoryRow
@@ -144,7 +146,11 @@ func MembershipRows(entries []memberships.ListEntry, loc *time.Location) []Membe
 		if len(e.Completeness.BlockingIssues) > 0 {
 			complete = "À compléter"
 		}
-		rows = append(rows, MembershipRowView{NeedsActivation: m.Membership.Status == "active" && e.Account.IsActive && e.Account.NeedsActivation, ID: m.Membership.ID, Name: m.LastName + " " + m.FirstName, Season: m.SeasonName, Type: m.MembershipTypeName, Status: status, StatusClass: class, RequestedAt: timestamp(m.Membership.RequestedAt, loc), ApprovedAt: timestamp(m.Membership.ApprovedAt, loc), Completeness: complete, Account: accountLabel(e.Account), Pending: m.Membership.Status == "pending", BlockingCount: len(e.Completeness.BlockingIssues), WarningCount: len(e.Completeness.Warnings)})
+		account := accountLabel(e.Account)
+		if e.Completeness.IsMinor != nil && *e.Completeness.IsMinor && !e.Account.Exists {
+			account = "Accès via responsable"
+		}
+		rows = append(rows, MembershipRowView{NeedsActivation: m.Membership.Status == "active" && e.Account.IsActive && e.Account.NeedsActivation, ID: m.Membership.ID, Name: m.LastName + " " + m.FirstName, Season: m.SeasonName, Type: m.MembershipTypeName, Status: status, StatusClass: class, RequestedAt: timestamp(m.Membership.RequestedAt, loc), ApprovedAt: timestamp(m.Membership.ApprovedAt, loc), Completeness: complete, Account: account, Pending: m.Membership.Status == "pending", BlockingCount: len(e.Completeness.BlockingIssues), WarningCount: len(e.Completeness.Warnings)})
 	}
 	return rows
 }
@@ -157,8 +163,10 @@ func MembershipDetail(d memberships.Details, loc *time.Location, approve, resend
 		Season: row.Season.Name, Type: row.MembershipType.Name, Status: status, StatusClass: class, RequestedAt: timestamp(m.RequestedAt, loc), JoinedAt: date(m.JoinedAt), ApprovedAt: timestamp(m.ApprovedAt, loc), Approver: textOrDash(row.ApproverUsername.String), AdminNote: m.AdminNote.String, HasApproval: m.ApprovedAt.Valid,
 		Pending: m.Status == "pending", Ready: len(d.Completeness.BlockingIssues) == 0}
 	v.PersonID, v.Groups = p.ID, d.Groups
+	v.EffectiveGuardians = d.EffectiveGuardians
 	if d.SourceTrial != nil {
 		v.SourceTrialID = d.SourceTrial.ID
+		v.SourceGroupAdopted, v.SourceGroupNeedsReview = d.SourceTrial.GroupAdopted, d.SourceTrial.GroupNeedsReview
 		v.SourceTrialDate = date(d.SourceTrial.TrialDate)
 		v.SourceActivity, v.SourceGroup, v.SourceTime = d.SourceTrial.ActivityName, d.SourceTrial.GroupName, d.SourceTrial.StartTime
 	}

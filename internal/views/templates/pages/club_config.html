@@ -22,7 +22,7 @@
 {{if and .Section.Singleton (not .Section.Records)}}<p><a class="btn btn-primary" href="/admin/config/{{.Section.Key}}/new">Renseigner</a></p>{{end}}
 {{end}}
 {{else}}
-<header class="page-header"><h1>Configurer votre association</h1><p>Bienvenue dans Club Core. Suivez ces étapes pour ouvrir votre site au public. Vous pouvez revenir sur chaque réglage à tout moment.</p><div class="actions"><a class="btn btn-outline-primary" href="/">Voir le site public</a>{{if .CanReadPersons}}<a href="/admin">Retour à l’administration</a>{{end}}</div></header>
+<header class="page-header"><h1>Configurer votre association</h1><p>Bienvenue dans Club Core. Suivez ces étapes pour ouvrir votre site au public. Vous pouvez revenir sur chaque réglage à tout moment.</p><div class="actions"><a class="btn btn-outline-primary" href="/">Voir le site public</a>{{if .CanReadPersons}}<a href="/admin">Retour à mon tableau de bord</a>{{end}}</div></header>
 {{if .Snapshot.Ready}}<p class="alert alert-success">Les informations essentielles sont prêtes. Vérifiez votre site public et complétez les rubriques facultatives selon vos besoins.</p>{{else}}<p class="alert alert-info">Votre site sera prêt lorsque l’association, une saison, un lieu, une activité, un groupe et un horaire seront renseignés.</p>{{end}}
 <ol class="config-steps">{{range .Snapshot.Sections}}<li class="section-panel"><h2>{{.Label}} {{if .Done}}<span class="badge text-bg-success">Renseigné</span>{{else if .Required}}<span class="badge text-bg-warning">À faire</span>{{else}}<span class="badge text-bg-light">Facultatif</span>{{end}}</h2><p>{{.Hint}}</p>{{if .Blocked}}<p class="text-body-secondary">{{.Blocked}}</p>{{else}}<a href="/admin/config/{{.Key}}">Ouvrir</a>{{end}}</li>{{end}}</ol>
 {{end}}</div>{{end}}

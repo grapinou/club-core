@@ -15,9 +15,9 @@ UPDATE registration_submissions SET status='awaiting_identity_review',updated_at
 WHERE id=$1 AND status='received';
 
 -- name: GetRegistrationSubmission :one
-SELECT s.*, u.username AS resolver_username,
+SELECT s.*, u.username AS resolver_username, p.first_name AS resolved_first_name, p.last_name AS resolved_last_name,
  EXISTS(SELECT 1 FROM registration_email_verifications v WHERE v.submission_id=s.id AND v.person_id=s.resolved_person_id AND v.used_at IS NOT NULL) AS email_verified
-FROM registration_submissions s LEFT JOIN users u ON u.id=s.resolved_by_user_id
+FROM registration_submissions s LEFT JOIN users u ON u.id=s.resolved_by_user_id LEFT JOIN persons p ON p.id=s.resolved_person_id
 WHERE s.id=$1;
 
 -- name: LockRegistrationSubmission :one

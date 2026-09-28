@@ -3,7 +3,9 @@ SELECT * FROM memberships WHERE id = $1;
 
 -- name: GetMembershipSourceTrial :one
 SELECT t.id,t.trial_date,a.name AS activity_name,coalesce(g.name,'')::text AS group_name,
- coalesce(to_char(gs.start_time,'HH24:MI'),'')::text AS start_time
+ coalesce(to_char(gs.start_time,'HH24:MI'),'')::text AS start_time,
+ EXISTS(SELECT 1 FROM administrative_events e WHERE e.resource_type='membership' AND e.resource_id=m.id AND e.action='membership_trial_group_assigned')::boolean AS group_adopted,
+ EXISTS(SELECT 1 FROM administrative_events e WHERE e.resource_type='membership' AND e.resource_id=m.id AND e.action='membership_trial_group_skipped')::boolean AS group_needs_review
 FROM memberships m JOIN trial_registrations t ON t.id=m.source_trial_id
 JOIN activities a ON a.id=t.activity_id
 LEFT JOIN groups g ON g.id=t.group_id LEFT JOIN group_slots gs ON gs.id=t.group_slot_id

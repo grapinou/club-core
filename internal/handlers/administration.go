@@ -38,7 +38,8 @@ func NewAdministrativeHandler(site string, s *administration.Service, p Permissi
 func (h *AdministrativeHandler) base(r *http.Request, mode string) views.AdministrativeView {
 	id, _ := auth.UserID(r.Context())
 	write, _ := h.p.HasPermission(r.Context(), id, authorization.MembershipsApprove)
-	return views.AdministrativeView{SecurityData: pageSecurity(r), SiteName: h.site, Title: "Administration - " + h.site, Mode: mode, Today: h.s.Today(), Form: url.Values{}, CanManageMemberships: write}
+	title := map[string]string{"home": "Mon tableau de bord", "people": "Annuaire", "person": "Coordonnées et parcours", "trials": "Essais", "trial": "Dossier d’essai", "trial-form": "Programmer un essai", "membership-new": "Demander une adhésion", "membership-groups": "Groupes de l’adhésion", "membership-notes": "Notes de l’adhésion"}[mode]
+	return views.AdministrativeView{SecurityData: pageSecurity(r), SiteName: h.site, Title: title + " - " + h.site, Mode: mode, Today: h.s.Today(), Form: url.Values{}, CanManageMemberships: write}
 }
 func (h *AdministrativeHandler) render(w http.ResponseWriter, r *http.Request, v views.AdministrativeView, err error) {
 	status := 200
@@ -170,6 +171,10 @@ func (h *AdministrativeHandler) Register(mux *http.ServeMux, a *Access, csrf *we
 		mux.Handle(pattern, a.RequirePermission(p, csrf.Protect(fn)))
 	}
 	reg("GET /admin", authorization.PersonsRead, h.home)
+	for _, path := range []string{"/members", "/guardians", "/prospects"} {
+		reg("GET "+path, authorization.PersonsRead, h.People)
+		reg("POST "+path, authorization.PersonsRead, h.People)
+	}
 	reg("POST /persons/search", authorization.PersonsRead, h.People)
 	reg("GET /persons/{id}", authorization.PersonsRead, h.person)
 	reg("POST /persons/{id}/notes", authorization.PersonsWrite, h.person)
@@ -213,6 +218,20 @@ func (h *AdministrativeHandler) People(w http.ResponseWriter, r *http.Request) {
 		v.Category = r.PostForm.Get("category")
 		page = 0
 	}
+	v.ListPath = "/persons"
+	switch r.URL.Path {
+	case "/members":
+		v.Category, v.ListPath = "members", "/members"
+	case "/guardians":
+		v.Category, v.ListPath = "guardians", "/guardians"
+	case "/prospects":
+		v.Category, v.ListPath = "prospects", "/prospects"
+	}
+	v.SearchPath = v.ListPath
+	if v.ListPath == "/persons" {
+		v.SearchPath = "/persons/search"
+	}
+	v.Title = v.PeopleTitle() + " - " + h.site
 	if e == nil {
 		v.People, e = h.s.People(r.Context(), v.Search, page, v.Category)
 	}
@@ -220,11 +239,11 @@ func (h *AdministrativeHandler) People(w http.ResponseWriter, r *http.Request) {
 		v.More = true
 		v.People = v.People[:50]
 		if v.Search == "" {
-			v.NextURL = fmt.Sprintf("/persons?category=%s&page=%d", url.QueryEscape(v.Category), page+1)
+			v.NextURL = fmt.Sprintf("%s?category=%s&page=%d", v.ListPath, url.QueryEscape(v.Category), page+1)
 		}
 	}
 	if page > 0 {
-		v.PreviousURL = fmt.Sprintf("/persons?category=%s&page=%d", url.QueryEscape(v.Category), page-1)
+		v.PreviousURL = fmt.Sprintf("%s?category=%s&page=%d", v.ListPath, url.QueryEscape(v.Category), page-1)
 	}
 	h.render(w, r, v, e)
 }
@@ -249,6 +268,12 @@ func (h *AdministrativeHandler) person(w http.ResponseWriter, r *http.Request) {
 func (h *AdministrativeHandler) listTrials(w http.ResponseWriter, r *http.Request) {
 	v := h.base(r, "trials")
 	v.Form = r.URL.Query()
+	var e error
+	v.TrialPolicy, e = h.s.TrialPolicy(r.Context())
+	if e != nil {
+		h.render(w, r, v, e)
+		return
+	}
 	on, e := formDate(v.Form.Get("date"), true)
 	from := pgtype.Date{}
 	if v.Form.Get("upcoming") == "1" {
@@ -337,6 +362,9 @@ func (h *AdministrativeHandler) schedule(w http.ResponseWriter, r *http.Request)
 	}
 	if e == nil {
 		v.Choices, e = h.s.Choices(r.Context())
+	}
+	if e == nil {
+		v.Person.TrialQuotas, e = h.s.PersonTrialQuotas(r.Context(), id)
 	}
 	v.Form.Set("trial_date", h.s.Today().Time.Format("2006-01-02"))
 	if e == nil && r.Method == "POST" {

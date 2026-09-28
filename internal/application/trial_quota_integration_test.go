@@ -122,7 +122,7 @@ func TestP31QuotaAdministrativeHTTP(t *testing.T) {
 	for range 3 {
 		officePost(t, b, path, form, 303)
 	}
-	officeOK(t, b, officePerson(f.person), "3 / 3", "Quota atteint")
+	officeOK(t, b, path, "3 / 3", "Quota atteint")
 	officeOK(t, b, path, "Quota atteint")
 	trial := f.id("SELECT min(id) FROM trial_registrations WHERE person_id=$1", f.person)
 	officeOK(t, b, officeTrial(trial), "3 / 3")
@@ -135,7 +135,8 @@ func TestP31QuotaAdministrativeHTTP(t *testing.T) {
 		t.Fatal("rejected creation audited")
 	}
 	officePost(t, b, officeTrial(trial)+"/status", url.Values{"revision": {"0"}, "status": {"cancelled"}}, 303)
-	officeOK(t, b, officePerson(f.person), "2 / 3", "1 séance", "Annulée")
+	officeOK(t, b, path, "2 / 3", "1 séance")
+	officeOK(t, b, officePerson(f.person), "Annulée")
 	officePost(t, b, path, form, 303)
 	officePost(t, b, officeTrial(trial)+"/status", url.Values{"revision": {"1"}, "status": {"attended"}}, 422)
 	f.exec("UPDATE seasons SET starts_at='2027-01-01' WHERE id=$1", f.season)

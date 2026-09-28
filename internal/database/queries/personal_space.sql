@@ -50,3 +50,17 @@ LEFT JOIN group_slots gs ON gs.group_id=g.id AND gs.season_id=m.season_id
 WHERE mg.membership_id=sqlc.arg(membership_id) AND mg.joined_at<=sqlc.arg(today)::date
  AND (mg.left_at IS NULL OR mg.left_at>sqlc.arg(today)::date)
 ORDER BY g.name,g.id,gs.weekday,gs.start_time,gs.id;
+
+-- Only authenticated family submissions made by this account. Declared child
+-- data stays in staging; matching and resolved identities are never projected.
+-- name: ListPendingFamilyRequests :many
+SELECT s.first_name,s.last_name,s.created_at
+FROM registration_applications a
+JOIN registration_submissions s ON s.id=a.submission_id
+JOIN child_registration_applications c ON c.application_id=a.id
+JOIN guardian_identity_claims g ON g.id=c.guardian_claim_id
+WHERE g.resolved_by_user_id=sqlc.arg(viewer_user_id)
+ AND g.resolved_person_id=sqlc.arg(viewer_person_id)
+ AND a.status IN ('awaiting_identity','needs_review')
+ AND (s.resolved_person_id IS NULL OR NOT(s.resolved_person_id=ANY(sqlc.arg(managed_children)::integer[])))
+ORDER BY s.created_at DESC,s.id DESC;

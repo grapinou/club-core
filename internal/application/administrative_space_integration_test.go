@@ -281,7 +281,7 @@ func TestAdministrativeAttentionAndFamilyWorkflow(t *testing.T) {
 	if strings.Contains(adultDetail, "<h2>Responsable</h2>") {
 		t.Fatal("adult trial has guardian section")
 	}
-	officeOK(t, b, officePerson(child), "Camille Parcours", "Contact principal", "camille@example.test", "0601020304", "Séance découverte", "Programmé")
+	officeOK(t, b, officePerson(child), "Camille Parcours", "Contact principal", "camille@example.test", "0601020304", "Essai du", "Programmé")
 	officeOK(t, b, officePerson(guardian), "Enfant", "Lina Parcours")
 	people := officeOK(t, b, "/persons", "Prospect après essai", "Adhésion", "Responsable")
 	if !strings.Contains(people, officePerson(child)) || !strings.Contains(people, officePerson(guardian)) {

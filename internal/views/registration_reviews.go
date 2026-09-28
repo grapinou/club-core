@@ -43,6 +43,7 @@ type RegistrationApplicationView struct {
 	Consents                     []dbsqlc.ListRegistrationApplicationConsentsRow
 }
 type RegistrationDetailView struct {
+	ResolvedName        string
 	Membership          *MembershipDetailView
 	Location            *time.Location
 	ActionReason        string
@@ -130,6 +131,7 @@ func RegistrationDetail(d identityresolution.Details, loc *time.Location) Regist
 	values := []string{s.FirstName, s.LastName, date(s.BirthDate), s.Email.String, s.PhoneNumber.String, s.Address.String}
 	labels := []string{"Prénom", "Nom", "Date de naissance", "Email", "Téléphone", "Adresse"}
 	v := RegistrationDetailView{Location: loc, Child: d.Child, ID: s.ID, Status: registrationStatus(s.Status), CreatedAt: timestamp(s.CreatedAt, loc), Open: s.Status == "received" || s.Status == "awaiting_identity_review" || s.Status == "awaiting_email_verification", EmailVerified: s.EmailVerified && !s.ResolvedByUserID.Valid, AwaitingEmail: s.Status == "awaiting_email_verification", Resolved: s.Status == "resolved", ResolvedPersonID: s.ResolvedPersonID.Int32, ResolvedAt: timestamp(s.ResolvedAt, loc), Resolver: textOrDash(s.ResolverUsername.String)}
+	v.ResolvedName = s.ResolvedFirstName.String + " " + s.ResolvedLastName.String
 	v.AutomaticNew = s.ResolutionType.String == "new_person" && !s.ResolvedByUserID.Valid
 	if d.Application != nil {
 		a := d.Application
@@ -165,7 +167,7 @@ func RegistrationDetail(d identityresolution.Details, loc *time.Location) Regist
 		v.Fields = append(v.Fields, RegistrationFieldView{Label: labels[i], Declared: textOrDash(value)})
 	}
 	for _, c := range d.Candidates {
-		cv := RegistrationCandidateView{ID: c.PersonID, Name: c.FirstName + " " + c.LastName, Confidence: confidence(c.Confidence), DetectedAt: timestamp(c.DetectedAt, loc), Archived: c.ArchivedAt.Valid, Account: "Aucun compte"}
+		cv := RegistrationCandidateView{ID: c.PersonID, Name: c.FirstName + " " + c.LastName, Confidence: confidence(c.Confidence), DetectedAt: timestamp(c.DetectedAt, loc), Archived: c.ArchivedAt.Valid, Account: ""}
 		if c.UserID.Valid {
 			cv.Account = "Compte non activé"
 			if c.ActivatedAt.Valid {

@@ -16,6 +16,8 @@ import (
 )
 
 type AdministrativeView struct {
+	ListPath, SearchPath                      string
+	TrialPolicy                               pgtype.Int4
 	PendingMemberships, ActivationMemberships []MembershipRowView
 	TrialQuota                                []trials.QuotaUsage
 	SecurityData
@@ -87,4 +89,33 @@ func RenderAdministrative(w io.Writer, v AdministrativeView) error {
 }
 func (AdministrativeView) TrialStatuses() []string {
 	return []string{"registered", "attended", "cancelled", "no_show"}
+}
+
+func (v AdministrativeView) PeopleTitle() string {
+	switch v.Category {
+	case "members":
+		return "Membres actuels"
+	case "guardians":
+		return "Responsables"
+	case "prospects":
+		return "Prospects après essai"
+	case "memberships":
+		return "Personnes ayant un dossier d’adhésion"
+	default:
+		return "Annuaire"
+	}
+}
+func (v AdministrativeView) PeopleDescription() string {
+	switch v.Category {
+	case "members":
+		return "Personnes ayant une adhésion active dans une saison active qui couvre la date d’aujourd’hui. Les adhésions historiques restent dans Adhésions."
+	case "guardians":
+		return "Personnes liées à au moins un enfant comme responsable. Une relation ne signifie pas qu’un accès familial est autorisé."
+	case "prospects":
+		return "Personnes ayant un essai enregistré et aucun dossier d’adhésion, même historique. Les contacts sans essai sont dans l’Annuaire."
+	case "memberships":
+		return "Personnes ayant un dossier d’adhésion, quel que soit son état ou sa saison."
+	default:
+		return "Tous les contacts non archivés du club, y compris ceux sans essai ni adhésion."
+	}
 }

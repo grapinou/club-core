@@ -55,8 +55,12 @@ func TestP3MembershipLifecycle(t *testing.T) {
 			if m.Status != "pending" || m.SourceTrialID.Valid != (trial != 0) || m.SourceTrialID.Int32 != trial {
 				t.Fatal("pending origin", m)
 			}
-			if f.count("SELECT count(*) FROM membership_groups WHERE membership_id=$1", id) != 0 {
-				t.Fatal("automatic group")
+			expectedGroups := 0
+			if trial != 0 {
+				expectedGroups = 1
+			}
+			if f.count("SELECT count(*) FROM membership_groups WHERE membership_id=$1", id) != expectedGroups {
+				t.Fatal("trial group default")
 			}
 			if trial != 0 {
 				officeOK(t, admin, dossierPath(id), "Essai du 16/09/2026", "Groupe adultes", "Voir l’essai")

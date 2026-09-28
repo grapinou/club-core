@@ -260,9 +260,9 @@ func TestPersonalGroupsAndDashboardBatching(t *testing.T) {
 	counter.queries = 0
 	d, err := s.GetDashboard(ctx)
 	f.must(err)
-	// One batched membership read plus one shared registration-season catalog,
+	// Batched memberships, registration seasons and owned pending requests,
 	// independent of the number of accessible children.
-	if baseline != 2 || counter.queries != baseline || len(d.Children) != 4 || len(d.Memberships) != 1 {
+	if baseline != 3 || counter.queries != baseline || len(d.Children) != 4 || len(d.Memberships) != 1 {
 		t.Fatal("batching", baseline, counter.queries, d)
 	}
 	for i, c := range d.Children {

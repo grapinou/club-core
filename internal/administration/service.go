@@ -138,21 +138,22 @@ func (s *Service) People(ctx context.Context, search string, page int32, filter 
 		return nil, ErrInvalid
 	}
 	switch filter {
-	case "", "memberships", "prospects", "guardians":
+	case "", "members", "memberships", "prospects", "guardians":
 	default:
 		return nil, ErrInvalid
 	}
-	return s.q.SearchAdministrativePersons(ctx, dbsqlc.SearchAdministrativePersonsParams{Category: filter, Search: strings.TrimSpace(search), Phone: identityresolution.NormalizePhone(search), PageOffset: page * 50})
+	return s.q.SearchAdministrativePersons(ctx, dbsqlc.SearchAdministrativePersonsParams{Today: s.Today(), Category: filter, Search: strings.TrimSpace(search), Phone: identityresolution.NormalizePhone(search), PageOffset: page * 50})
 }
 
 type Person struct {
-	TrialQuotas []trials.QuotaUsage
-	IsMinor     bool
-	Account     []dbsqlc.AdministrativePersonAccountRow
-	Info        dbsqlc.AdministrativePersonRow
-	Relations   []dbsqlc.AdministrativeRelationsRow
-	Trials      []dbsqlc.AdministrativeTrialsRow
-	Memberships []dbsqlc.AdministrativeMembershipsRow
+	EffectiveGuardians []dbsqlc.ListActiveGuardiansForChildRow
+	TrialQuotas        []trials.QuotaUsage
+	IsMinor            bool
+	Account            []dbsqlc.AdministrativePersonAccountRow
+	Info               dbsqlc.AdministrativePersonRow
+	Relations          []dbsqlc.AdministrativeRelationsRow
+	Trials             []dbsqlc.AdministrativeTrialsRow
+	Memberships        []dbsqlc.AdministrativeMembershipsRow
 }
 
 func (s *Service) Person(ctx context.Context, id int32) (Person, error) {
@@ -166,6 +167,12 @@ func (s *Service) Person(ctx context.Context, id int32) (Person, error) {
 		return p, err
 	}
 	p.IsMinor = s.memberships.IsEligibleMinor(p.Info.BirthDate)
+	if p.IsMinor {
+		p.EffectiveGuardians, err = s.q.ListActiveGuardiansForChild(ctx, id)
+		if err != nil {
+			return p, err
+		}
+	}
 	p.Account, err = s.q.AdministrativePersonAccount(ctx, id)
 	if err != nil {
 		return p, err
@@ -175,10 +182,6 @@ func (s *Service) Person(ctx context.Context, id int32) (Person, error) {
 		return p, err
 	}
 	p.Trials, err = s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{PersonID: id, Today: s.Today()})
-	if err != nil {
-		return p, err
-	}
-	p.TrialQuotas, err = s.trials.Quotas(ctx, id)
 	if err != nil {
 		return p, err
 	}
@@ -352,8 +355,25 @@ func (s *Service) RequestMembership(ctx context.Context, r memberships.Request, 
 		}
 		r.SourceTrialID = sourceTrial
 		m, err := s.memberships.CreateRequestTx(ctx, tx, r)
+		if err != nil {
+			return "", "", 0, err
+		}
 		id = m.ID
-		return "membership_requested", "membership", id, err
+		attempted, assigned, err := s.memberships.AssignSourceTrialGroupTx(ctx, tx, m)
+		if err != nil {
+			return "", "", 0, err
+		}
+		if attempted {
+			action := "membership_trial_group_skipped"
+			if assigned {
+				action = "membership_trial_group_assigned"
+			}
+			actor, _ := auth.UserID(ctx)
+			if err = q.CreateAdministrativeEvent(ctx, dbsqlc.CreateAdministrativeEventParams{ActorUserID: actor, Action: action, ResourceType: "membership", ResourceID: id}); err != nil {
+				return "", "", 0, err
+			}
+		}
+		return "membership_requested", "membership", id, nil
 	})
 	return id, err
 }
@@ -397,4 +417,23 @@ func (s *Service) CloseGroup(ctx context.Context, membership, assignment int32, 
 	return s.mutate(ctx, authorization.MembershipsApprove, func(tx pgx.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
 		return "membership_group_closed", "membership", membership, s.memberships.CloseGroupTx(ctx, tx, membership, assignment, left)
 	})
+}
+
+// TrialPolicy is operational read information; modification remains club.configure.
+func (s *Service) TrialPolicy(ctx context.Context) (pgtype.Int4, error) {
+	if _, err := s.require(ctx, authorization.PersonsRead); err != nil {
+		return pgtype.Int4{}, err
+	}
+	limit, err := s.q.GetTrialQuotaLimit(ctx)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return pgtype.Int4{}, nil
+	}
+	return limit, err
+}
+
+func (s *Service) PersonTrialQuotas(ctx context.Context, id int32) ([]trials.QuotaUsage, error) {
+	if _, err := s.require(ctx, authorization.PersonsRead); err != nil {
+		return nil, err
+	}
+	return s.trials.Quotas(ctx, id)
 }

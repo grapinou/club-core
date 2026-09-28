@@ -54,10 +54,12 @@ type ChildSummary struct {
 	Name        string
 	Memberships []Summary
 }
+type FamilyRequest struct{ Name, ReceivedAt string }
 type Dashboard struct {
-	Name        string
-	Memberships []Summary
-	Children    []ChildSummary
+	PendingRequests []FamilyRequest
+	Name            string
+	Memberships     []Summary
+	Children        []ChildSummary
 }
 type Child struct {
 	Actions                         []FamilyAction
@@ -150,6 +152,19 @@ func (s *Service) GetDashboard(ctx context.Context) (Dashboard, error) {
 		return Dashboard{}, err
 	}
 	d := Dashboard{Name: a.FirstName + " " + a.LastName, Memberships: byPerson[a.PersonID]}
+	actor, _ := auth.UserID(ctx)
+	managed := make([]int32, 0, len(children))
+	for _, c := range children {
+		managed = append(managed, c.PersonID)
+	}
+	pending, err := s.q.ListPendingFamilyRequests(ctx, dbsqlc.ListPendingFamilyRequestsParams{ViewerUserID: pgtype.Int4{Int32: actor, Valid: true}, ViewerPersonID: pgtype.Int4{Int32: a.PersonID, Valid: true}, ManagedChildren: managed})
+	if err != nil {
+		return Dashboard{}, err
+	}
+	for _, r := range pending {
+		d.PendingRequests = append(d.PendingRequests, FamilyRequest{Name: r.FirstName + " " + r.LastName, ReceivedAt: r.CreatedAt.Time.In(s.location).Format("02/01/2006")})
+	}
+
 	for _, c := range children {
 		d.Children = append(d.Children, ChildSummary{ID: c.PersonID, Name: c.FirstName + " " + c.LastName, Memberships: byPerson[c.PersonID], Actions: familyActions(c.PersonID, byPerson[c.PersonID], seasons)})
 	}

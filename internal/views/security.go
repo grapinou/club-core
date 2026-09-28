@@ -28,7 +28,7 @@ func (s SecurityData) PrivatePage() bool {
 	if !s.Authenticated {
 		return false
 	}
-	for _, path := range []string{"/dashboard", "/me", "/admin", "/persons", "/trials", "/memberships", "/registration-reviews"} {
+	for _, path := range []string{"/members", "/guardians", "/prospects", "/dashboard", "/me", "/admin", "/persons", "/trials", "/memberships", "/registration-reviews"} {
 		if s.InSection(path) {
 			return true
 		}

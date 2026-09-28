@@ -569,46 +569,61 @@ func (q *Queries) RecentAdministrativePersons(ctx context.Context) ([]RecentAdmi
 }
 
 const searchAdministrativePersons = `-- name: SearchAdministrativePersons :many
-SELECT p.id,p.first_name,p.last_name,p.birth_date,p.email,p.phone_number,p.address,p.created_at,
+SELECT coalesce(lm.id,0)::integer AS membership_id, coalesce(lm.season_name,'')::text AS membership_season, coalesce(lm.status,'')::text AS membership_status,
+ coalesce(lt.id,0)::integer AS trial_id, lt.trial_date AS last_trial_date,
+ p.id,p.first_name,p.last_name,p.birth_date,p.email,p.phone_number,p.address,p.created_at,
  EXISTS(SELECT 1 FROM trial_registrations t WHERE t.person_id=p.id)::boolean AS has_trial,
  EXISTS(SELECT 1 FROM memberships m WHERE m.person_id=p.id)::boolean AS has_membership,
  EXISTS(SELECT 1 FROM person_guardians g WHERE g.guardian_person_id=p.id)::boolean AS is_guardian
-FROM persons p WHERE p.archived_at IS NULL AND
- ($1::text='' OR position(lower($1) in lower(p.first_name||' '||p.last_name||' '||coalesce(p.email,'')||' '||coalesce(p.phone_number,'')))>0
- OR ($2::text<>'' AND position($2 in regexp_replace(coalesce(p.phone_number,''),'[^0-9]','','g'))>0))
-AND ($3::text='' OR
- ($3='memberships' AND EXISTS(SELECT 1 FROM memberships m WHERE m.person_id=p.id)) OR
- ($3='prospects' AND EXISTS(SELECT 1 FROM trial_registrations t WHERE t.person_id=p.id) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.person_id=p.id)) OR
- ($3='guardians' AND EXISTS(SELECT 1 FROM person_guardians g WHERE g.guardian_person_id=p.id)))
-ORDER BY p.last_name,p.first_name,p.id LIMIT 51 OFFSET $4
+FROM persons p
+LEFT JOIN LATERAL (SELECT m.id,m.status,s.name AS season_name FROM memberships m JOIN seasons s ON s.id=m.season_id WHERE m.person_id=p.id
+ AND ($1::text<>'members' OR (m.status='active' AND s.is_active AND $2::date BETWEEN s.starts_at AND s.ends_at))
+ ORDER BY s.starts_at DESC,m.id DESC LIMIT 1) lm ON true
+LEFT JOIN LATERAL (SELECT t.id,t.trial_date FROM trial_registrations t WHERE t.person_id=p.id ORDER BY t.trial_date DESC,t.id DESC LIMIT 1) lt ON true
+WHERE p.archived_at IS NULL AND
+ ($3::text='' OR position(lower($3) in lower(p.first_name||' '||p.last_name||' '||coalesce(p.email,'')||' '||coalesce(p.phone_number,'')))>0
+ OR ($4::text<>'' AND position($4 in regexp_replace(coalesce(p.phone_number,''),'[^0-9]','','g'))>0))
+AND ($1::text='' OR
+ ($1='members' AND EXISTS(SELECT 1 FROM memberships m JOIN seasons s ON s.id=m.season_id WHERE m.person_id=p.id AND m.status='active' AND s.is_active AND $2::date BETWEEN s.starts_at AND s.ends_at)) OR
+ ($1='memberships' AND EXISTS(SELECT 1 FROM memberships m WHERE m.person_id=p.id)) OR
+ ($1='prospects' AND EXISTS(SELECT 1 FROM trial_registrations t WHERE t.person_id=p.id) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.person_id=p.id)) OR
+ ($1='guardians' AND EXISTS(SELECT 1 FROM person_guardians g WHERE g.guardian_person_id=p.id)))
+ORDER BY p.last_name,p.first_name,p.id LIMIT 51 OFFSET $5
 `
 
 type SearchAdministrativePersonsParams struct {
+	Category   string
+	Today      pgtype.Date
 	Search     string
 	Phone      string
-	Category   string
 	PageOffset int32
 }
 
 type SearchAdministrativePersonsRow struct {
-	ID            int32
-	FirstName     string
-	LastName      string
-	BirthDate     pgtype.Date
-	Email         pgtype.Text
-	PhoneNumber   pgtype.Text
-	Address       pgtype.Text
-	CreatedAt     pgtype.Timestamptz
-	HasTrial      bool
-	HasMembership bool
-	IsGuardian    bool
+	MembershipID     int32
+	MembershipSeason string
+	MembershipStatus string
+	TrialID          int32
+	LastTrialDate    pgtype.Date
+	ID               int32
+	FirstName        string
+	LastName         string
+	BirthDate        pgtype.Date
+	Email            pgtype.Text
+	PhoneNumber      pgtype.Text
+	Address          pgtype.Text
+	CreatedAt        pgtype.Timestamptz
+	HasTrial         bool
+	HasMembership    bool
+	IsGuardian       bool
 }
 
 func (q *Queries) SearchAdministrativePersons(ctx context.Context, arg SearchAdministrativePersonsParams) ([]SearchAdministrativePersonsRow, error) {
 	rows, err := q.db.Query(ctx, searchAdministrativePersons,
+		arg.Category,
+		arg.Today,
 		arg.Search,
 		arg.Phone,
-		arg.Category,
 		arg.PageOffset,
 	)
 	if err != nil {
@@ -619,6 +634,11 @@ func (q *Queries) SearchAdministrativePersons(ctx context.Context, arg SearchAdm
 	for rows.Next() {
 		var i SearchAdministrativePersonsRow
 		if err := rows.Scan(
+			&i.MembershipID,
+			&i.MembershipSeason,
+			&i.MembershipStatus,
+			&i.TrialID,
+			&i.LastTrialDate,
 			&i.ID,
 			&i.FirstName,
 			&i.LastName,

@@ -466,7 +466,13 @@ func TestRegistrationAdditionalInvariants(t *testing.T) {
 		}
 		r := b.call("GET", reviewPath(id), nil)
 		body := html.UnescapeString(r.Body.String())
-		want := map[string]string{"absent": "Aucun compte", "unactivated": "Compte non activé", "activated": "Compte activé", "disabled": "Compte désactivé"}[state]
+		// Check the candidate status, not the explanatory sentence
+		// "Aucun compte n’est activé ici" about the resolution action.
+		if state == "absent" && strings.Contains(body, "<p>Aucun compte</p>") {
+			t.Fatal("missing personal account presented as a defect")
+		}
+		p43NoTechnicalLabels(t, body)
+		want := map[string]string{"absent": "", "unactivated": "Compte non activé", "activated": "Compte activé", "disabled": "Compte désactivé"}[state]
 		if r.Code != 200 || !strings.Contains(body, want) || strings.Contains(body, "never-expose-this-hash") {
 			t.Fatal("account state presentation", state)
 		}

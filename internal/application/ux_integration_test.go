@@ -66,7 +66,7 @@ func TestUXDashboardScopeAndComposition(t *testing.T) {
 	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='secretary'`, user)
 	page = member.call("GET", "/dashboard", nil)
 	body = html.UnescapeString(page.Body.String())
-	for _, value := range []string{"Practice", "Enfant autorisé", "Administration", `href="/memberships"`, `href="/registration-reviews"`, `href="/persons"`} {
+	for _, value := range []string{"Practice", "Enfant autorisé", "Mon tableau de bord", `href="/memberships"`, `href="/registration-reviews"`, `href="/persons"`} {
 		if !strings.Contains(body, value) {
 			t.Fatal("composed sections", value)
 		}

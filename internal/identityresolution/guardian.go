@@ -128,6 +128,7 @@ func (s *ReviewService) ResolveGuardian(ctx context.Context, actor, id int32, pe
 }
 
 type ChildDetails struct {
+	ResolvedGuardianName string
 	GuardianUser         *dbsqlc.User
 	Application          dbsqlc.ChildRegistrationApplication
 	Guardian             dbsqlc.GuardianIdentityClaim

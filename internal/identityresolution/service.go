@@ -291,6 +291,11 @@ func (s *ReviewService) GetDetails(ctx context.Context, actor, id int32) (Detail
 			}
 			cd.RelationExists = e == nil
 			if cd.Guardian.ResolvedPersonID.Valid {
+				person, e := q.GetPersonByID(ctx, cd.Guardian.ResolvedPersonID.Int32)
+				if e != nil {
+					return Details{}, e
+				}
+				cd.ResolvedGuardianName = person.FirstName + " " + person.LastName
 				u, e := q.GetUserByPerson(ctx, cd.Guardian.ResolvedPersonID.Int32)
 				if e == nil {
 					cd.GuardianUser = &u

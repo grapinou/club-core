@@ -3,16 +3,17 @@
 <section class="section-panel"><h2>Mes adhésions</h2>
 {{range .Memberships}}<article class="mb-3"><h3>{{.SeasonName}} <span class="badge {{$.StatusClassFor .Status}}">{{$.StatusLabel .Status}}</span></h3><p>{{.MembershipTypeName}}</p><ul>{{range .Activities}}<li>{{.}}</li>{{else}}<li>Aucune activité renseignée.</li>{{end}}</ul><a href="/me/memberships/{{.ID}}">Consulter mon adhésion</a></article>
 {{else}}<div class="empty-state">Vous n’avez actuellement aucune adhésion.</div>{{end}}</section>
-{{if .Children}}<section class="section-panel"><h2>Mon espace familial</h2><p><a class="btn btn-primary" href="/me/children/new">Ajouter un enfant</a></p>
+{{if .Children}}<section class="section-panel"><h2>Mon espace familial</h2><h3>Mes enfants</h3><p><a class="btn btn-primary" href="/me/children/new">Ajouter un enfant</a></p>
 {{range .Children}}{{$childID:=.ID}}<article class="card mb-3"><div class="card-body"><h3><a href="/me/children/{{.ID}}">{{.Name}}</a></h3>{{range .Actions}}<p>{{.Season}} · <a class="btn btn-outline-primary" href="{{.URL}}">{{.Label}}</a></p>{{end}}
 {{range .Memberships}}<p>{{.SeasonName}} · <span class="badge {{$.StatusClassFor .Status}}">{{$.StatusLabel .Status}}</span></p><p>{{.MembershipTypeName}}</p><ul>{{range .Activities}}<li>{{.}}</li>{{else}}<li>Aucune activité renseignée.</li>{{end}}</ul><a href="/me/children/{{$childID}}/memberships/{{.ID}}">Consulter cette adhésion</a>
 {{else}}<p>Aucune adhésion enregistrée.</p>{{end}}</div></article>
 {{end}}</section>{{end}}
-{{if or .CanReadPersons .CanReadMemberships .CanReviewRegistrations .CanReadUsers .CanConfigureClub}}<section class="section-panel"><h2>Administration</h2><p>Accédez aux dossiers que vous êtes autorisé à traiter.</p><div class="actions">
-{{if .CanReadPersons}}<a class="btn btn-primary" href="/admin">Ouvrir l’administration</a>{{end}}
+{{if .PendingRequests}}<section class="section-panel" id="demandes-familiales"><h2>Demandes en cours</h2><p>Votre demande a bien été reçue. L’équipe du club doit encore vérifier le rattachement avant que l’enfant apparaisse dans votre espace. Le traitement peut prendre un peu de temps selon la disponibilité de l’équipe.</p>{{range .PendingRequests}}<article><h3>{{.Name}}</h3><p>Demande reçue le {{.ReceivedAt}} — en cours de traitement</p></article>{{end}}</section>{{end}}
+{{if or .CanReadPersons .CanReadMemberships .CanReviewRegistrations .CanReadUsers .CanConfigureClub}}<section class="section-panel"><h2>Mon tableau de bord</h2><p>Accédez aux dossiers que vous êtes autorisé à traiter.</p><div class="actions">
+{{if .CanReadPersons}}<a class="btn btn-primary" href="/admin">Ouvrir mon tableau de bord</a>{{end}}
 {{if .CanConfigureClub}}<a class="btn btn-outline-primary" href="/admin/config">Configurer mon association</a>{{end}}
 {{if .CanReadMemberships}}<a class="btn btn-outline-primary" href="/memberships">Adhésions</a>{{end}}
 {{if .CanReviewRegistrations}}<a class="btn btn-outline-primary" href="/registration-reviews">Inscriptions à vérifier ({{.RegistrationReviewCount}})</a>{{end}}
-{{if .CanReadPersons}}<a class="btn btn-outline-primary" href="/persons">Personnes</a>{{end}}{{if .CanReadUsers}}<a class="btn btn-outline-primary" href="/admin/users">Utilisateurs</a>{{end}}</div></section>{{end}}
+{{if .CanReadPersons}}<a class="btn btn-outline-primary" href="/persons">Annuaire</a>{{end}}{{if .CanReadUsers}}<a class="btn btn-outline-primary" href="/admin/users">Utilisateurs</a>{{end}}</div></section>{{end}}
 <div class="actions"><a href="/contact">Contacter le club</a><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button class="btn btn-outline-secondary" type="submit">Se déconnecter</button></form></div>
 </div>{{end}}

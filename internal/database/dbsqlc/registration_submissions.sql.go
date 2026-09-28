@@ -119,29 +119,31 @@ func (q *Queries) GetRegistrationCandidate(ctx context.Context, arg GetRegistrat
 }
 
 const getRegistrationSubmission = `-- name: GetRegistrationSubmission :one
-SELECT s.id, s.status, s.first_name, s.last_name, s.birth_date, s.email, s.phone_number, s.address, s.created_at, s.updated_at, s.resolved_person_id, s.resolution_type, s.resolved_at, s.resolved_by_user_id, u.username AS resolver_username,
+SELECT s.id, s.status, s.first_name, s.last_name, s.birth_date, s.email, s.phone_number, s.address, s.created_at, s.updated_at, s.resolved_person_id, s.resolution_type, s.resolved_at, s.resolved_by_user_id, u.username AS resolver_username, p.first_name AS resolved_first_name, p.last_name AS resolved_last_name,
  EXISTS(SELECT 1 FROM registration_email_verifications v WHERE v.submission_id=s.id AND v.person_id=s.resolved_person_id AND v.used_at IS NOT NULL) AS email_verified
-FROM registration_submissions s LEFT JOIN users u ON u.id=s.resolved_by_user_id
+FROM registration_submissions s LEFT JOIN users u ON u.id=s.resolved_by_user_id LEFT JOIN persons p ON p.id=s.resolved_person_id
 WHERE s.id=$1
 `
 
 type GetRegistrationSubmissionRow struct {
-	ID               int32
-	Status           string
-	FirstName        string
-	LastName         string
-	BirthDate        pgtype.Date
-	Email            pgtype.Text
-	PhoneNumber      pgtype.Text
-	Address          pgtype.Text
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
-	ResolvedPersonID pgtype.Int4
-	ResolutionType   pgtype.Text
-	ResolvedAt       pgtype.Timestamptz
-	ResolvedByUserID pgtype.Int4
-	ResolverUsername pgtype.Text
-	EmailVerified    bool
+	ID                int32
+	Status            string
+	FirstName         string
+	LastName          string
+	BirthDate         pgtype.Date
+	Email             pgtype.Text
+	PhoneNumber       pgtype.Text
+	Address           pgtype.Text
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	ResolvedPersonID  pgtype.Int4
+	ResolutionType    pgtype.Text
+	ResolvedAt        pgtype.Timestamptz
+	ResolvedByUserID  pgtype.Int4
+	ResolverUsername  pgtype.Text
+	ResolvedFirstName pgtype.Text
+	ResolvedLastName  pgtype.Text
+	EmailVerified     bool
 }
 
 func (q *Queries) GetRegistrationSubmission(ctx context.Context, id int32) (GetRegistrationSubmissionRow, error) {
@@ -163,6 +165,8 @@ func (q *Queries) GetRegistrationSubmission(ctx context.Context, id int32) (GetR
 		&i.ResolvedAt,
 		&i.ResolvedByUserID,
 		&i.ResolverUsername,
+		&i.ResolvedFirstName,
+		&i.ResolvedLastName,
 		&i.EmailVerified,
 	)
 	return i, err

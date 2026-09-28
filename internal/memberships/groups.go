@@ -2,6 +2,8 @@ package memberships
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/jackc/pgx/v5"
@@ -56,4 +58,39 @@ func (s *Service) CloseGroupTx(ctx context.Context, tx pgx.Tx, membership, assig
 	}
 	_, err = q.CloseMembershipGroup(ctx, dbsqlc.CloseMembershipGroupParams{ID: assignment, LeftAt: left})
 	return err
+}
+
+// AssignSourceTrialGroupTx is called exactly once by the office conversion,
+// immediately after CreateRequestTx in the same transaction. The source trial,
+// person and season are already locked by creation. No historical backfill.
+// A domain refusal is a stale suggestion; a database failure aborts creation.
+func (s *Service) AssignSourceTrialGroupTx(ctx context.Context, tx pgx.Tx, m dbsqlc.Membership) (attempted, assigned bool, err error) {
+	if !m.SourceTrialID.Valid {
+		return false, false, nil
+	}
+	q := dbsqlc.New(tx)
+	trial, err := q.LockAdministrativeTrial(ctx, m.SourceTrialID.Int32)
+	if err != nil {
+		return false, false, err
+	}
+	if !trial.GroupID.Valid {
+		return false, false, nil
+	}
+	season, err := q.LockMembershipGroupTarget(ctx, m.ID)
+	if err != nil {
+		return true, false, err
+	}
+	// Pending memberships have no joined_at yet. Start on the request's local
+	// civil date, or the season opening when requested ahead of time. Never
+	// backdate to a trial or force an expired season's last day.
+	at := m.RequestedAt.Time.In(s.location)
+	joined := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, time.UTC)
+	if joined.Before(season.StartsAt.Time) {
+		joined = season.StartsAt.Time
+	}
+	err = s.AssignGroupTx(ctx, tx, dbsqlc.AssignMembershipGroupParams{MembershipID: m.ID, GroupID: trial.GroupID.Int32, JoinedAt: pgtype.Date{Time: joined, Valid: true}})
+	if errors.Is(err, ErrInvalidRequest) {
+		return true, false, nil
+	}
+	return true, err == nil, err
 }
