@@ -51,6 +51,13 @@ SELECT * FROM users WHERE id = $1;
 
 -- name: ListAdministrativeMemberships :many
 SELECT sqlc.embed(m), p.first_name, p.last_name, s.name AS season_name,
+       -- Same effective-access predicates as ListActiveGuardiansForChild.
+       EXISTS(SELECT 1 FROM guardian_access_grants ga
+         JOIN person_guardians r USING(child_person_id,guardian_person_id)
+         JOIN persons guardian ON guardian.id=ga.guardian_person_id AND guardian.archived_at IS NULL
+         JOIN persons child ON child.id=ga.child_person_id AND child.archived_at IS NULL
+         JOIN users gu ON gu.person_id=guardian.id AND gu.is_active AND gu.activated_at IS NOT NULL AND gu.password_hash IS NOT NULL
+         WHERE ga.child_person_id=m.person_id AND ga.revoked_at IS NULL) AS has_effective_guardian,
        t.name AS membership_type_name,
        u.id AS user_id, u.username, u.is_active AS user_is_active, u.activated_at
 FROM memberships m

@@ -228,6 +228,13 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 
 const listAdministrativeMemberships = `-- name: ListAdministrativeMemberships :many
 SELECT m.id, m.person_id, m.season_id, m.membership_type_id, m.status, m.joined_at, m.ended_at, m.created_at, m.updated_at, m.requested_at, m.approved_at, m.approved_by_user_id, m.admin_note, m.source_trial_id, p.first_name, p.last_name, s.name AS season_name,
+       -- Same effective-access predicates as ListActiveGuardiansForChild.
+       EXISTS(SELECT 1 FROM guardian_access_grants ga
+         JOIN person_guardians r USING(child_person_id,guardian_person_id)
+         JOIN persons guardian ON guardian.id=ga.guardian_person_id AND guardian.archived_at IS NULL
+         JOIN persons child ON child.id=ga.child_person_id AND child.archived_at IS NULL
+         JOIN users gu ON gu.person_id=guardian.id AND gu.is_active AND gu.activated_at IS NOT NULL AND gu.password_hash IS NOT NULL
+         WHERE ga.child_person_id=m.person_id AND ga.revoked_at IS NULL) AS has_effective_guardian,
        t.name AS membership_type_name,
        u.id AS user_id, u.username, u.is_active AS user_is_active, u.activated_at
 FROM memberships m
@@ -241,15 +248,16 @@ ORDER BY (m.status='pending') DESC,
 `
 
 type ListAdministrativeMembershipsRow struct {
-	Membership         Membership
-	FirstName          string
-	LastName           string
-	SeasonName         string
-	MembershipTypeName string
-	UserID             pgtype.Int4
-	Username           pgtype.Text
-	UserIsActive       pgtype.Bool
-	ActivatedAt        pgtype.Timestamptz
+	Membership           Membership
+	FirstName            string
+	LastName             string
+	SeasonName           string
+	HasEffectiveGuardian bool
+	MembershipTypeName   string
+	UserID               pgtype.Int4
+	Username             pgtype.Text
+	UserIsActive         pgtype.Bool
+	ActivatedAt          pgtype.Timestamptz
 }
 
 func (q *Queries) ListAdministrativeMemberships(ctx context.Context) ([]ListAdministrativeMembershipsRow, error) {
@@ -279,6 +287,7 @@ func (q *Queries) ListAdministrativeMemberships(ctx context.Context) ([]ListAdmi
 			&i.FirstName,
 			&i.LastName,
 			&i.SeasonName,
+			&i.HasEffectiveGuardian,
 			&i.MembershipTypeName,
 			&i.UserID,
 			&i.Username,

@@ -49,15 +49,11 @@
 {{if or .CanReadPersons .CanReadMemberships .CanReviewRegistrations .CanReadUsers .CanConfigureClub}}<nav class="admin-nav" aria-label="Bureau"><div class="container">
 {{if .AdministrativeRoles}}<span class="administrative-roles" aria-label="Vos rôles administratifs">{{range .AdministrativeRoles}}<span class="badge text-bg-secondary">{{.}}</span>{{end}}</span>{{end}}
 {{if .CanReadPersons}}<a href="/admin" {{if eq .CurrentPath "/admin"}}aria-current="page"{{end}}>Mon tableau de bord</a>{{end}}
-{{if .CanReadPersons}}<a href="/trials" {{if .InSection "/trials"}}aria-current="page"{{end}}>Essais</a>{{end}}
 {{if .CanReadMemberships}}<a href="/memberships" {{if .InSection "/memberships"}}aria-current="page"{{end}}>Adhésions</a>{{end}}
-{{if .CanReadPersons}}<a href="/members" {{if .InSection "/members"}}aria-current="page"{{end}}>Membres</a><a href="/guardians" {{if .InSection "/guardians"}}aria-current="page"{{end}}>Responsables</a><a href="/prospects" {{if .InSection "/prospects"}}aria-current="page"{{end}}>Prospects</a>{{end}}
-<details class="office-links" {{if or (.InSection "/persons") (.InSection "/registration-reviews") (.InSection "/admin/users") (.InSection "/admin/config")}}open{{end}}><summary>Autres outils du bureau</summary><div class="detail-links">
 {{if .CanReviewRegistrations}}<a href="/registration-reviews" {{if .InSection "/registration-reviews"}}aria-current="page"{{end}}>Inscriptions à vérifier ({{.RegistrationReviewCount}})</a>{{end}}
-{{if .CanReadPersons}}<a href="/persons" {{if .InSection "/persons"}}aria-current="page"{{end}}>Annuaire</a>{{end}}
+{{if .CanReadPersons}}<a href="/trials" {{if .InSection "/trials"}}aria-current="page"{{end}}>Essais</a><a href="/members" {{if .InSection "/members"}}aria-current="page"{{end}}>Membres</a><a href="/guardians" {{if .InSection "/guardians"}}aria-current="page"{{end}}>Responsables</a><a href="/prospects" {{if .InSection "/prospects"}}aria-current="page"{{end}}>Prospects</a><a href="/persons" {{if .InSection "/persons"}}aria-current="page"{{end}}>Annuaire</a>{{end}}
 {{if .CanReadUsers}}<a href="/admin/users" {{if .InSection "/admin/users"}}aria-current="page"{{end}}>Utilisateurs</a>{{end}}
 {{if .CanConfigureClub}}<a href="/admin/config" {{if .InSection "/admin/config"}}aria-current="page"{{end}}>Configurer le club</a>{{end}}
-</div></details>
 </div></nav>{{end}}</header>
 
     <main id="main-content" class="container py-4" tabindex="-1">

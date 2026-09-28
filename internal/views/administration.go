@@ -16,6 +16,7 @@ import (
 )
 
 type AdministrativeView struct {
+	EligibleTrials                            []dbsqlc.EligibleMembershipSourceTrialsRow
 	ListPath, SearchPath                      string
 	TrialPolicy                               pgtype.Int4
 	PendingMemberships, ActivationMemberships []MembershipRowView

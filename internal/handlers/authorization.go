@@ -69,6 +69,18 @@ func (a *Access) RequirePermission(permission authorization.Permission, next htt
 	}))
 }
 
+// RequireMembershipContinuation guards the closed Person-to-membership flow.
+// The ordinary Person form keeps its existing persons.write authorization.
+func (a *Access) RequireMembershipContinuation(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.FormValue("after") == "membership" {
+			a.RequirePermission(authorization.MembershipsApprove, next).ServeHTTP(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 type administrativeRolesKey struct{}
 type navigationKey struct{}
 type personWriteNavigationKey struct{}

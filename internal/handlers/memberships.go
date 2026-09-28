@@ -82,7 +82,13 @@ func (h *MembershipHandler) list(w http.ResponseWriter, r *http.Request) {
 		membershipError(w, r, err)
 		return
 	}
-	v := views.MembershipListView{SecurityData: pageSecurity(r), SiteName: h.siteName, Title: "Adhésions - " + h.siteName, Rows: views.MembershipRows(rows, h.location)}
+	actor, _ := auth.UserID(r.Context())
+	canCreate, err := h.permissions.HasPermission(r.Context(), actor, authorization.MembershipsApprove)
+	if err != nil {
+		membershipError(w, r, err)
+		return
+	}
+	v := views.MembershipListView{CanCreate: canCreate, SecurityData: pageSecurity(r), SiteName: h.siteName, Title: "Adhésions - " + h.siteName, Rows: views.MembershipRows(rows, h.location)}
 	var buf bytes.Buffer
 	err = views.RenderMembershipList(&buf, v)
 	writeMembershipPage(w, &buf, err)

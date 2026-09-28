@@ -15,6 +15,7 @@ import (
 // These presentation types deliberately contain no password hash, delivery code,
 // session token or raw User model.
 type MembershipListView struct {
+	CanCreate bool
 	SecurityData
 	SiteName, Title string
 	Rows            []MembershipRowView
@@ -148,7 +149,10 @@ func MembershipRows(entries []memberships.ListEntry, loc *time.Location) []Membe
 		}
 		account := accountLabel(e.Account)
 		if e.Completeness.IsMinor != nil && *e.Completeness.IsMinor && !e.Account.Exists {
-			account = "Accès via responsable"
+			account = "Aucun accès familial actif"
+			if m.HasEffectiveGuardian {
+				account = "Accès via responsable"
+			}
 		}
 		rows = append(rows, MembershipRowView{NeedsActivation: m.Membership.Status == "active" && e.Account.IsActive && e.Account.NeedsActivation, ID: m.Membership.ID, Name: m.LastName + " " + m.FirstName, Season: m.SeasonName, Type: m.MembershipTypeName, Status: status, StatusClass: class, RequestedAt: timestamp(m.Membership.RequestedAt, loc), ApprovedAt: timestamp(m.Membership.ApprovedAt, loc), Completeness: complete, Account: account, Pending: m.Membership.Status == "pending", BlockingCount: len(e.Completeness.BlockingIssues), WarningCount: len(e.Completeness.Warnings)})
 	}

@@ -479,6 +479,53 @@ func (q *Queries) CreateAdministrativeEvent(ctx context.Context, arg CreateAdmin
 	return err
 }
 
+const eligibleMembershipSourceTrials = `-- name: EligibleMembershipSourceTrials :many
+SELECT t.id,t.trial_date,a.name AS activity_name,coalesce(g.name,'')::text AS group_name,
+ coalesce(to_char(gs.start_time,'HH24:MI'),'')::text AS start_time,
+ coalesce(to_char(gs.end_time,'HH24:MI'),'')::text AS end_time
+FROM trial_registrations t JOIN activities a ON a.id=t.activity_id
+LEFT JOIN groups g ON g.id=t.group_id LEFT JOIN group_slots gs ON gs.id=t.group_slot_id
+WHERE t.person_id=$1 AND t.status='attended'
+ AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.source_trial_id=t.id)
+ORDER BY t.trial_date DESC,t.id DESC
+`
+
+type EligibleMembershipSourceTrialsRow struct {
+	ID           int32
+	TrialDate    pgtype.Date
+	ActivityName string
+	GroupName    string
+	StartTime    string
+	EndTime      string
+}
+
+func (q *Queries) EligibleMembershipSourceTrials(ctx context.Context, personID int32) ([]EligibleMembershipSourceTrialsRow, error) {
+	rows, err := q.db.Query(ctx, eligibleMembershipSourceTrials, personID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EligibleMembershipSourceTrialsRow
+	for rows.Next() {
+		var i EligibleMembershipSourceTrialsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TrialDate,
+			&i.ActivityName,
+			&i.GroupName,
+			&i.StartTime,
+			&i.EndTime,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockAdministrativeMembership = `-- name: LockAdministrativeMembership :one
 SELECT id, person_id, season_id, membership_type_id, status, joined_at, ended_at, created_at, updated_at, requested_at, approved_at, approved_by_user_id, admin_note, source_trial_id FROM memberships WHERE id=$1 FOR UPDATE
 `

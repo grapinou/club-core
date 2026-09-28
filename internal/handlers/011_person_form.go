@@ -12,8 +12,13 @@ func PersonFormHandler(cfg config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
 		data := views.PersonFormData{SecurityData: pageSecurity(r),
-			SiteName: cfg.SiteName,
-			Title:    "Ajouter une personne - " + cfg.SiteName,
+			SiteName:        cfg.SiteName,
+			AfterMembership: r.URL.Query().Get("after") == "membership",
+			Title:           "Ajouter une personne - " + cfg.SiteName,
+		}
+
+		if data.AfterMembership {
+			data.CurrentPath = "/memberships/new"
 		}
 
 		err := views.RenderPersonForm(w, data)

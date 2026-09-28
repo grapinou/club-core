@@ -38,7 +38,7 @@ func NewAdministrativeHandler(site string, s *administration.Service, p Permissi
 func (h *AdministrativeHandler) base(r *http.Request, mode string) views.AdministrativeView {
 	id, _ := auth.UserID(r.Context())
 	write, _ := h.p.HasPermission(r.Context(), id, authorization.MembershipsApprove)
-	title := map[string]string{"home": "Mon tableau de bord", "people": "Annuaire", "person": "Coordonnées et parcours", "trials": "Essais", "trial": "Dossier d’essai", "trial-form": "Programmer un essai", "membership-new": "Demander une adhésion", "membership-groups": "Groupes de l’adhésion", "membership-notes": "Notes de l’adhésion"}[mode]
+	title := map[string]string{"home": "Mon tableau de bord", "people": "Annuaire", "person": "Coordonnées et parcours", "trials": "Essais", "trial": "Dossier d’essai", "trial-form": "Programmer un essai", "membership-new": "Demander une adhésion", "membership-person": "Créer une adhésion", "membership-groups": "Groupes de l’adhésion", "membership-notes": "Notes de l’adhésion"}[mode]
 	return views.AdministrativeView{SecurityData: pageSecurity(r), SiteName: h.site, Title: title + " - " + h.site, Mode: mode, Today: h.s.Today(), Form: url.Values{}, CanManageMemberships: write}
 }
 func (h *AdministrativeHandler) render(w http.ResponseWriter, r *http.Request, v views.AdministrativeView, err error) {
@@ -170,6 +170,8 @@ func (h *AdministrativeHandler) Register(mux *http.ServeMux, a *Access, csrf *we
 	reg := func(pattern string, p authorization.Permission, fn http.HandlerFunc) {
 		mux.Handle(pattern, a.RequirePermission(p, csrf.Protect(fn)))
 	}
+	reg("GET /memberships/new", authorization.MembershipsApprove, h.membershipPerson)
+	reg("POST /memberships/new", authorization.MembershipsApprove, h.membershipPerson)
 	reg("GET /admin", authorization.PersonsRead, h.home)
 	for _, path := range []string{"/members", "/guardians", "/prospects"} {
 		reg("GET "+path, authorization.PersonsRead, h.People)
@@ -382,8 +384,35 @@ func (h *AdministrativeHandler) schedule(w http.ResponseWriter, r *http.Request)
 	}
 	h.render(w, r, v, e)
 }
+func (h *AdministrativeHandler) membershipPerson(w http.ResponseWriter, r *http.Request) {
+	v := h.base(r, "membership-person")
+	// This entry requires both creation and person-read capabilities, including GET.
+	actor, _ := auth.UserID(r.Context())
+	allowed, err := h.p.HasPermission(r.Context(), actor, authorization.PersonsRead)
+	if err != nil {
+		h.render(w, r, v, err)
+		return
+	}
+	if !allowed {
+		h.render(w, r, v, authorization.ErrForbidden)
+		return
+	}
+	if r.Method == "POST" {
+		v.Search = strings.TrimSpace(r.PostForm.Get("search"))
+	}
+	if v.Search != "" {
+		v.People, err = h.s.People(r.Context(), v.Search, 0, "")
+	}
+	if len(v.People) > 50 {
+		v.More = true
+		v.People = v.People[:50]
+	}
+	h.render(w, r, v, err)
+}
 func (h *AdministrativeHandler) requestMembership(w http.ResponseWriter, r *http.Request) {
 	v := h.base(r, "membership-new")
+	// The existing Person-based route belongs to the membership workflow.
+	v.CurrentPath = "/memberships/new"
 	id, e := adminID(r, "id")
 	if e == nil {
 		v.Person, e = h.s.Person(r.Context(), id)
@@ -417,20 +446,22 @@ func (h *AdministrativeHandler) requestMembership(w http.ResponseWriter, r *http
 	if e == nil && r.Method == "POST" {
 		v.Form = r.PostForm
 		req := memberships.Request{PersonID: id}
-		req.SeasonID, e = formID(v.Form, "season_id", false)
-		if e == nil {
-			req.MembershipTypeID, e = formID(v.Form, "type_id", false)
-		}
-		var source int32
-		if e == nil {
-			source, e = formID(v.Form, "source_trial", true)
-		}
+		// Recover the selected context before validating editable fields, so an
+		// error never presents a sourced request as a direct membership.
+		source, sourceErr := formID(v.Form, "source_trial", true)
+		e = sourceErr
 		if e == nil && source != 0 {
 			v.Trial, e = h.s.Trial(r.Context(), source)
 			if e == nil && v.Trial.PersonID != id {
 				v.Trial = dbsqlc.AdministrativeTrialsRow{}
 				e = memberships.ErrInvalidRequest
 			}
+		}
+		if e == nil {
+			req.SeasonID, e = formID(v.Form, "season_id", false)
+		}
+		if e == nil {
+			req.MembershipTypeID, e = formID(v.Form, "type_id", false)
 		}
 		for _, raw := range v.Form["activities"] {
 			if e != nil {
@@ -460,6 +491,9 @@ func (h *AdministrativeHandler) requestMembership(w http.ResponseWriter, r *http
 				return
 			}
 		}
+	}
+	if e == nil && v.Trial.ID == 0 {
+		v.EligibleTrials, e = h.s.EligibleSourceTrials(r.Context(), id)
 	}
 	// Existing dossiers stay linked; occupied seasons cannot be selected again.
 	available := v.Choices.Seasons[:0]

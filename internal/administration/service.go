@@ -437,3 +437,12 @@ func (s *Service) PersonTrialQuotas(ctx context.Context, id int32) ([]trials.Quo
 	}
 	return s.trials.Quotas(ctx, id)
 }
+
+// EligibleSourceTrials only offers existing attended trials; creation revalidates
+// the chosen source under the membership transaction's existing locks.
+func (s *Service) EligibleSourceTrials(ctx context.Context, person int32) ([]dbsqlc.EligibleMembershipSourceTrialsRow, error) {
+	if _, err := s.require(ctx, authorization.PersonsRead); err != nil {
+		return nil, err
+	}
+	return s.q.EligibleMembershipSourceTrials(ctx, person)
+}

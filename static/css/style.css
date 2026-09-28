@@ -143,6 +143,4 @@ footer { background: white; margin-top: 2rem; }
 @media(max-width:767px) { .dossier-primary { grid-template-columns: 1fr; gap: 0; } }
 
 .personal-space-link { font-weight: 750; border: 1px solid var(--club-blue); border-radius: .375rem; }
-.office-links { flex-basis: 100%; }
-.office-links .detail-links { margin: .25rem 0; }
 @media(max-width:767px) { .admin-nav .container { gap: .2rem 1rem; } .administrative-roles { flex-basis: 100%; } }

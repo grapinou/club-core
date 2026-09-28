@@ -101,3 +101,13 @@ INSERT INTO administrative_events(actor_user_id,action,resource_type,resource_id
 -- name: AdministrativePersonAccount :many
 SELECT username,is_active,(activated_at IS NOT NULL)::boolean AS activated
 FROM users WHERE person_id=$1;
+
+-- name: EligibleMembershipSourceTrials :many
+SELECT t.id,t.trial_date,a.name AS activity_name,coalesce(g.name,'')::text AS group_name,
+ coalesce(to_char(gs.start_time,'HH24:MI'),'')::text AS start_time,
+ coalesce(to_char(gs.end_time,'HH24:MI'),'')::text AS end_time
+FROM trial_registrations t JOIN activities a ON a.id=t.activity_id
+LEFT JOIN groups g ON g.id=t.group_id LEFT JOIN group_slots gs ON gs.id=t.group_slot_id
+WHERE t.person_id=$1 AND t.status='attended'
+ AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.source_trial_id=t.id)
+ORDER BY t.trial_date DESC,t.id DESC;

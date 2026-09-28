@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -34,18 +35,16 @@ func PostPersonHandler(queries database.PersonQueries) http.HandlerFunc {
 			Address:     pgTypeText(r.FormValue("Address")),
 		}
 
-		_, err = queries.CreatePerson(r.Context(), datas)
+		person, err := queries.CreatePerson(r.Context(), datas)
 		if err != nil {
 			http.Error(w, "erreur lors de la création de la personne", http.StatusInternalServerError)
 			return
 		}
 
-		http.Redirect(
-			w,
-			r,
-			"/persons",
-			http.StatusSeeOther,
-		)
-
+		destination := "/persons"
+		if r.FormValue("after") == "membership" {
+			destination = fmt.Sprintf("/persons/%d/memberships/new", person.ID)
+		}
+		http.Redirect(w, r, destination, http.StatusSeeOther)
 	}
 }
