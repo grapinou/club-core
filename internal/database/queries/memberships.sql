@@ -50,7 +50,7 @@ SELECT * FROM users WHERE person_id = $1;
 SELECT * FROM users WHERE id = $1;
 
 -- name: ListAdministrativeMemberships :many
-SELECT sqlc.embed(m), p.first_name, p.last_name, s.name AS season_name,
+SELECT sqlc.embed(m), p.first_name, p.last_name, p.email, ARRAY(SELECT coalesce(gp.email,'') FROM person_guardians gr JOIN persons gp ON gp.id=gr.guardian_person_id WHERE gr.child_person_id=p.id)::text[] AS guardian_emails, s.name AS season_name,
        -- Same effective-access predicates as ListActiveGuardiansForChild.
        EXISTS(SELECT 1 FROM guardian_access_grants ga
          JOIN person_guardians r USING(child_person_id,guardian_person_id)

@@ -91,10 +91,11 @@ func Note(value string) (pgtype.Text, error) {
 }
 
 type Home struct {
-	Counts      dbsqlc.AdministrativeCountsRow
-	Upcoming    []dbsqlc.AdministrativeTrialsRow
-	PastPending []dbsqlc.AdministrativeTrialsRow
-	Memberships []memberships.ListEntry
+	Counts                      dbsqlc.AdministrativeCountsRow
+	Upcoming                    []dbsqlc.AdministrativeTrialsRow
+	TodayTrials, TomorrowTrials []dbsqlc.AdministrativeTrialsRow
+	PastPending                 []dbsqlc.AdministrativeTrialsRow
+	Memberships                 []memberships.ListEntry
 }
 
 func (s *Service) Dashboard(ctx context.Context) (Home, error) {
@@ -111,12 +112,16 @@ func (s *Service) Dashboard(ctx context.Context) (Home, error) {
 	if err != nil {
 		return d, err
 	}
-	d.Upcoming, err = s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{FromDate: today, Today: today})
+	d.Upcoming, err = s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{FromDate: today, Today: today, RangeEnd: pgtype.Date{Time: today.Time.AddDate(0, 0, 2), Valid: true}})
 	if err != nil {
 		return d, err
 	}
-	if len(d.Upcoming) > 8 {
-		d.Upcoming = d.Upcoming[:8]
+	for _, t := range d.Upcoming {
+		if t.TrialDate.Time.Equal(today.Time) {
+			d.TodayTrials = append(d.TodayTrials, t)
+		} else {
+			d.TomorrowTrials = append(d.TomorrowTrials, t)
+		}
 	}
 	d.PastPending, err = s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{BeforeDate: today, Today: today})
 	if err != nil {
@@ -146,6 +151,7 @@ func (s *Service) People(ctx context.Context, search string, page int32, filter 
 }
 
 type Person struct {
+	EmergencyContacts  []dbsqlc.ListPersonEmergencyContactsRow
 	EffectiveGuardians []dbsqlc.ListActiveGuardiansForChildRow
 	TrialQuotas        []trials.QuotaUsage
 	IsMinor            bool
@@ -163,6 +169,10 @@ func (s *Service) Person(ctx context.Context, id int32) (Person, error) {
 	}
 	var err error
 	p.Info, err = s.q.AdministrativePerson(ctx, id)
+	if err != nil {
+		return p, err
+	}
+	p.EmergencyContacts, err = s.q.ListPersonEmergencyContacts(ctx, id)
 	if err != nil {
 		return p, err
 	}
@@ -347,7 +357,7 @@ func (s *Service) UpdateTrial(ctx context.Context, id, revision int32, action st
 		return event, "trial", id, err
 	})
 }
-func (s *Service) RequestMembership(ctx context.Context, r memberships.Request, sourceTrial int32) (int32, error) {
+func (s *Service) RequestMembership(ctx context.Context, r memberships.Request, sourceTrial int32, groupChoices ...map[int32]int32) (int32, error) {
 	var id int32
 	err := s.mutate(ctx, authorization.MembershipsApprove, func(tx pgx.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
 		if _, err := q.LockAdministrativePerson(ctx, r.PersonID); err != nil {
@@ -373,14 +383,47 @@ func (s *Service) RequestMembership(ctx context.Context, r memberships.Request, 
 				return "", "", 0, err
 			}
 		}
+
+		if len(groupChoices) > 0 {
+			season, err := q.LockMembershipGroupTarget(ctx, id)
+			if err != nil {
+				return "", "", 0, err
+			}
+			joined := s.Today()
+			if joined.Time.Before(season.StartsAt.Time) {
+				joined = season.StartsAt
+			}
+			for _, activity := range r.ActivityIDs {
+				group := groupChoices[0][activity]
+				if group == 0 {
+					continue
+				}
+				g, err := q.LockTrialGroup(ctx, group)
+				if err != nil {
+					return "", "", 0, err
+				}
+				if g.ActivityID != activity {
+					return "", "", 0, memberships.ErrInvalidRequest
+				}
+				if err = s.memberships.AssignGroupTx(ctx, tx, dbsqlc.AssignMembershipGroupParams{MembershipID: id, GroupID: group, JoinedAt: joined}); err != nil {
+					return "", "", 0, err
+				}
+				actor, _ := auth.UserID(ctx)
+				if err = q.CreateAdministrativeEvent(ctx, dbsqlc.CreateAdministrativeEventParams{ActorUserID: actor, Action: "membership_group_assigned", ResourceType: "membership", ResourceID: id}); err != nil {
+					return "", "", 0, err
+				}
+			}
+		}
 		return "membership_requested", "membership", id, nil
 	})
 	return id, err
 }
 
 type Membership struct {
-	Info    dbsqlc.Membership
-	History []dbsqlc.ListMembershipGroupHistoryRow
+	Info          dbsqlc.Membership
+	ActivityIDs   []int32
+	DefaultJoined pgtype.Date
+	History       []dbsqlc.ListMembershipGroupHistoryRow
 }
 
 func (s *Service) Membership(ctx context.Context, id int32) (Membership, error) {
@@ -392,6 +435,24 @@ func (s *Service) Membership(ctx context.Context, id int32) (Membership, error) 
 	m.Info, err = s.q.GetMembership(ctx, id)
 	if err != nil {
 		return m, err
+	}
+	activities, err := s.q.ListMembershipActivities(ctx, id)
+	if err != nil {
+		return m, err
+	}
+	for _, a := range activities {
+		m.ActivityIDs = append(m.ActivityIDs, a.ID)
+	}
+	season, err := s.q.GetSeason(ctx, m.Info.SeasonID)
+	if err != nil {
+		return m, err
+	}
+	m.DefaultJoined = s.Today()
+	if m.DefaultJoined.Time.Before(season.StartsAt.Time) {
+		m.DefaultJoined = season.StartsAt
+	}
+	if m.DefaultJoined.Time.After(season.EndsAt.Time) {
+		m.DefaultJoined = pgtype.Date{}
 	}
 	m.History, err = s.q.ListMembershipGroupHistory(ctx, id)
 	return m, err
@@ -445,4 +506,11 @@ func (s *Service) EligibleSourceTrials(ctx context.Context, person int32) ([]dbs
 		return nil, err
 	}
 	return s.q.EligibleMembershipSourceTrials(ctx, person)
+}
+
+func (s *Service) TrialsInWeek(ctx context.Context, start time.Time) ([]dbsqlc.AdministrativeTrialsRow, error) {
+	if _, err := s.require(ctx, authorization.PersonsRead); err != nil {
+		return nil, err
+	}
+	return s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{Today: s.Today(), RangeStart: pgtype.Date{Time: start, Valid: true}, RangeEnd: pgtype.Date{Time: start.AddDate(0, 0, 7), Valid: true}})
 }

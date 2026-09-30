@@ -1,0 +1,10 @@
+{{define "content"}}<div class="content-readable">
+<header class="page-header"><h1>Modifier une décision</h1><p><a href="{{.Back}}">Retour au dossier</a></p></header>
+{{if .Error}}<p class="alert alert-danger" role="alert">{{.Error}}</p>{{end}}
+<section class="section-panel"><h2>{{.ConsentTitle}}</h2><p>{{.Description}}</p><p>État actuel : <strong>{{.Decision}}</strong></p>
+<p>Chaque nouvelle décision est conservée dans l’historique.</p>
+{{if .Office}}<p>Enregistrez uniquement une décision effectivement communiquée au club. Ne présumez aucun accord.</p>{{end}}
+<form method="post" action="{{.Action}}"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+{{if .Office}}<label for="giver_id" class="form-label">Personne ayant communiqué la décision *</label><select class="form-select mb-3" id="giver_id" name="giver_id" required><option value="">Choisir</option>{{range .Givers}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>{{end}}
+<label for="decision" class="form-label">Nouvelle décision *</label><select id="decision" name="decision" class="form-select mb-3" required><option value="">Choisir</option>{{if .Active}}<option value="granted">Accordé</option><option value="refused">Refusé</option>{{end}}{{if .Granted}}<option value="withdrawn">Retirer l’accord</option>{{end}}</select>
+<button class="btn btn-primary">Enregistrer la décision</button></form></section></div>{{end}}

@@ -140,7 +140,7 @@ var membershipNotices = map[string]membershipNotice{
 	"incomplete":           {"Le dossier ne peut pas être validé. Consultez les blocages ci-dessous.", "alert-danger"},
 	"already_processed":    {"Cette adhésion a déjà été traitée et ne peut pas être approuvée à nouveau.", "alert-info"},
 	"resent":               {"Email d'activation renvoyé.", "alert-success"},
-	"resend_no_channel":    {"Nouveau code préparé, mais aucun email n'est disponible.", "alert-warning"},
+	"resend_no_channel":    {"Compte à activer — aucun email n’est renseigné pour envoyer le lien d’activation.", "alert-warning"},
 	"resend_send_failed":   {"Nouveau code préparé, mais email non envoyé.", "alert-warning"},
 	"resend_unavailable":   {"Le compte ne permet pas un renvoi d'activation.", "alert-info"},
 }

@@ -39,9 +39,9 @@
 {{range .Slots}}<p>{{.Day}} · {{.Start}} – {{.End}}{{if .Location}}<br>{{.Location}}{{end}}</p>{{else}}<p>Aucun créneau actuel renseigné.</p>{{end}}</article>
 {{else}}<div class="empty-state">Aucun groupe n’est actuellement associé à cette adhésion.</div>{{end}}</section>
 <section class="section-panel"><h2>Consentements de cette adhésion</h2>
-{{range .Consents}}<article class="card mb-3"><div class="card-body"><h3>{{.Title}} — version {{.Version}}</h3>
+{{$membership:=.}}{{range .Consents}}<article class="card mb-3"><div class="card-body"><h3>{{.Title}} — version {{.Version}}</h3>
 <p class="reading-text">{{.Description}}</p><p><strong>{{if .Decision}}{{$.StatusLabel .Decision}}{{else}}Aucune décision enregistrée{{end}}</strong></p>
-{{if .RecordedAt}}<p>Le {{.RecordedAt}}</p><p>{{if .GivenByViewer}}Décision enregistrée par vous.{{else}}Décision enregistrée par un responsable.{{end}}</p>{{end}}
+{{if and $membership.CanDecide .Editable}}<p><a href="{{if $membership.ChildID}}/me/children/{{$membership.ChildID}}{{else}}/me{{end}}/memberships/{{$membership.ID}}/consents/{{.ID}}">Modifier ma décision</a></p>{{end}}{{if .RecordedAt}}<p>Le {{.RecordedAt}}</p><p>{{if .GivenByViewer}}Décision enregistrée par vous.{{else}}Décision enregistrée par un responsable.{{end}}</p>{{end}}
 </div></article>{{else}}<div class="empty-state">Aucun consentement n’est enregistré pour cette adhésion.</div>{{end}}</section>
 {{end}}{{end}}
 {{if not .Account}}<p class="text-body-secondary">Pour toute question sur votre dossier, <a href="/contact">contactez le club</a>.</p>{{end}}

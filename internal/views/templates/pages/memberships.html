@@ -1,5 +1,5 @@
 {{define "content"}}
-<header class="page-header"><h1>Adhésions</h1><p>Un dossier d’adhésion concerne une personne et une saison : demande à compléter ou à valider, adhésion active ou historique. Membres présente les adhérents actuels.</p><p>Les demandes en attente sont affichées en premier, de la plus ancienne à la plus récente.</p>{{if .CanCreate}}<a class="btn btn-primary" href="/memberships/new">Créer une adhésion</a>{{end}}</header>
+<header class="page-header"><h1>Adhésions</h1><p>Une adhésion est le dossier d’une personne pour une saison. Elle peut être en attente, active ou terminée (ou annulée).</p><p>Les demandes en attente sont affichées en premier, de la plus ancienne à la plus récente.</p>{{if .CanCreate}}<a class="btn btn-primary" href="/memberships/new">Créer une adhésion</a>{{end}}</header>
 {{if not .HasPending}}<p class="empty-state">Aucune adhésion en attente.</p>{{end}}
 {{if .Rows}}<table class="table align-middle data-list"><caption class="visually-hidden">Adhésions et actions à traiter</caption><thead><tr><th scope="col">Personne</th><th scope="col">Adhésion</th><th scope="col">État du dossier</th><th scope="col">Action requise</th></tr></thead><tbody>
 {{range .Rows}}<tr data-membership-id="{{.ID}}"><td data-label="Personne"><a class="fw-semibold" href="/memberships/{{.ID}}">{{.Name}}</a><small>Demande : {{.RequestedAt}}</small></td>

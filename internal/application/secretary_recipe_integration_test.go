@@ -67,7 +67,7 @@ func TestP431TrialHTTPDiagnostic(t *testing.T) {
 			body := officeOK(t, b, officeTrial(tr))
 			entry = recipeLink(t, body, "Préparer une demande d’adhésion")
 		} else {
-			entry = recipeLink(t, officeOK(t, b, officePerson(p)), "Créer une demande d’adhésion")
+			entry = path // P4.3.2: creation is entered from Adhésions, not the Person header.
 		}
 		body := officeOK(t, b, entry)
 		form := recipeForm(t, body, path)
@@ -91,17 +91,17 @@ func TestP431TrialHTTPDiagnostic(t *testing.T) {
 		if fromTrial {
 			expected = 1
 		}
-		if f.count("SELECT count(*) FROM memberships WHERE id=$1 AND source_trial_id=$2", id, tr) != expected || f.count("SELECT count(*) FROM membership_groups WHERE membership_id=$1 AND group_id=$2", id, g) != expected || f.count("SELECT count(*) FROM administrative_events WHERE resource_id=$1 AND action='membership_trial_group_assigned'", id) != expected {
+		if f.count("SELECT count(*) FROM memberships WHERE id=$1 AND source_trial_id=$2", id, tr) != expected || f.count("SELECT count(*) FROM membership_groups WHERE membership_id=$1 AND group_id=$2", id, g) != 1 || f.count("SELECT count(*) FROM administrative_events WHERE resource_id=$1 AND action='membership_trial_group_assigned'", id) != expected {
 			t.Fatal("HTTP conversion result", fromTrial)
 		}
-		t.Logf("fromTrial=%v: source/group/audit count=%d, redirect=%s", fromTrial, expected, r.Header().Get("Location"))
+		t.Logf("fromTrial=%v: source/audit count=%d, group count=1 (visible unique default for direct request), redirect=%s", fromTrial, expected, r.Header().Get("Location"))
 	}
 }
 
 func TestP431NavigationAndCreation(t *testing.T) {
 	f := newFixture(t)
 	b := p43Secretary(f)
-	body := officeOK(t, b, "/memberships", "Créer une adhésion", "une personne et une saison")
+	body := officeOK(t, b, "/memberships", "Créer une adhésion", "personne pour une saison")
 	nav := regexp.MustCompile(`(?s)<nav class="admin-nav".*?</nav>`).FindString(body)
 	last := -1
 	for _, path := range []string{"/admin", "/memberships", "/registration-reviews", "/trials", "/members", "/guardians", "/prospects", "/persons"} {
@@ -236,7 +236,9 @@ func TestP431EffectiveFamilySummary(t *testing.T) {
 			t.Fatal("missing honest status")
 		}
 		detail := officeOK(t, b, officePerson(child))
-		if strings.Contains(detail, "Compte activé") != want {
+		effective := detail[strings.Index(detail, "<h3>Accès actuellement utilisables</h3>"):]
+		effective = effective[:strings.Index(effective, "</section>")]
+		if strings.Contains(effective, "Compte activé") != want {
 			t.Fatal("summary/detail diverge")
 		}
 	}

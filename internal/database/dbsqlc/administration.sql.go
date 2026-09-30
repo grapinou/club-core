@@ -216,6 +216,9 @@ func (q *Queries) AdministrativePersonAccount(ctx context.Context, personID int3
 
 const administrativeRelations = `-- name: AdministrativeRelations :many
 SELECT p.id,p.first_name,p.last_name,p.email,p.phone_number,r.relationship_type,r.is_primary_contact,
+ EXISTS(SELECT 1 FROM users u WHERE u.person_id=p.id)::boolean AS account_exists,
+ EXISTS(SELECT 1 FROM users u WHERE u.person_id=p.id AND u.is_active)::boolean AS account_active,
+ EXISTS(SELECT 1 FROM users u WHERE u.person_id=p.id AND u.activated_at IS NOT NULL AND u.password_hash IS NOT NULL)::boolean AS account_activated,
  EXISTS(SELECT 1 FROM guardian_access_grants ga WHERE ga.child_person_id=r.child_person_id AND ga.guardian_person_id=r.guardian_person_id AND ga.revoked_at IS NULL)::boolean AS has_access,
  EXISTS(SELECT 1 FROM person_emergency_contacts ec WHERE ec.person_id=$1 AND ec.contact_person_id=p.id)::boolean AS is_emergency,
  (r.child_person_id=$1)::boolean AS is_guardian, (p.archived_at IS NOT NULL)::boolean AS archived
@@ -232,6 +235,9 @@ type AdministrativeRelationsRow struct {
 	PhoneNumber      pgtype.Text
 	RelationshipType string
 	IsPrimaryContact bool
+	AccountExists    bool
+	AccountActive    bool
+	AccountActivated bool
 	HasAccess        bool
 	IsEmergency      bool
 	IsGuardian       bool
@@ -255,6 +261,9 @@ func (q *Queries) AdministrativeRelations(ctx context.Context, personID int32) (
 			&i.PhoneNumber,
 			&i.RelationshipType,
 			&i.IsPrimaryContact,
+			&i.AccountExists,
+			&i.AccountActive,
+			&i.AccountActivated,
 			&i.HasAccess,
 			&i.IsEmergency,
 			&i.IsGuardian,
@@ -361,18 +370,22 @@ FROM trial_registrations t JOIN persons p ON p.id=t.person_id JOIN activities a 
 LEFT JOIN groups g ON g.id=t.group_id LEFT JOIN group_slots gs ON gs.id=t.group_slot_id
 WHERE ($1::integer=0 OR t.person_id=$1)
 AND ($2::integer=0 OR t.id=$2)
-AND ($3::date IS NULL OR t.trial_date=$3)
-AND ($4::date IS NULL OR (t.trial_date>=$4 AND t.status='registered'))
-AND ($5::date IS NULL OR (t.trial_date<$5 AND t.status='registered'))
-ORDER BY (t.trial_date<$6::date),
- CASE WHEN t.trial_date>=$6::date THEN t.trial_date END ASC,
- CASE WHEN t.trial_date<$6::date THEN t.trial_date END DESC,
- t.id LIMIT 101
+AND ($3::date IS NULL OR t.trial_date>=$3)
+AND ($4::date IS NULL OR t.trial_date<$4)
+AND ($5::date IS NULL OR t.trial_date=$5)
+AND ($6::date IS NULL OR (t.trial_date>=$6 AND t.status='registered'))
+AND ($7::date IS NULL OR (t.trial_date<$7 AND t.status='registered'))
+ORDER BY (t.trial_date<$8::date),
+ CASE WHEN t.trial_date>=$8::date THEN t.trial_date END ASC,
+ CASE WHEN t.trial_date<$8::date THEN t.trial_date END DESC,
+ gs.start_time NULLS LAST, p.last_name,p.first_name,t.id LIMIT 101
 `
 
 type AdministrativeTrialsParams struct {
 	PersonID   int32
 	TrialID    int32
+	RangeStart pgtype.Date
+	RangeEnd   pgtype.Date
 	OnDate     pgtype.Date
 	FromDate   pgtype.Date
 	BeforeDate pgtype.Date
@@ -410,6 +423,8 @@ func (q *Queries) AdministrativeTrials(ctx context.Context, arg AdministrativeTr
 	rows, err := q.db.Query(ctx, administrativeTrials,
 		arg.PersonID,
 		arg.TrialID,
+		arg.RangeStart,
+		arg.RangeEnd,
 		arg.OnDate,
 		arg.FromDate,
 		arg.BeforeDate,
@@ -524,6 +539,24 @@ func (q *Queries) EligibleMembershipSourceTrials(ctx context.Context, personID i
 		return nil, err
 	}
 	return items, nil
+}
+
+const getSeason = `-- name: GetSeason :one
+SELECT id, name, starts_at, ends_at, is_active, created_at FROM seasons WHERE id=$1
+`
+
+func (q *Queries) GetSeason(ctx context.Context, id int32) (Season, error) {
+	row := q.db.QueryRow(ctx, getSeason, id)
+	var i Season
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.StartsAt,
+		&i.EndsAt,
+		&i.IsActive,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const lockAdministrativeMembership = `-- name: LockAdministrativeMembership :one

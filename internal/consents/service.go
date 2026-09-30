@@ -33,6 +33,20 @@ func (s *Service) RecordConsentDecision(ctx context.Context, p dbsqlc.CreateMemb
 		return zero, err
 	}
 	defer tx.Rollback(ctx)
+	result, err := recordTx(ctx, tx, p)
+	if err != nil {
+		return zero, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return zero, err
+	}
+	return result, nil
+}
+func recordTx(ctx context.Context, tx pgx.Tx, p dbsqlc.CreateMembershipConsentParams) (dbsqlc.MembershipConsent, error) {
+	var zero dbsqlc.MembershipConsent
+	if p.Decision != "granted" && p.Decision != "refused" && p.Decision != "withdrawn" {
+		return zero, ErrInvalidDecision
+	}
 	q := dbsqlc.New(tx)
 	person, err := q.LockConsentMembership(ctx, p.MembershipID)
 	if err != nil {
@@ -68,9 +82,6 @@ func (s *Service) RecordConsentDecision(ctx context.Context, p dbsqlc.CreateMemb
 	}
 	result, err := q.CreateMembershipConsent(ctx, p)
 	if err != nil {
-		return zero, err
-	}
-	if err = tx.Commit(ctx); err != nil {
 		return zero, err
 	}
 	return result, nil

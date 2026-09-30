@@ -101,7 +101,7 @@ func TestAdministrativeMultiSessionAndPersons(t *testing.T) {
 		officeOK(t, b, path)
 	}
 	officeOK(t, b, officePerson(f.person), "member.a", "Compte utilisateur")
-	officeOK(t, b, officePerson(child), "Responsable", "Parent", "Contact principal", "autorisé séparément")
+	officeOK(t, b, officePerson(child), "Responsable", "Parent", "Contact principal", "autorisé par le club")
 	officeOK(t, b, officePerson(parent), "Enfant")
 	for _, path := range []string{"/admin", officePerson(f.person), "/trials", officePerson(f.person) + "/trials/new"} {
 		r := newBrowser(f.app.Handler).call("GET", path, nil)
@@ -157,7 +157,7 @@ func TestAdministrativeMultiSessionAndPersons(t *testing.T) {
 	// The list is bounded without a per-person query and search wildcards are literal.
 	f.exec("INSERT INTO persons(first_name,last_name) SELECT 'Extra','ZZZ'||n FROM generate_series(1,55) n")
 	body := officeOK(t, b, "/persons", "Page suivante")
-	if strings.Count(body, "Modifier les informations") != 50 {
+	if strings.Count(body, "Modifier les informations") != 0 || strings.Count(body, "<article class=\"section-panel\">") != 50 {
 		t.Fatal("list bound")
 	}
 	officeOK(t, b, "/persons?page=1", "Page précédente")
@@ -264,7 +264,7 @@ func TestAdministrativeAttentionAndFamilyWorkflow(t *testing.T) {
 	futureTrial := f.id("INSERT INTO trial_registrations(person_id,activity_id,group_id,group_slot_id,trial_date,status) VALUES($1,$2,$3,$4,$5,'registered') RETURNING id", f.person, f.activity, group, slot, future)
 	f.request()
 
-	home := officeOK(t, b, "/admin", "Essais passés sans résultat", "Aujourd’hui et à venir", "Lina Parcours", "Note à consulter", "Séance découverte")
+	home := officeOK(t, b, "/admin", "Essais passés sans résultat", "Aujourd’hui", "Demain", "Lina Parcours", "Note à consulter", "Séance découverte")
 	if !strings.Contains(home, officeTrial(pastTrial)) || !strings.Contains(home, officeTrial(todayTrial)) || !strings.Contains(home, officeTrial(futureTrial)) {
 		t.Fatal("dashboard trial navigation")
 	}
@@ -272,7 +272,7 @@ func TestAdministrativeAttentionAndFamilyWorkflow(t *testing.T) {
 	if strings.Contains(pending, "Rémi Dupont") {
 		t.Fatal("pending list includes upcoming trial")
 	}
-	officeOK(t, b, "/trials", "Lina Parcours", "Rémi Dupont", "À venir", "Passé", "Programmé")
+	officeOK(t, b, "/trials?all=1", "Lina Parcours", "Rémi Dupont", "Résultat à renseigner", "Programmé")
 	childDetail := officeOK(t, b, officeTrial(pastTrial), "Lina Parcours", "Camille Parcours", "camille@example.test", "0601020304", "Contact principal", "Matériel demandé : taille M", "Séance découverte")
 	if !strings.Contains(childDetail, officePerson(child)) || !strings.Contains(childDetail, officePerson(guardian)) {
 		t.Fatal("family navigation")

@@ -329,7 +329,7 @@ func TestPublicChildMixedIdentitiesAndAdminSecurity(t *testing.T) {
 			if r := admin.call("POST", path+"/confirm-guardian", url.Values{"csrf_token": {csrf}}); r.Code != 303 {
 				t.Fatal("confirm", r.Code, r.Body.String())
 			}
-			if r := admin.call("GET", path, nil); r.Code != 200 || !strings.Contains(r.Body.String(), "non activé") {
+			if r := admin.call("GET", path, nil); r.Code != 200 || !strings.Contains(r.Body.String(), "à activer") {
 				t.Fatal("account state missing")
 			}
 			for _, query := range []string{`DELETE FROM guardian_identity_claims`, `UPDATE guardian_identity_claims SET first_name='changed'`, `DELETE FROM child_registration_applications`, `UPDATE child_registration_applications SET emergency_contact_requested=false`} {

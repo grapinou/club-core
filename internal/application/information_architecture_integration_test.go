@@ -39,7 +39,7 @@ func TestP43NavigationCategoriesAndPolicy(t *testing.T) {
 	child, parent := f.guardianPair()
 	f.exec(`INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES($1,$2,'guardian')`, child, f.person)
 	for path, title := range map[string]string{"/admin": "Mon tableau de bord", "/trials": "Essais", "/memberships": "Adhésions", "/members": "Membres actuels", "/guardians": "Responsables", "/prospects": "Prospects après essai", "/persons": "Annuaire"} {
-		body := officeOK(t, b, path, title, "Secrétaire", "Mon espace", `href="/admin"`, `href="/members"`, `href="/guardians"`, `href="/prospects"`)
+		body := officeOK(t, b, path, title, "Secrétaire", `href="/admin"`, `href="/members"`, `href="/guardians"`, `href="/prospects"`)
 		if !strings.Contains(body, `href="`+path+`" aria-current="page"`) {
 			t.Fatal("active category", path)
 		}
@@ -129,7 +129,11 @@ func TestP43FamilyAccessAndPendingRequests(t *testing.T) {
 	_, err = f.app.GuardianAccess.Grant(ctx, child, second)
 	f.must(err)
 	for _, path := range []string{officePerson(child), dossierPath(m.ID)} {
-		body := officeOK(t, b, path, "Accès à l’espace de l’enfant", "Compte activé", "Claire", "Second", officePerson(parent), officePerson(second))
+		title := "Accès à l’espace de l’enfant"
+		if path == officePerson(child) {
+			title = "Accès familial"
+		}
+		body := officeOK(t, b, path, title, "Compte activé", "Claire", "Second", officePerson(parent), officePerson(second))
 		if strings.Contains(body, "Aucun compte") || strings.Contains(body, "compte manquant") {
 			t.Fatal("false missing child account")
 		}
@@ -137,7 +141,11 @@ func TestP43FamilyAccessAndPendingRequests(t *testing.T) {
 	}
 	f.personalBrowser(child, "historical.child.p43")
 	for _, path := range []string{officePerson(child), dossierPath(m.ID)} {
-		officeOK(t, b, path, "Compte personnel de l’enfant", "historical.child.p43", "Accès familiaux des responsables")
+		title := "Accès familiaux des responsables"
+		if path == officePerson(child) {
+			title = "Accès actuellement utilisables"
+		}
+		officeOK(t, b, path, "Compte personnel de l’enfant", "historical.child.p43", title)
 	}
 	f.must(f.app.GuardianAccess.Revoke(ctx, child, second))
 	d, err := f.app.Administration.Person(ctx, child)

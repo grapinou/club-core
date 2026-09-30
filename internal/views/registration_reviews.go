@@ -7,6 +7,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/grapinou/club-core/internal/activation"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/identityresolution"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -212,4 +213,15 @@ func RegistrationDetail(d identityresolution.Details, loc *time.Location) Regist
 
 func (v RegistrationDetailView) ReviewTime(t pgtype.Timestamptz) string {
 	return timestamp(t, v.Location)
+}
+
+func (v RegistrationDetailView) GuardianNeedsActivation() bool {
+	if v.Child == nil {
+		return false
+	}
+	u := v.Child.GuardianUser
+	return u == nil || (u.IsActive && (!u.ActivatedAt.Valid || !u.PasswordHash.Valid))
+}
+func (v RegistrationDetailView) GuardianHasEmail() bool {
+	return v.Child != nil && activation.UsableEmail(v.Child.ResolvedGuardianEmail)
 }

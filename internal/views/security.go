@@ -7,6 +7,7 @@ type SecurityData struct {
 	AdministrativeRoles     []string
 	MetaDescription         string
 	Authenticated           bool
+	HasPersonalContext      bool
 	CanWritePersons         bool
 	CurrentPath             string
 	CanReadPersons          bool

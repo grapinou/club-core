@@ -69,6 +69,8 @@ type Child struct {
 	Memberships                     []Summary
 }
 type Consent struct {
+	ID                                       int32
+	Editable                                 bool
 	Title, Description, Decision, RecordedAt string
 	Version                                  int32
 	GivenByViewer                            bool
@@ -79,6 +81,7 @@ type Group struct {
 	Slots          []Slot
 }
 type Membership struct {
+	CanDecide bool
 	Summary
 	RequestedAt, JoinedAt      string
 	Complete, MissingEmergency bool
@@ -242,6 +245,7 @@ func (s *Service) membership(ctx context.Context, id, person, viewer int32) (Mem
 	}
 	now := time.Now().In(s.location)
 	completeness := memberships.EvaluateCompleteness(facts[0], now)
+	m.CanDecide = viewer != person || (completeness.IsMinor != nil && !*completeness.IsMinor)
 	m.Complete = len(completeness.BlockingIssues) == 0
 	for _, code := range completeness.BlockingIssues {
 		if code == "minor_missing_emergency" {
@@ -257,7 +261,7 @@ func (s *Service) membership(ctx context.Context, id, person, viewer int32) (Mem
 		if c.RecordedAt.Valid {
 			at = c.RecordedAt.Time.In(s.location).Format("02/01/2006 à 15:04")
 		}
-		m.Consents = append(m.Consents, Consent{Title: c.Title, Description: c.Description, Version: c.Version, Decision: c.Decision.String, RecordedAt: at, GivenByViewer: c.GivenByViewer})
+		m.Consents = append(m.Consents, Consent{ID: c.ID, Editable: c.IsActive || c.Decision.String == "granted", Title: c.Title, Description: c.Description, Version: c.Version, Decision: c.Decision.String, RecordedAt: at, GivenByViewer: c.GivenByViewer})
 	}
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	groups, err := s.q.ListPersonalGroups(ctx, dbsqlc.ListPersonalGroupsParams{MembershipID: id, Today: pgtype.Date{Time: today, Valid: true}})
@@ -297,4 +301,17 @@ func familyActions(child int32, rows []Summary, seasons []dbsqlc.Season) []Famil
 		actions = append(actions, a)
 	}
 	return actions
+}
+
+func (s *Service) HasContext(ctx context.Context) (bool, error) {
+	actor, ok := auth.UserID(ctx)
+	if !ok {
+		return false, nil
+	}
+	has, err := s.q.HasOwnPersonalContext(ctx, actor)
+	if err != nil || has.Bool {
+		return has.Bool, err
+	}
+	children, err := s.guardians.ListManagedChildren(ctx)
+	return len(children) > 0, err
 }

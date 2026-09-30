@@ -35,6 +35,9 @@ SELECT id,first_name,last_name,birth_date,email,phone_number,address,notes,archi
 
 -- name: AdministrativeRelations :many
 SELECT p.id,p.first_name,p.last_name,p.email,p.phone_number,r.relationship_type,r.is_primary_contact,
+ EXISTS(SELECT 1 FROM users u WHERE u.person_id=p.id)::boolean AS account_exists,
+ EXISTS(SELECT 1 FROM users u WHERE u.person_id=p.id AND u.is_active)::boolean AS account_active,
+ EXISTS(SELECT 1 FROM users u WHERE u.person_id=p.id AND u.activated_at IS NOT NULL AND u.password_hash IS NOT NULL)::boolean AS account_activated,
  EXISTS(SELECT 1 FROM guardian_access_grants ga WHERE ga.child_person_id=r.child_person_id AND ga.guardian_person_id=r.guardian_person_id AND ga.revoked_at IS NULL)::boolean AS has_access,
  EXISTS(SELECT 1 FROM person_emergency_contacts ec WHERE ec.person_id=sqlc.arg(person_id) AND ec.contact_person_id=p.id)::boolean AS is_emergency,
  (r.child_person_id=sqlc.arg(person_id))::boolean AS is_guardian, (p.archived_at IS NOT NULL)::boolean AS archived
@@ -60,13 +63,15 @@ FROM trial_registrations t JOIN persons p ON p.id=t.person_id JOIN activities a 
 LEFT JOIN groups g ON g.id=t.group_id LEFT JOIN group_slots gs ON gs.id=t.group_slot_id
 WHERE (sqlc.arg(person_id)::integer=0 OR t.person_id=sqlc.arg(person_id))
 AND (sqlc.arg(trial_id)::integer=0 OR t.id=sqlc.arg(trial_id))
+AND (sqlc.narg(range_start)::date IS NULL OR t.trial_date>=sqlc.narg(range_start))
+AND (sqlc.narg(range_end)::date IS NULL OR t.trial_date<sqlc.narg(range_end))
 AND (sqlc.narg(on_date)::date IS NULL OR t.trial_date=sqlc.narg(on_date))
 AND (sqlc.narg(from_date)::date IS NULL OR (t.trial_date>=sqlc.narg(from_date) AND t.status='registered'))
 AND (sqlc.narg(before_date)::date IS NULL OR (t.trial_date<sqlc.narg(before_date) AND t.status='registered'))
 ORDER BY (t.trial_date<sqlc.arg(today)::date),
  CASE WHEN t.trial_date>=sqlc.arg(today)::date THEN t.trial_date END ASC,
  CASE WHEN t.trial_date<sqlc.arg(today)::date THEN t.trial_date END DESC,
- t.id LIMIT 101;
+ gs.start_time NULLS LAST, p.last_name,p.first_name,t.id LIMIT 101;
 
 -- name: AdministrativeMemberships :many
 SELECT m.id,m.status,m.season_id,m.source_trial_id,m.requested_at,m.approved_at,s.name AS season_name,t.name AS type_name,
@@ -111,3 +116,6 @@ LEFT JOIN groups g ON g.id=t.group_id LEFT JOIN group_slots gs ON gs.id=t.group_
 WHERE t.person_id=$1 AND t.status='attended'
  AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.source_trial_id=t.id)
 ORDER BY t.trial_date DESC,t.id DESC;
+
+-- name: GetSeason :one
+SELECT * FROM seasons WHERE id=$1;

@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/grapinou/club-core/internal/civildate"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -35,7 +36,7 @@ type PublicBooking struct {
 	Offering                                                                        PublicOffering
 	Date                                                                            string
 	FirstName, LastName, BirthDate, Email, Phone                                    string
-	Minor                                                                           bool
+	Minor                                                                           bool // Deprecated: ignored; BirthDate is authoritative.
 	GuardianFirstName, GuardianLastName, GuardianEmail, GuardianPhone, Relationship string
 	EquipmentNeeded                                                                 bool
 	EquipmentDetails                                                                string
@@ -61,15 +62,15 @@ LEFT JOIN locations l ON l.id=gs.location_id
 WHERE a.is_active AND g.is_active AND g.show_name_publicly AND gs.is_active AND s.is_active
 AND (gs.location_id IS NULL OR (l.is_active AND EXISTS(SELECT 1 FROM organizations o WHERE o.id=l.organization_id AND o.is_active)))
 AND EXISTS(SELECT 1 FROM organizations WHERE is_active)
-AND s.starts_at<=$1::date AND s.ends_at>=$1::date
+AND s.starts_at<=$2::date AND s.ends_at>=$1::date
 AND gs.valid_from<=$2::date AND (gs.valid_until IS NULL OR gs.valid_until>=$1::date)
 ORDER BY a.name,g.name,gs.weekday,gs.start_time,gs.id`
 
 // Offerings are a short rolling list. The final write rechecks the selected
 // target in the same transaction as the people and trial.
 func (s *PublicService) Offerings(ctx context.Context, now time.Time) ([]PublicOffering, error) {
-	today := time.Date(now.In(s.loc).Year(), now.In(s.loc).Month(), now.In(s.loc).Day(), 0, 0, 0, 0, time.UTC)
-	rows, err := s.db.Query(ctx, publicOfferingsSQL, today, today.AddDate(0, 0, 21))
+	first, last := PublicWindow(now, s.loc)
+	rows, err := s.db.Query(ctx, publicOfferingsSQL, first, last)
 	if err != nil {
 		return nil, err
 	}
@@ -82,8 +83,7 @@ func (s *PublicService) Offerings(ctx context.Context, now time.Time) ([]PublicO
 		if err = rows.Scan(&o.ActivityID, &o.GroupID, &o.SlotID, &o.Activity, &o.Group, &o.Practice, &o.Start, &o.End, &o.Location, &o.Address, &o.Weekday, &from, &until, &start, &end); err != nil {
 			return nil, err
 		}
-		for n := 1; n <= 21; n++ {
-			d := today.AddDate(0, 0, n)
+		for d := first; !d.After(last); d = d.AddDate(0, 0, 1) {
 			if int(d.Weekday()+6)%7+1 != o.Weekday || d.Before(from) || d.Before(start) || d.After(end) || (until.Valid && d.After(until.Time)) {
 				continue
 			}
@@ -129,13 +129,11 @@ func (s *PublicService) Book(ctx context.Context, b PublicBooking, now time.Time
 	}
 	today := now.In(s.loc)
 	civilToday := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
-	if birth.After(civilToday) || birth.Before(civilToday.AddDate(-120, 0, 0)) || !date.After(civilToday) || date.After(civilToday.AddDate(0, 0, 21)) {
+	first, last := PublicWindow(now, s.loc)
+	if birth.After(civilToday) || birth.Before(civilToday.AddDate(-120, 0, 0)) || date.Before(first) || date.After(last) {
 		return result, ErrInvalidPublicBooking
 	}
-	minor := birth.After(civilToday.AddDate(-18, 0, 0))
-	if b.Minor != minor {
-		return result, ErrInvalidPublicBooking
-	}
+	minor := civildate.IsMinor(birth, civilToday)
 	if minor {
 		if !validName(b.GuardianFirstName) || !validName(b.GuardianLastName) || !validEmail(b.GuardianEmail) || !validPhone(b.GuardianPhone) || !validRelationship(b.Relationship) {
 			return result, ErrInvalidPublicBooking
@@ -214,4 +212,11 @@ func (s *PublicService) Book(ctx context.Context, b PublicBooking, now time.Time
 }
 func validRelationship(s string) bool {
 	return s == "mother" || s == "father" || s == "guardian" || s == "other"
+}
+
+// PublicWindow returns civil dates: next Monday through today + 21 inclusive.
+func PublicWindow(now time.Time, loc *time.Location) (time.Time, time.Time) {
+	local := now.In(loc)
+	today := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
+	return today.AddDate(0, 0, 7-(int(today.Weekday())+6)%7), today.AddDate(0, 0, 21)
 }

@@ -128,13 +128,14 @@ func (s *ReviewService) ResolveGuardian(ctx context.Context, actor, id int32, pe
 }
 
 type ChildDetails struct {
-	ResolvedGuardianName string
-	GuardianUser         *dbsqlc.User
-	Application          dbsqlc.ChildRegistrationApplication
-	Guardian             dbsqlc.GuardianIdentityClaim
-	Candidates           []dbsqlc.ListGuardianIdentityCandidatesRow
-	RelationExists       bool
-	ExistingRelationship string
+	ResolvedGuardianName  string
+	ResolvedGuardianEmail string
+	GuardianUser          *dbsqlc.User
+	Application           dbsqlc.ChildRegistrationApplication
+	Guardian              dbsqlc.GuardianIdentityClaim
+	Candidates            []dbsqlc.ListGuardianIdentityCandidatesRow
+	RelationExists        bool
+	ExistingRelationship  string
 }
 
 func (s *ReviewService) afterResolution(ctx context.Context, id int32) {

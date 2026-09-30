@@ -296,6 +296,7 @@ func (s *ReviewService) GetDetails(ctx context.Context, actor, id int32) (Detail
 					return Details{}, e
 				}
 				cd.ResolvedGuardianName = person.FirstName + " " + person.LastName
+				cd.ResolvedGuardianEmail = person.Email.String
 				u, e := q.GetUserByPerson(ctx, cd.Guardian.ResolvedPersonID.Int32)
 				if e == nil {
 					cd.GuardianUser = &u

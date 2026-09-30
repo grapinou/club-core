@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/grapinou/club-core/internal/activation"
 	"github.com/grapinou/club-core/internal/administration"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/memberships"
@@ -15,7 +16,13 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type TrialDay struct {
+	Name, Date string
+	Trials     []dbsqlc.AdministrativeTrialsRow
+}
 type AdministrativeView struct {
+	WeekDays                                  []TrialDay
+	WeekLabel, PreviousWeek, NextWeek         string
 	EligibleTrials                            []dbsqlc.EligibleMembershipSourceTrialsRow
 	ListPath, SearchPath                      string
 	TrialPolicy                               pgtype.Int4
@@ -109,7 +116,7 @@ func (v AdministrativeView) PeopleTitle() string {
 func (v AdministrativeView) PeopleDescription() string {
 	switch v.Category {
 	case "members":
-		return "Personnes ayant une adhésion active dans une saison active qui couvre la date d’aujourd’hui. Les adhésions historiques restent dans Adhésions."
+		return "Un membre est une personne dont l’adhésion est active dans une saison active couvrant la date d’aujourd’hui."
 	case "guardians":
 		return "Personnes liées à au moins un enfant comme responsable. Une relation ne signifie pas qu’un accès familial est autorisé."
 	case "prospects":
@@ -119,4 +126,52 @@ func (v AdministrativeView) PeopleDescription() string {
 	default:
 		return "Tous les contacts non archivés du club, y compris ceux sans essai ni adhésion."
 	}
+}
+
+func (v *AdministrativeView) SetWeek(start time.Time) {
+	v.WeekLabel = start.Format("02/01/2006") + " – " + start.AddDate(0, 0, 6).Format("02/01/2006")
+	v.PreviousWeek = start.AddDate(0, 0, -7).Format("2006-01-02")
+	v.NextWeek = start.AddDate(0, 0, 7).Format("2006-01-02")
+	for i, name := range []string{"Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"} {
+		d := start.AddDate(0, 0, i)
+		day := TrialDay{Name: name, Date: d.Format("02/01")}
+		for _, trial := range v.Trials {
+			if trial.TrialDate.Time.Equal(d) {
+				day.Trials = append(day.Trials, trial)
+			}
+		}
+		v.WeekDays = append(v.WeekDays, day)
+	}
+}
+
+func (v AdministrativeView) ActivityGroups(activity int32) []dbsqlc.ListActiveGroupsRow {
+	var out []dbsqlc.ListActiveGroupsRow
+	for _, g := range v.Choices.Groups {
+		if g.ActivityID == activity {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+func (v AdministrativeView) DefaultActivityGroup(activity, group int32) bool {
+	key := "group-" + strconv.Itoa(int(activity))
+	if values, ok := v.Form[key]; ok {
+		return len(values) > 0 && values[0] == strconv.Itoa(int(group))
+	}
+	groups := v.ActivityGroups(activity)
+	return len(groups) == 1 && groups[0].ID == group
+}
+
+func (AdministrativeView) UsableEmail(email string) bool { return activation.UsableEmail(email) }
+
+func (v AdministrativeView) PersonHasActivationEmail() bool {
+	if activation.UsableEmail(v.Person.Info.Email.String) {
+		return true
+	}
+	for _, g := range v.Person.Relations {
+		if g.IsGuardian && activation.UsableEmail(g.Email.String) {
+			return true
+		}
+	}
+	return false
 }

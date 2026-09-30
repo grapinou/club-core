@@ -9,6 +9,8 @@ import (
 	"crypto/subtle"
 	"errors"
 	"math/big"
+	"net/mail"
+	"strings"
 	"time"
 
 	"github.com/grapinou/club-core/internal/auth"
@@ -80,18 +82,13 @@ func (s *Service) prepareTx(ctx context.Context, tx pgx.Tx, userID int32, person
 	if err != nil {
 		return nil, err
 	}
-	err = tx.QueryRow(ctx, `SELECT id,btrim(email) FROM (
- SELECT id,email,0 AS rank,0 AS position FROM persons WHERE id=$1
- UNION ALL
- SELECT p.id,p.email,CASE WHEN g.is_primary_contact THEN 1 ELSE 2 END,g.id
- FROM person_guardians g JOIN persons p ON p.id=g.guardian_person_id WHERE g.child_person_id=$1 AND NOT $2::boolean
- ) candidates WHERE nullif(btrim(email),'') IS NOT NULL ORDER BY rank,position,id LIMIT 1`, person, personOnly).Scan(&d.RecipientPersonID, &d.RecipientEmail)
-	if errors.Is(err, pgx.ErrNoRows) {
-		err = nil
-	}
+
+	recipient, err := RecipientTx(ctx, tx, userID, personOnly)
 	if err != nil {
 		return nil, err
 	}
+	d.RecipientEmail, d.RecipientPersonID = recipient.RecipientEmail, recipient.RecipientPersonID
+
 	return &d, nil
 }
 
@@ -169,4 +166,34 @@ func GenerateCode() (string, error) {
 		code[i] = byte(n.Int64()) + '0'
 	}
 	return string(code), nil
+}
+
+// UsableEmail is a presentation/delivery predicate, never a stored account state.
+func UsableEmail(value string) bool {
+	value = strings.TrimSpace(value)
+	address, err := mail.ParseAddress(value)
+	return err == nil && address.Address == value && len(value) <= 254
+}
+
+func RecipientTx(ctx context.Context, tx pgx.Tx, userID int32, personOnly bool) (Delivery, error) {
+	var d Delivery
+	rows, err := tx.Query(ctx, "SELECT id,email FROM (SELECT p.id,coalesce(p.email,'') AS email,0 AS rank,0 AS position FROM users u JOIN persons p ON p.id=u.person_id WHERE u.id=$1 UNION ALL SELECT p.id,coalesce(p.email,''),CASE WHEN g.is_primary_contact THEN 1 ELSE 2 END,g.id FROM users u JOIN person_guardians g ON g.child_person_id=u.person_id JOIN persons p ON p.id=g.guardian_person_id WHERE u.id=$1 AND NOT $2::boolean) candidates ORDER BY rank,position,id", userID, personOnly)
+	if err != nil {
+		return d, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int32
+		var email string
+		if err = rows.Scan(&id, &email); err != nil {
+			return d, err
+		}
+		if UsableEmail(email) {
+			email = strings.TrimSpace(email)
+			d.RecipientPersonID = &id
+			d.RecipientEmail = &email
+			break
+		}
+	}
+	return d, rows.Err()
 }

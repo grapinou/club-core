@@ -11,6 +11,7 @@ import (
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/clubconfig"
 	"github.com/grapinou/club-core/internal/config"
+	"github.com/grapinou/club-core/internal/consents"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/guardianaccess"
 	"github.com/grapinou/club-core/internal/handlers"
@@ -107,6 +108,8 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, 
 	officeHandler.RegisterFamilyDossier(mux, access, csrf, guardians, accountService)
 	applications.SetGuardianServices(guardians, accountService)
 	personal := personalspace.New(queries, guardians, runtime.Location)
+	access.SetPersonalContext(personal)
+	handlers.RegisterConsents(mux, cfg.SiteName, queries, consents.New(db), personal, office, access, csrf, runtime.Location)
 	handlers.RegisterDashboard(mux, cfg.SiteName, personal, csrf)
 	handlers.RegisterPersonalSpace(mux, cfg.SiteName, personal, csrf)
 	ttl := runtime.EmailChangeTTL

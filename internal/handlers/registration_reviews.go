@@ -90,6 +90,8 @@ func (h *RegistrationHandler) detail(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Query().Get("notice") {
 	case "activation_failed":
 		v.Notice = "Activation non envoyée. Le dossier est conservé ; vous pouvez réessayer."
+	case "activation_no_channel":
+		v.Notice = "Compte à activer — aucun email n’est renseigné pour envoyer le lien d’activation."
 	case "activation_prepared":
 		v.Notice = "Activation guardian préparée. Vérifiez l’état du compte et la disponibilité de l’envoi email."
 	case "resolved":
@@ -188,8 +190,11 @@ func (h *RegistrationHandler) guardianActivation(w http.ResponseWriter, r *http.
 	if !ok {
 		return
 	}
-	err := h.applications.RetryGuardianActivation(r.Context(), id)
+	deliveryStatus, err := h.applications.RetryGuardianActivation(r.Context(), id)
 	notice := "activation_prepared"
+	if deliveryStatus == accounts.NoChannel {
+		notice = "activation_no_channel"
+	}
 	var delivery *accounts.DeliveryError
 	if errors.As(err, &delivery) {
 		notice = "activation_failed"

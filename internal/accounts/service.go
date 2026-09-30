@@ -122,6 +122,14 @@ func (s *Service) ResendActivation(ctx context.Context, actorID, userID int32) (
 	if activated {
 		return result, ErrAlreadyActivated
 	}
+	recipient, err := activation.RecipientTx(ctx, tx, userID, false)
+	if err != nil {
+		return result, err
+	}
+	if recipient.RecipientEmail == nil {
+		result.DeliveryStatus = NoChannel
+		return result, nil
+	}
 	d, err := s.activation.PrepareTx(ctx, tx, userID)
 	if err != nil {
 		return result, err

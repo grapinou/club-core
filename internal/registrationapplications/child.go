@@ -215,23 +215,23 @@ func (s *Service) AfterResolution(ctx context.Context, id int32) {
 
 // RetryGuardianActivation is an explicit administrative retry, preserving the
 // existing account activation semantics and guardian's own delivery address.
-func (s *Service) RetryGuardianActivation(ctx context.Context, id int32) error {
+func (s *Service) RetryGuardianActivation(ctx context.Context, id int32) (accounts.DeliveryStatus, error) {
 	actor, ok := auth.UserID(ctx)
 	if !ok {
-		return authorization.ErrForbidden
+		return "", authorization.ErrForbidden
 	}
 	allowed, err := authorization.New(dbsqlc.New(s.db)).HasPermission(ctx, actor, authorization.RegistrationsReview)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if !allowed {
-		return authorization.ErrForbidden
+		return "", authorization.ErrForbidden
 	}
 	var child, guardian int32
 	err = s.db.QueryRow(ctx, `SELECT s.resolved_person_id,g.resolved_person_id FROM registration_applications a JOIN registration_submissions s ON s.id=a.submission_id JOIN child_registration_applications c ON c.application_id=a.id JOIN guardian_identity_claims g ON g.id=c.guardian_claim_id WHERE s.id=$1 AND c.guardian_confirmed_at IS NOT NULL`, id).Scan(&child, &guardian)
 	if err != nil {
-		return err
+		return "", err
 	}
-	_, err = s.accounts.EnsureGuardianUser(ctx, child, guardian)
-	return err
+	result, err := s.accounts.EnsureGuardianUser(ctx, child, guardian)
+	return result.DeliveryStatus, err
 }

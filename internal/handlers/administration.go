@@ -38,7 +38,7 @@ func NewAdministrativeHandler(site string, s *administration.Service, p Permissi
 func (h *AdministrativeHandler) base(r *http.Request, mode string) views.AdministrativeView {
 	id, _ := auth.UserID(r.Context())
 	write, _ := h.p.HasPermission(r.Context(), id, authorization.MembershipsApprove)
-	title := map[string]string{"home": "Mon tableau de bord", "people": "Annuaire", "person": "Coordonnées et parcours", "trials": "Essais", "trial": "Dossier d’essai", "trial-form": "Programmer un essai", "membership-new": "Demander une adhésion", "membership-person": "Créer une adhésion", "membership-groups": "Groupes de l’adhésion", "membership-notes": "Notes de l’adhésion"}[mode]
+	title := map[string]string{"home": "Mon tableau de bord", "people": "Annuaire", "person": "Coordonnées et parcours", "trials": "Essais", "trial": "Dossier d’essai", "trial-form": "Programmer un essai", "trial-person": "Programmer un essai", "membership-new": "Demander une adhésion", "membership-person": "Créer une adhésion", "membership-groups": "Groupes de l’adhésion", "membership-notes": "Notes de l’adhésion"}[mode]
 	return views.AdministrativeView{SecurityData: pageSecurity(r), SiteName: h.site, Title: title + " - " + h.site, Mode: mode, Today: h.s.Today(), Form: url.Values{}, CanManageMemberships: write}
 }
 func (h *AdministrativeHandler) render(w http.ResponseWriter, r *http.Request, v views.AdministrativeView, err error) {
@@ -181,6 +181,8 @@ func (h *AdministrativeHandler) Register(mux *http.ServeMux, a *Access, csrf *we
 	reg("GET /persons/{id}", authorization.PersonsRead, h.person)
 	reg("POST /persons/{id}/notes", authorization.PersonsWrite, h.person)
 	reg("GET /trials", authorization.PersonsRead, h.listTrials)
+	reg("GET /trials/new", authorization.PersonsWrite, h.trialPerson)
+	reg("POST /trials/new", authorization.PersonsWrite, h.trialPerson)
 	reg("GET /trials/{id}", authorization.PersonsRead, h.trial)
 	for _, action := range []string{"reschedule", "status", "notes"} {
 		reg("POST /trials/{id}/"+action, authorization.PersonsWrite, h.trial)
@@ -277,6 +279,7 @@ func (h *AdministrativeHandler) listTrials(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	on, e := formDate(v.Form.Get("date"), true)
+	var weekStart time.Time
 	from := pgtype.Date{}
 	if v.Form.Get("upcoming") == "1" {
 		from = h.s.Today()
@@ -285,6 +288,17 @@ func (h *AdministrativeHandler) listTrials(w http.ResponseWriter, r *http.Reques
 	if e == nil {
 		if v.Form.Get("pending") == "1" {
 			v.Trials, e = h.s.PastPendingTrials(r.Context())
+		} else if !on.Valid && !from.Valid && v.Form.Get("all") != "1" {
+			start := h.s.Today().Time
+			if raw := v.Form.Get("week"); raw != "" {
+				date, err := formDate(raw, false)
+				start, e = date.Time, err
+			}
+			if e == nil {
+				start = start.AddDate(0, 0, -(int(start.Weekday())+6)%7)
+				v.Trials, e = h.s.TrialsInWeek(r.Context(), start)
+				weekStart = start
+			}
 		} else {
 			v.Trials, e = h.s.Trials(r.Context(), on, from)
 		}
@@ -292,6 +306,9 @@ func (h *AdministrativeHandler) listTrials(w http.ResponseWriter, r *http.Reques
 	if len(v.Trials) > 100 {
 		v.More = true
 		v.Trials = v.Trials[:100]
+	}
+	if !weekStart.IsZero() {
+		v.SetWeek(weekStart)
 	}
 	h.render(w, r, v, e)
 }
@@ -358,6 +375,7 @@ func (h *AdministrativeHandler) trial(w http.ResponseWriter, r *http.Request) {
 }
 func (h *AdministrativeHandler) schedule(w http.ResponseWriter, r *http.Request) {
 	v := h.base(r, "trial-form")
+	v.CurrentPath = "/trials/new"
 	id, e := adminID(r, "id")
 	if e == nil {
 		v.Person, e = h.s.Person(r.Context(), id)
@@ -485,7 +503,22 @@ func (h *AdministrativeHandler) requestMembership(w http.ResponseWriter, r *http
 		}
 		if e == nil {
 			var membership int32
-			membership, e = h.s.RequestMembership(r.Context(), req, source)
+			groups := map[int32]int32{}
+			for _, activity := range req.ActivityIDs {
+				group, err := formID(v.Form, fmt.Sprintf("group-%d", activity), true)
+				if err != nil {
+					e = err
+					break
+				}
+				if source != 0 && activity == v.Trial.ActivityID && group != 0 {
+					e = memberships.ErrInvalidRequest
+					break
+				}
+				groups[activity] = group
+			}
+			if e == nil {
+				membership, e = h.s.RequestMembership(r.Context(), req, source, groups)
+			}
 			if e == nil {
 				redirectMembership(w, r, membership, "requested")
 				return
@@ -518,7 +551,21 @@ func (h *AdministrativeHandler) groups(w http.ResponseWriter, r *http.Request) {
 	if e == nil {
 		v.Choices, e = h.s.Choices(r.Context())
 	}
-	v.Form.Set("joined_at", h.s.Today().Time.Format("2006-01-02"))
+	if e == nil {
+		filtered := v.Choices.Groups[:0]
+		for _, g := range v.Choices.Groups {
+			for _, activity := range v.Membership.ActivityIDs {
+				if activity == g.ActivityID {
+					filtered = append(filtered, g)
+					break
+				}
+			}
+		}
+		v.Choices.Groups = filtered
+		if v.Membership.DefaultJoined.Valid {
+			v.Form.Set("joined_at", v.Membership.DefaultJoined.Time.Format("2006-01-02"))
+		}
+	}
 	if e == nil && r.Method == "POST" {
 		v.Form = r.PostForm
 		if r.PathValue("assignment") != "" {
@@ -565,4 +612,21 @@ func (h *AdministrativeHandler) membershipNotes(w http.ResponseWriter, r *http.R
 		}
 	}
 	h.render(w, r, v, e)
+}
+
+// trialPerson keeps scheduling in Essais while reusing the Person search.
+func (h *AdministrativeHandler) trialPerson(w http.ResponseWriter, r *http.Request) {
+	v := h.base(r, "trial-person")
+	if r.Method == "POST" {
+		v.Search = strings.TrimSpace(r.PostForm.Get("search"))
+	}
+	var err error
+	if v.Search != "" {
+		v.People, err = h.s.People(r.Context(), v.Search, 0, "")
+	}
+	if len(v.People) > 50 {
+		v.People = v.People[:50]
+		v.More = true
+	}
+	h.render(w, r, v, err)
 }

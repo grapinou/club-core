@@ -227,7 +227,7 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 }
 
 const listAdministrativeMemberships = `-- name: ListAdministrativeMemberships :many
-SELECT m.id, m.person_id, m.season_id, m.membership_type_id, m.status, m.joined_at, m.ended_at, m.created_at, m.updated_at, m.requested_at, m.approved_at, m.approved_by_user_id, m.admin_note, m.source_trial_id, p.first_name, p.last_name, s.name AS season_name,
+SELECT m.id, m.person_id, m.season_id, m.membership_type_id, m.status, m.joined_at, m.ended_at, m.created_at, m.updated_at, m.requested_at, m.approved_at, m.approved_by_user_id, m.admin_note, m.source_trial_id, p.first_name, p.last_name, p.email, ARRAY(SELECT coalesce(gp.email,'') FROM person_guardians gr JOIN persons gp ON gp.id=gr.guardian_person_id WHERE gr.child_person_id=p.id)::text[] AS guardian_emails, s.name AS season_name,
        -- Same effective-access predicates as ListActiveGuardiansForChild.
        EXISTS(SELECT 1 FROM guardian_access_grants ga
          JOIN person_guardians r USING(child_person_id,guardian_person_id)
@@ -251,6 +251,8 @@ type ListAdministrativeMembershipsRow struct {
 	Membership           Membership
 	FirstName            string
 	LastName             string
+	Email                pgtype.Text
+	GuardianEmails       []string
 	SeasonName           string
 	HasEffectiveGuardian bool
 	MembershipTypeName   string
@@ -286,6 +288,8 @@ func (q *Queries) ListAdministrativeMemberships(ctx context.Context) ([]ListAdmi
 			&i.Membership.SourceTrialID,
 			&i.FirstName,
 			&i.LastName,
+			&i.Email,
+			&i.GuardianEmails,
 			&i.SeasonName,
 			&i.HasEffectiveGuardian,
 			&i.MembershipTypeName,

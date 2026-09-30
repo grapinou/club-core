@@ -57,6 +57,7 @@ type PublicActivityChoice struct {
 	Name string
 }
 type PublicPage struct {
+	ContactStep, BookingMinor bool
 	SecurityData
 	SiteName, Title, Heading, Kind, Editorial string
 	Club                                      PublicClubView

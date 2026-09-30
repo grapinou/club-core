@@ -119,6 +119,25 @@ func (q *Queries) GetPersonalMembership(ctx context.Context, arg GetPersonalMemb
 	return i, err
 }
 
+const hasOwnPersonalContext = `-- name: HasOwnPersonalContext :one
+SELECT EXISTS(SELECT 1 FROM memberships WHERE person_id=p.id)
+ OR EXISTS(SELECT 1 FROM registration_applications a
+ JOIN registration_submissions s ON s.id=a.submission_id
+ JOIN child_registration_applications c ON c.application_id=a.id
+ JOIN guardian_identity_claims g ON g.id=c.guardian_claim_id
+ WHERE g.resolved_by_user_id=u.id AND g.resolved_person_id=p.id
+ AND a.status IN ('awaiting_identity','needs_review')) AS has_context
+FROM users u JOIN persons p ON p.id=u.person_id
+WHERE u.id=$1 AND u.is_active AND u.activated_at IS NOT NULL AND u.password_hash IS NOT NULL AND p.archived_at IS NULL
+`
+
+func (q *Queries) HasOwnPersonalContext(ctx context.Context, id int32) (pgtype.Bool, error) {
+	row := q.db.QueryRow(ctx, hasOwnPersonalContext, id)
+	var has_context pgtype.Bool
+	err := row.Scan(&has_context)
+	return has_context, err
+}
+
 const listPendingFamilyRequests = `-- name: ListPendingFamilyRequests :many
 SELECT s.first_name,s.last_name,s.created_at
 FROM registration_applications a
@@ -167,7 +186,7 @@ func (q *Queries) ListPendingFamilyRequests(ctx context.Context, arg ListPending
 }
 
 const listPersonalConsents = `-- name: ListPersonalConsents :many
-SELECT d.title,d.version,d.description,c.decision,c.recorded_at,
+SELECT d.id,d.is_active,d.title,d.version,d.description,c.decision,c.recorded_at,
  COALESCE(c.given_by_person_id=$1,false)::boolean AS given_by_viewer
 FROM membership_consent_requirements r JOIN consent_definitions d ON d.id=r.consent_definition_id
 LEFT JOIN membership_consents c ON c.id=(SELECT mc.id FROM membership_consents mc
@@ -182,6 +201,8 @@ type ListPersonalConsentsParams struct {
 }
 
 type ListPersonalConsentsRow struct {
+	ID            int32
+	IsActive      bool
 	Title         string
 	Version       int32
 	Description   string
@@ -200,6 +221,8 @@ func (q *Queries) ListPersonalConsents(ctx context.Context, arg ListPersonalCons
 	for rows.Next() {
 		var i ListPersonalConsentsRow
 		if err := rows.Scan(
+			&i.ID,
+			&i.IsActive,
 			&i.Title,
 			&i.Version,
 			&i.Description,

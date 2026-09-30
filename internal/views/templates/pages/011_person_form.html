@@ -4,7 +4,7 @@
 {{if .AfterMembership}}<p>Après la création de cette fiche, vous pourrez préparer son adhésion.</p><a href="/memberships/new">Revenir à la recherche</a>{{end}}
 
 <form class="section-panel" action="/persons" method="post">
-    {{if .AfterMembership}}<input type="hidden" name="after" value="membership">{{end}}
+    {{if .AfterTrial}}<input type="hidden" name="after" value="trial">{{end}}{{if .AfterMembership}}<input type="hidden" name="after" value="membership">{{end}}
     <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
 
     <div class="mb-3">

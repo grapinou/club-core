@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/grapinou/club-core/internal/accounts/provisioning"
+	"github.com/grapinou/club-core/internal/activation"
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
@@ -74,6 +75,14 @@ func (s *Service) EnsureGuardianUser(ctx context.Context, child, guardian int32,
 				return result, tx.Commit(ctx)
 			}
 		}
+	}
+	var email string
+	if err = tx.QueryRow(ctx, "SELECT coalesce(email,'') FROM persons WHERE id=$1", guardian).Scan(&email); err != nil {
+		return result, err
+	}
+	if !activation.UsableEmail(email) {
+		result.DeliveryStatus = NoChannel
+		return result, tx.Commit(ctx)
 	}
 	d, err := s.activation.PreparePersonOnlyTx(ctx, tx, u.ID)
 	if err != nil {

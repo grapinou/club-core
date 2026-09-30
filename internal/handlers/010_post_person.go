@@ -42,6 +42,9 @@ func PostPersonHandler(queries database.PersonQueries) http.HandlerFunc {
 		}
 
 		destination := "/persons"
+		if r.FormValue("after") == "trial" {
+			destination = fmt.Sprintf("/persons/%d/trials/new", person.ID)
+		}
 		if r.FormValue("after") == "membership" {
 			destination = fmt.Sprintf("/persons/%d/memberships/new", person.ID)
 		}

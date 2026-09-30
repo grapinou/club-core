@@ -37,7 +37,7 @@
 <a class="site-brand" href="/">{{.SiteName}}</a>
 {{if and .AdministrativeRoles (not (or .CanReadPersons .CanReadMemberships .CanReviewRegistrations .CanReadUsers .CanConfigureClub))}}<span class="administrative-roles" aria-label="Vos rôles administratifs">{{range .AdministrativeRoles}}<span class="badge text-bg-secondary">{{.}}</span>{{end}}</span>{{end}}
 <div class="public-nav">
-{{if .Authenticated}}<a class="personal-space-link" href="/dashboard" {{if or (.InSection "/dashboard") (.InSection "/me/children") (.InSection "/me/memberships")}}aria-current="page"{{end}}>Mon espace</a><a href="/me/account" {{if .InSection "/me/account"}}aria-current="page"{{end}}>Mon compte</a>{{end}}
+{{if .Authenticated}}{{if .HasPersonalContext}}<a class="personal-space-link" href="/dashboard" {{if or (.InSection "/dashboard") (.InSection "/me/children") (.InSection "/me/memberships")}}aria-current="page"{{end}}>Mon espace</a>{{end}}<a href="/me/account" {{if .InSection "/me/account"}}aria-current="page"{{end}}>Mon compte</a>{{end}}
 {{if .Authenticated}}<details class="site-links"><summary>Site du club</summary><div class="site-links-menu">{{end}}
 <a href="/" {{if eq .CurrentPath "/"}}aria-current="page"{{end}}>Accueil</a>
 <a href="/horaires" {{if eq .CurrentPath "/horaires"}}aria-current="page"{{end}}>Horaires</a>

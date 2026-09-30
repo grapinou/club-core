@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/grapinou/club-core/internal/civildate"
 	"github.com/grapinou/club-core/internal/mailer"
 	"github.com/grapinou/club-core/internal/organization"
 	"github.com/grapinou/club-core/internal/trials"
@@ -152,7 +153,7 @@ func (h *PublicHandler) trialPage(r *http.Request, data *views.PublicPage, club 
 		return nil
 	}
 	data.Errors = map[string]string{}
-	b := trials.PublicBooking{Offering: trials.PublicOffering{ActivityID: data.SelectedActivity, SlotID: data.SelectedSlot}, Date: data.Form.Get("date"), FirstName: data.Form.Get("first_name"), LastName: data.Form.Get("last_name"), BirthDate: data.Form.Get("birth_date"), Email: data.Form.Get("email"), Phone: data.Form.Get("phone"), Minor: data.Form.Get("minor") == "yes", GuardianFirstName: data.Form.Get("guardian_first_name"), GuardianLastName: data.Form.Get("guardian_last_name"), GuardianEmail: data.Form.Get("guardian_email"), GuardianPhone: data.Form.Get("guardian_phone"), Relationship: data.Form.Get("relationship"), EquipmentNeeded: data.Form.Get("equipment_needed") == "yes", EquipmentDetails: data.Form.Get("equipment_details")}
+	b := trials.PublicBooking{Offering: trials.PublicOffering{ActivityID: data.SelectedActivity, SlotID: data.SelectedSlot}, Date: data.Form.Get("date"), FirstName: data.Form.Get("first_name"), LastName: data.Form.Get("last_name"), BirthDate: data.Form.Get("birth_date"), Email: data.Form.Get("email"), Phone: data.Form.Get("phone"), GuardianFirstName: data.Form.Get("guardian_first_name"), GuardianLastName: data.Form.Get("guardian_last_name"), GuardianEmail: data.Form.Get("guardian_email"), GuardianPhone: data.Form.Get("guardian_phone"), Relationship: data.Form.Get("relationship"), EquipmentNeeded: data.Form.Get("equipment_needed") == "yes", EquipmentDetails: data.Form.Get("equipment_details")}
 	for _, o := range offerings {
 		if o.ActivityID == b.Offering.ActivityID && o.SlotID == b.Offering.SlotID {
 			b.Offering.GroupID = o.GroupID
@@ -176,7 +177,7 @@ func (h *PublicHandler) trialPage(r *http.Request, data *views.PublicPage, club 
 	if club.TrialEquipmentOffer != "" && data.Form.Get("equipment_needed") != "yes" && data.Form.Get("equipment_needed") != "no" {
 		data.Errors["equipment_needed"] = "Indiquez si du matériel est nécessaire."
 	}
-	if b.EquipmentNeeded && club.TrialEquipmentDetailPrompt != "" && strings.TrimSpace(b.EquipmentDetails) == "" {
+	if data.Form.Get("step") != "contacts" && b.EquipmentNeeded && club.TrialEquipmentDetailPrompt != "" && strings.TrimSpace(b.EquipmentDetails) == "" {
 		data.Errors["equipment_details"] = "Ajoutez la précision demandée par le club."
 	}
 	if len(b.EquipmentDetails) > 500 {
@@ -192,10 +193,12 @@ func (h *PublicHandler) trialPage(r *http.Request, data *views.PublicPage, club 
 		data.Errors["birth_date"] = "Indiquez une date de naissance valide."
 	} else {
 		today := time.Now().In(h.location)
-		isMinor := birth.After(today.AddDate(-18, 0, 0))
-		if isMinor != b.Minor {
-			data.Errors["birth_date"] = "Vérifiez la date de naissance et le choix adulte ou mineur."
-		}
+		b.Minor = civildate.IsMinor(birth, today)
+		data.BookingMinor = b.Minor
+		data.ContactStep = true
+	}
+	if data.Form.Get("step") == "contacts" {
+		return nil
 	}
 	checkEmail := func(field string) {
 		value := strings.TrimSpace(data.Form.Get(field))

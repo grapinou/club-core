@@ -28,7 +28,7 @@ FROM memberships m JOIN seasons s ON s.id=m.season_id JOIN membership_types t ON
 WHERE m.id=sqlc.arg(membership_id) AND m.person_id=sqlc.arg(person_id);
 
 -- name: ListPersonalConsents :many
-SELECT d.title,d.version,d.description,c.decision,c.recorded_at,
+SELECT d.id,d.is_active,d.title,d.version,d.description,c.decision,c.recorded_at,
  COALESCE(c.given_by_person_id=sqlc.arg(viewer_person_id),false)::boolean AS given_by_viewer
 FROM membership_consent_requirements r JOIN consent_definitions d ON d.id=r.consent_definition_id
 LEFT JOIN membership_consents c ON c.id=(SELECT mc.id FROM membership_consents mc
@@ -64,3 +64,14 @@ WHERE g.resolved_by_user_id=sqlc.arg(viewer_user_id)
  AND a.status IN ('awaiting_identity','needs_review')
  AND (s.resolved_person_id IS NULL OR NOT(s.resolved_person_id=ANY(sqlc.arg(managed_children)::integer[])))
 ORDER BY s.created_at DESC,s.id DESC;
+
+-- name: HasOwnPersonalContext :one
+SELECT EXISTS(SELECT 1 FROM memberships WHERE person_id=p.id)
+ OR EXISTS(SELECT 1 FROM registration_applications a
+ JOIN registration_submissions s ON s.id=a.submission_id
+ JOIN child_registration_applications c ON c.application_id=a.id
+ JOIN guardian_identity_claims g ON g.id=c.guardian_claim_id
+ WHERE g.resolved_by_user_id=u.id AND g.resolved_person_id=p.id
+ AND a.status IN ('awaiting_identity','needs_review')) AS has_context
+FROM users u JOIN persons p ON p.id=u.person_id
+WHERE u.id=$1 AND u.is_active AND u.activated_at IS NOT NULL AND u.password_hash IS NOT NULL AND p.archived_at IS NULL;

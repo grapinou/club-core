@@ -16,6 +16,9 @@ type PermissionChecker interface {
 	HasPermission(context.Context, int32, authorization.Permission) (bool, error)
 }
 type Access struct {
+	personal interface {
+		HasContext(context.Context) (bool, error)
+	}
 	counter interface {
 		CountOpen(context.Context, int32) (int64, error)
 	}
@@ -83,6 +86,14 @@ func (a *Access) RequireMembershipContinuation(next http.Handler) http.Handler {
 
 type administrativeRolesKey struct{}
 type navigationKey struct{}
+type personalNavigationKey struct{}
+
+func (a *Access) SetPersonalContext(s interface {
+	HasContext(context.Context) (bool, error)
+}) {
+	a.personal = s
+}
+
 type personWriteNavigationKey struct{}
 type membershipNavigationKey struct{}
 type registrationNavigationKey struct{}
@@ -97,6 +108,11 @@ type registrationNavigation struct {
 func (a *Access) Navigation(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if id, ok := auth.UserID(r.Context()); ok {
+			if a.personal != nil {
+				if has, err := a.personal.HasContext(r.Context()); err == nil {
+					r = r.WithContext(context.WithValue(r.Context(), personalNavigationKey{}, has))
+				}
+			}
 			if a.roles != nil {
 				if roles, err := a.roles.ListUserRoles(r.Context(), id); err == nil {
 					r = r.WithContext(context.WithValue(r.Context(), administrativeRolesKey{}, administrativeRoleLabels(roles)))
@@ -141,6 +157,7 @@ func (a *Access) Navigation(next http.Handler) http.Handler {
 	})
 }
 func pageSecurity(r *http.Request) views.SecurityData {
+	hasPersonal, _ := r.Context().Value(personalNavigationKey{}).(bool)
 	canRead, _ := r.Context().Value(navigationKey{}).(bool)
 	canReadMemberships, _ := r.Context().Value(membershipNavigationKey{}).(bool)
 	review, _ := r.Context().Value(registrationNavigationKey{}).(registrationNavigation)
@@ -150,7 +167,7 @@ func pageSecurity(r *http.Request) views.SecurityData {
 	canManageRoles, _ := r.Context().Value(roleManagementNavigationKey{}).(bool)
 	canConfigureClub, _ := r.Context().Value(clubConfigurationNavigationKey{}).(bool)
 	labels, _ := r.Context().Value(administrativeRolesKey{}).([]string)
-	return views.SecurityData{AdministrativeRoles: labels, Authenticated: authenticated, CanWritePersons: canWrite, CurrentPath: r.URL.Path, CanReviewRegistrations: review.allowed, RegistrationReviewCount: review.count, CanReadMemberships: canReadMemberships, CanReadPersons: canRead, CanReadUsers: canReadUsers, CanManageRoles: canManageRoles, CanConfigureClub: canConfigureClub, CSRFToken: websecurity.Token(r.Context())}
+	return views.SecurityData{HasPersonalContext: hasPersonal, AdministrativeRoles: labels, Authenticated: authenticated, CanWritePersons: canWrite, CurrentPath: r.URL.Path, CanReviewRegistrations: review.allowed, RegistrationReviewCount: review.count, CanReadMemberships: canReadMemberships, CanReadPersons: canRead, CanReadUsers: canReadUsers, CanManageRoles: canManageRoles, CanConfigureClub: canConfigureClub, CSRFToken: websecurity.Token(r.Context())}
 }
 
 // Display only: permissions remain exclusively controlled by authorization.Service.

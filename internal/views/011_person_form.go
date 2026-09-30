@@ -11,6 +11,7 @@ import (
 var personFormFiles embed.FS
 
 type PersonFormData struct {
+	AfterTrial      bool
 	AfterMembership bool
 	SecurityData
 	SiteName string

@@ -94,7 +94,7 @@ func TestP3MembershipLifecycle(t *testing.T) {
 					t.Fatal("guardian activation")
 				}
 				parentBrowser = f.loginBrowser(parentUser.Username)
-				officeOK(t, admin, officePerson(person), "Accès familial autorisé", "Contact d’urgence enregistré")
+				officeOK(t, admin, officePerson(person), "Accès familial autorisé", "Contacts d’urgence")
 			}
 			p3Approve(t, admin, id)
 			m, err = dbsqlc.New(f.db).GetMembership(t.Context(), id)

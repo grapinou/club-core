@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/grapinou/club-core/internal/activation"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -21,6 +22,7 @@ type MembershipListView struct {
 	Rows            []MembershipRowView
 }
 type MembershipRowView struct {
+	HasEmail                                                                                bool
 	ID                                                                                      int32
 	Name, Season, Type, Status, StatusClass, RequestedAt, ApprovedAt, Completeness, Account string
 	Pending, NeedsActivation                                                                bool
@@ -32,6 +34,8 @@ type ContactView struct {
 	Priority                         int32
 }
 type ConsentView struct {
+	ID                                                     int32
+	Editable                                               bool
 	Title, Description, Decision, Class, Giver, RecordedAt string
 	Version                                                int32
 }
@@ -154,7 +158,7 @@ func MembershipRows(entries []memberships.ListEntry, loc *time.Location) []Membe
 				account = "Accès via responsable"
 			}
 		}
-		rows = append(rows, MembershipRowView{NeedsActivation: m.Membership.Status == "active" && e.Account.IsActive && e.Account.NeedsActivation, ID: m.Membership.ID, Name: m.LastName + " " + m.FirstName, Season: m.SeasonName, Type: m.MembershipTypeName, Status: status, StatusClass: class, RequestedAt: timestamp(m.Membership.RequestedAt, loc), ApprovedAt: timestamp(m.Membership.ApprovedAt, loc), Completeness: complete, Account: account, Pending: m.Membership.Status == "pending", BlockingCount: len(e.Completeness.BlockingIssues), WarningCount: len(e.Completeness.Warnings)})
+		rows = append(rows, MembershipRowView{HasEmail: availableEmail(m.Email.String, m.GuardianEmails), NeedsActivation: m.Membership.Status == "active" && e.Account.IsActive && e.Account.NeedsActivation, ID: m.Membership.ID, Name: m.LastName + " " + m.FirstName, Season: m.SeasonName, Type: m.MembershipTypeName, Status: status, StatusClass: class, RequestedAt: timestamp(m.Membership.RequestedAt, loc), ApprovedAt: timestamp(m.Membership.ApprovedAt, loc), Completeness: complete, Account: account, Pending: m.Membership.Status == "pending", BlockingCount: len(e.Completeness.BlockingIssues), WarningCount: len(e.Completeness.Warnings)})
 	}
 	return rows
 }
@@ -206,12 +210,22 @@ func MembershipDetail(d memberships.Details, loc *time.Location, approve, resend
 	for _, c := range d.ConsentRequirements {
 		status := DisplayStatus(c.Decision.String)
 		decision, class := status.Label, status.Class
-		v.Consents = append(v.Consents, ConsentView{Title: c.Title, Description: c.Description, Version: c.Version, Decision: decision, Class: class, Giver: textOrDash(strings.TrimSpace(c.GiverFirstName.String + " " + c.GiverLastName.String)), RecordedAt: timestamp(c.RecordedAt, loc)})
+		v.Consents = append(v.Consents, ConsentView{ID: c.ID, Editable: c.IsActive || c.Decision.String == "granted", Title: c.Title, Description: c.Description, Version: c.Version, Decision: decision, Class: class, Giver: textOrDash(strings.TrimSpace(c.GiverFirstName.String + " " + c.GiverLastName.String)), RecordedAt: timestamp(c.RecordedAt, loc)})
 	}
 	v.Account = AccountView{Exists: d.Account.Exists, Active: d.Account.IsActive, Activated: d.Account.IsActivated, NeedsActivation: d.Account.NeedsActivation, ID: row.UserID.Int32, Username: row.Username.String, Label: accountLabel(d.Account)}
 	v.CanManage = approve
 	v.CanApprove = approve && v.Pending
-	v.CanResend = resend && d.Account.Exists && d.Account.IsActive && d.Account.NeedsActivation
+	hasEmail := activation.UsableEmail(p.Email.String)
+	for _, g := range d.Guardians {
+		hasEmail = hasEmail || activation.UsableEmail(g.Email.String)
+	}
+	if strings.TrimSpace(p.Email.String) == "" {
+		v.Email = "non renseigné"
+	}
+	if d.Account.Exists && d.Account.IsActive && d.Account.NeedsActivation && !hasEmail {
+		v.Account.Label = "Compte à activer — aucun email n’est renseigné pour envoyer le lien d’activation."
+	}
+	v.CanResend = resend && d.Account.Exists && d.Account.IsActive && d.Account.NeedsActivation && hasEmail
 	return v
 }
 
@@ -233,7 +247,22 @@ func (v MembershipRowView) ActionLabel() string {
 		return "Prête à valider."
 	}
 	if v.NeedsActivation {
+		if !v.HasEmail {
+			return "Compte à activer — aucun email n’est renseigné pour envoyer le lien d’activation."
+		}
 		return "Renvoyer l’activation si nécessaire."
 	}
 	return "Aucune action immédiate."
+}
+
+func availableEmail(own string, others []string) bool {
+	if activation.UsableEmail(own) {
+		return true
+	}
+	for _, email := range others {
+		if activation.UsableEmail(email) {
+			return true
+		}
+	}
+	return false
 }
