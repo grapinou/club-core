@@ -1,15 +1,16 @@
 package views
 
 import (
+	"database/sql"
 	"embed"
 	"fmt"
-	"github.com/grapinou/club-core/internal/organization"
-	"github.com/grapinou/club-core/internal/trials"
-	"github.com/jackc/pgx/v5/pgtype"
 	"html/template"
 	"io"
 	"net/url"
 	"time"
+
+	"github.com/grapinou/club-core/internal/organization"
+	"github.com/grapinou/club-core/internal/trials"
 )
 
 //go:embed templates/layouts/base.html templates/pages/public.html
@@ -39,7 +40,7 @@ type PublicImageView struct {
 	Width, Height        int32
 }
 type PublicClubView struct {
-	MaxTrialsPerPersonPerSeason                                              pgtype.Int4
+	MaxTrialsPerPersonPerSeason                                              sql.NullInt32
 	Name, ShortName, Description, Email, Phone, PhoneLabel, Website          string
 	TrialSessionDescription, TrialEquipmentOffer, TrialEquipmentDetailPrompt string
 	TrialItemsToBring                                                        []string

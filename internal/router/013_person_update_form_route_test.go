@@ -8,7 +8,7 @@ import (
 
 	"github.com/grapinou/club-core/internal/config"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 func TestUpdatePersonFormRoute(t *testing.T) {
@@ -22,7 +22,7 @@ func TestUpdatePersonFormRoute(t *testing.T) {
 			FirstName: "Robin",
 			LastName:  "Des Bois",
 
-			BirthDate: pgtype.Date{
+			BirthDate: dbtypes.Date{
 				Time:  time.Date(1990, 5, 12, 0, 0, 0, 0, time.UTC),
 				Valid: true,
 			},

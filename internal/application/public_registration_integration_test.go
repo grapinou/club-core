@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"html"
@@ -108,7 +107,7 @@ func TestPublicJoinFormAndNewMembership(t *testing.T) {
 	if review.Code != 200 || !strings.Contains(review.Body.String(), "Récapitulatif") || !strings.Contains(review.Body.String(), "alice@example.test") {
 		t.Fatal("missing summary")
 	}
-	if n := f.id(`SELECT count(*)::integer FROM registration_submissions`); n != 0 {
+	if n := f.id(`SELECT count(*) FROM registration_submissions`); n != 0 {
 		t.Fatal("summary persisted identity")
 	}
 	form.Set("action", "submit")
@@ -133,16 +132,16 @@ func TestPublicJoinFormAndNewMembership(t *testing.T) {
 	if len(m.Completeness.BlockingIssues) != 0 || len(m.Completeness.Warnings) != 1 || m.Completeness.Warnings[0] != "adult_missing_emergency" {
 		t.Fatal("adult emergency policy")
 	}
-	if n := f.id(`SELECT count(*)::integer FROM users`); n != 1 || len(f.mail.messages) != 0 {
+	if n := f.id(`SELECT count(*) FROM users`); n != 1 || len(f.mail.messages) != 0 {
 		t.Fatal("premature account or activation")
 	}
-	if n := f.id(`SELECT count(*)::integer FROM registration_verification_outbox`); n != 0 {
+	if n := f.id(`SELECT count(*) FROM registration_verification_outbox`); n != 0 {
 		t.Fatal("new person sent verification")
 	}
 	// PRG refresh and retried POST from the same presentation are harmless.
 	f.joinSubmit(b, form)
 	b.call("GET", "/join/submitted", nil)
-	if n := f.id(`SELECT count(*)::integer FROM memberships`); n != 1 {
+	if n := f.id(`SELECT count(*) FROM memberships`); n != 1 {
 		t.Fatal("duplicate POST membership")
 	}
 	admin := f.membershipAdminBrowser()
@@ -204,10 +203,10 @@ func TestPublicJoinValidation(t *testing.T) {
 			}
 		})
 	}
-	if n := f.id(`SELECT count(*)::integer FROM registration_submissions`); n != 0 {
+	if n := f.id(`SELECT count(*) FROM registration_submissions`); n != 0 {
 		t.Fatal("invalid form persisted")
 	}
-	if n := f.id(`SELECT count(*)::integer FROM persons`); n != 2 {
+	if n := f.id(`SELECT count(*) FROM persons`); n != 2 {
 		t.Fatal("invalid/minor created Person")
 	}
 }
@@ -223,13 +222,13 @@ func TestPublicJoinEmailAndConsentSnapshot(t *testing.T) {
 	if a.Status != "awaiting_identity" || f.emailState(sub) != "awaiting_email_verification" {
 		t.Fatal("existing identity not queued")
 	}
-	if n := f.id(`SELECT count(*)::integer FROM memberships`); n != 0 || len(f.mail.messages) != 0 {
+	if n := f.id(`SELECT count(*) FROM memberships`); n != 0 || len(f.mail.messages) != 0 {
 		t.Fatal("synchronous finalization or SMTP")
 	}
 	if state, _ := f.jobState(sub); state != "pending" {
 		t.Fatal("outbox not pending")
 	}
-	f.exec(`UPDATE consent_definitions SET is_active=false WHERE id=$1`, old)
+	f.exec(`UPDATE consent_definitions SET is_active=false WHERE id=?1`, old)
 	f.id(`INSERT INTO consent_definitions(code,version,title,description) VALUES ('image_web',3,'New text','New version, never presented') RETURNING id`)
 	f.drive()
 	ref, code := verificationFrom(t, f.mail.messages[0])
@@ -248,7 +247,7 @@ func TestPublicJoinEmailAndConsentSnapshot(t *testing.T) {
 		t.Fatal("consents recalculated")
 	}
 	var sameTime bool
-	f.must(f.db.QueryRow(t.Context(), `SELECT r.presented_at=c.presented_at FROM membership_consent_requirements r JOIN registration_application_consents c ON c.consent_definition_id=r.consent_definition_id WHERE r.membership_id=$1 AND c.application_id=$2`, a.MembershipID.Int32, a.ID).Scan(&sameTime))
+	f.must(f.db.QueryRowContext(t.Context(), `SELECT r.presented_at=c.presented_at FROM membership_consent_requirements r JOIN registration_application_consents c ON c.consent_definition_id=r.consent_definition_id WHERE r.membership_id=?1 AND c.application_id=?2`, a.MembershipID.Int32, a.ID).Scan(&sameTime))
 	if !sameTime {
 		t.Fatal("presentation date lost")
 	}
@@ -260,7 +259,7 @@ func TestPublicJoinEmailAndConsentSnapshot(t *testing.T) {
 	if again.MembershipID != a.MembershipID {
 		t.Fatal("non-idempotent finalizer")
 	}
-	if n := f.id(`SELECT count(*)::integer FROM users`); n != 1 {
+	if n := f.id(`SELECT count(*) FROM users`); n != 1 {
 		t.Fatal("created User before approval")
 	}
 }
@@ -270,14 +269,14 @@ func TestPublicJoinPresentedVersionsSurviveBeforePOST(t *testing.T) {
 	old := f.consentDefinition()
 	b := newBrowser(f.app.Handler)
 	form := f.joinForm(b)
-	f.exec(`UPDATE consent_definitions SET is_active=false WHERE id=$1`, old)
+	f.exec(`UPDATE consent_definitions SET is_active=false WHERE id=?1`, old)
 	next := f.id(`INSERT INTO consent_definitions(code,version,title,description) VALUES ('image_web',3,'New version','Not yet presented') RETURNING id`)
 	sub := f.joinSubmit(b, form)
 	a := f.publicApplication(sub)
-	if n := f.id(`SELECT count(*)::integer FROM membership_consent_requirements WHERE membership_id=$1 AND consent_definition_id=$2`, a.MembershipID.Int32, old); n != 1 {
+	if n := f.id(`SELECT count(*) FROM membership_consent_requirements WHERE membership_id=?1 AND consent_definition_id=?2`, a.MembershipID.Int32, old); n != 1 {
 		t.Fatal("original presentation not honored")
 	}
-	if n := f.id(`SELECT count(*)::integer FROM membership_consent_requirements WHERE membership_id=$1 AND consent_definition_id=$2`, a.MembershipID.Int32, next); n != 0 {
+	if n := f.id(`SELECT count(*) FROM membership_consent_requirements WHERE membership_id=?1 AND consent_definition_id=?2`, a.MembershipID.Int32, next); n != 0 {
 		t.Fatal("unseen version injected")
 	}
 	// A different browser cannot reuse the signed presentation with its own CSRF.
@@ -303,7 +302,7 @@ func TestPublicJoinAmbiguityAndAdminFinalization(t *testing.T) {
 			if f.emailState(sub) != "awaiting_identity_review" || f.publicApplication(sub).Status != "awaiting_identity" {
 				t.Fatal("ambiguous not reviewed")
 			}
-			if n := f.id(`SELECT count(*)::integer FROM persons`); n != 2 {
+			if n := f.id(`SELECT count(*) FROM persons`); n != 2 {
 				t.Fatal("premature person")
 			}
 			var err error
@@ -320,7 +319,7 @@ func TestPublicJoinAmbiguityAndAdminFinalization(t *testing.T) {
 			if err = f.app.Reviews.CreatePerson(t.Context(), f.approver, sub); !errors.Is(err, identityresolution.ErrClosed) {
 				t.Fatal("second admin resolution")
 			}
-			if n := f.id(`SELECT count(*)::integer FROM memberships`); n != 1 {
+			if n := f.id(`SELECT count(*) FROM memberships`); n != 1 {
 				t.Fatal("duplicate admin membership")
 			}
 		})
@@ -338,17 +337,17 @@ func TestPublicJoinBusinessChangesPreserveIdentity(t *testing.T) {
 			f.drive()
 			switch kind {
 			case "season":
-				f.exec(`UPDATE seasons SET is_active=false WHERE id=$1`, f.season)
+				f.exec(`UPDATE seasons SET is_active=false WHERE id=?1`, f.season)
 			case "type":
-				f.exec(`UPDATE membership_types SET is_active=false WHERE id=$1`, f.kind)
+				f.exec(`UPDATE membership_types SET is_active=false WHERE id=?1`, f.kind)
 			case "activity":
-				f.exec(`UPDATE activities SET is_active=false WHERE id=$1`, f.activity)
+				f.exec(`UPDATE activities SET is_active=false WHERE id=?1`, f.activity)
 			case "duplicate":
 				_, err := f.memberships.CreateRequest(t.Context(), memberships.Request{PersonID: f.person, SeasonID: f.season, MembershipTypeID: f.kind, ActivityIDs: []int32{f.activity}})
 				f.must(err)
 			case "sql failure":
-				f.exec(`CREATE FUNCTION fail_public_finalize_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status='membership_created' THEN RAISE EXCEPTION 'private failure'; END IF; RETURN NEW; END $$`)
-				f.exec(`CREATE TRIGGER fail_public_finalize_test BEFORE UPDATE ON registration_applications FOR EACH ROW EXECUTE FUNCTION fail_public_finalize_test()`)
+
+				f.exec(`CREATE TRIGGER fail_public_finalize_test BEFORE UPDATE ON registration_applications WHEN NEW.status='membership_created' BEGIN SELECT RAISE(ABORT, 'private failure'); END;`)
 			}
 			ref, code := verificationFrom(t, f.mail.messages[0])
 			outcome, err := f.app.Verifications.VerifyEmailOutcome(t.Context(), ref, code)
@@ -367,7 +366,7 @@ func TestPublicJoinBusinessChangesPreserveIdentity(t *testing.T) {
 					t.Fatal("duplicate category")
 				}
 			}
-			if n := f.id(`SELECT count(*)::integer FROM memberships`); n != expected {
+			if n := f.id(`SELECT count(*) FROM memberships`); n != expected {
 				t.Fatal("invalid/partial membership")
 			}
 			count, err := f.app.Reviews.CountOpen(t.Context(), f.approver)
@@ -381,11 +380,11 @@ func TestPublicJoinBusinessChangesPreserveIdentity(t *testing.T) {
 				t.Fatal("admin cannot find application")
 			}
 			if kind != "duplicate" {
-				f.exec(`UPDATE seasons SET is_active=true WHERE id=$1`, f.season)
-				f.exec(`UPDATE membership_types SET is_active=true WHERE id=$1`, f.kind)
-				f.exec(`UPDATE activities SET is_active=true WHERE id=$1`, f.activity)
+				f.exec(`UPDATE seasons SET is_active=true WHERE id=?1`, f.season)
+				f.exec(`UPDATE membership_types SET is_active=true WHERE id=?1`, f.kind)
+				f.exec(`UPDATE activities SET is_active=true WHERE id=?1`, f.activity)
 				if kind == "sql failure" {
-					f.exec(`DROP TRIGGER fail_public_finalize_test ON registration_applications`)
+					f.exec(`DROP TRIGGER fail_public_finalize_test`)
 				}
 				token := admin.csrf(t, reviewPath(sub))
 				response := admin.call("POST", reviewPath(sub)+"/finalize-application", url.Values{"csrf_token": {token}})
@@ -400,8 +399,8 @@ func TestPublicJoinBusinessChangesPreserveIdentity(t *testing.T) {
 func TestPublicJoinAtomicNewPerson(t *testing.T) {
 	f := newFixture(t)
 	f.consentDefinition()
-	f.exec(`CREATE FUNCTION fail_public_create_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status='membership_created' THEN RAISE EXCEPTION 'private failure'; END IF; RETURN NEW; END $$`)
-	f.exec(`CREATE TRIGGER fail_public_create_test BEFORE UPDATE ON registration_applications FOR EACH ROW EXECUTE FUNCTION fail_public_create_test()`)
+
+	f.exec(`CREATE TRIGGER fail_public_create_test BEFORE UPDATE ON registration_applications WHEN NEW.status='membership_created' BEGIN SELECT RAISE(ABORT, 'private failure'); END;`)
 	b := newBrowser(f.app.Handler)
 	form := f.joinForm(b)
 	response := b.call("POST", "/join", form)
@@ -409,11 +408,11 @@ func TestPublicJoinAtomicNewPerson(t *testing.T) {
 		t.Fatal("unsafe creation error")
 	}
 	for _, table := range []string{"registration_submissions", "registration_applications", "registration_application_activities", "registration_application_consents", "memberships", "membership_activities", "membership_consent_requirements", "membership_consents"} {
-		if n := f.id(`SELECT count(*)::integer FROM ` + table); n != 0 {
+		if n := f.id(`SELECT count(*) FROM ` + table); n != 0 {
 			t.Fatal("partial creation", table)
 		}
 	}
-	if n := f.id(`SELECT count(*)::integer FROM persons`); n != 2 {
+	if n := f.id(`SELECT count(*) FROM persons`); n != 2 {
 		t.Fatal("orphan new Person")
 	}
 }
@@ -424,16 +423,16 @@ func TestPublicJoinPrivacyAndExistingUsers(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			f := newFixture(t)
 			if strings.Contains(kind, "user") {
-				uid := f.id(`INSERT INTO users(person_id,username,is_active,activated_at) VALUES ($1,'member',true,clock_timestamp()) RETURNING id`, f.person)
+				uid := f.id(`INSERT INTO users(person_id,username,is_active,activated_at) VALUES (?1,'member',true,strftime('%Y-%m-%d %H:%M:%f','now')) RETURNING id`, f.person)
 				if kind == "disabled user" {
-					f.exec(`UPDATE users SET is_active=false WHERE id=$1`, uid)
+					f.exec(`UPDATE users SET is_active=false WHERE id=?1`, uid)
 				}
 				if kind == "unactivated user" {
-					f.exec(`UPDATE users SET activated_at=NULL WHERE id=$1`, uid)
+					f.exec(`UPDATE users SET activated_at=NULL WHERE id=?1`, uid)
 				}
 			}
 			var before string
-			f.must(f.db.QueryRow(t.Context(), `SELECT jsonb_agg(to_jsonb(u) ORDER BY id)::text FROM users u`).Scan(&before))
+			f.must(f.db.QueryRowContext(t.Context(), `SELECT json_group_array(json_object('id',u.id,'person_id',u.person_id,'login_email',u.login_email,'password_hash',u.password_hash,'is_active',u.is_active,'created_at',u.created_at,'username',u.username,'activated_at',u.activated_at) ORDER BY id) FROM users u`).Scan(&before))
 			if kind == "quota" {
 				for n := 0; n < 3; n++ {
 					f.submit(emailInput())
@@ -469,7 +468,7 @@ func TestPublicJoinPrivacyAndExistingUsers(t *testing.T) {
 				}
 			}
 			var after string
-			f.must(f.db.QueryRow(t.Context(), `SELECT jsonb_agg(to_jsonb(u) ORDER BY id)::text FROM users u`).Scan(&after))
+			f.must(f.db.QueryRowContext(t.Context(), `SELECT json_group_array(json_object('id',u.id,'person_id',u.person_id,'login_email',u.login_email,'password_hash',u.password_hash,'is_active',u.is_active,'created_at',u.created_at,'username',u.username,'activated_at',u.activated_at) ORDER BY id) FROM users u`).Scan(&after))
 			if before != after {
 				t.Fatal("User changed before approval")
 			}
@@ -566,7 +565,7 @@ func TestPublicJoinConcurrency(t *testing.T) {
 			t.Fatal("concurrent POST", code)
 		}
 	}
-	if n := f.id(`SELECT count(*)::integer FROM memberships`); n != 1 {
+	if n := f.id(`SELECT count(*) FROM memberships`); n != 1 {
 		t.Fatal("same form duplicated membership")
 	}
 	sub := f.id(`SELECT max(submission_id) FROM registration_applications`)
@@ -585,7 +584,7 @@ func TestPublicJoinConcurrency(t *testing.T) {
 	for err := range results {
 		f.must(err)
 	}
-	if n := f.id(`SELECT count(*)::integer FROM memberships`); n != 1 {
+	if n := f.id(`SELECT count(*) FROM memberships`); n != 1 {
 		t.Fatal("concurrent finalizer duplicate")
 	}
 }
@@ -613,32 +612,34 @@ func TestPublicJoinVerifyVersusAdmin(t *testing.T) {
 	if wins != 1 || f.publicApplication(sub).Status != "membership_created" {
 		t.Fatal("resolution race")
 	}
-	if n := f.id(`SELECT count(*)::integer FROM memberships`); n != 1 {
+	if n := f.id(`SELECT count(*) FROM memberships`); n != 1 {
 		t.Fatal("double resolution membership")
 	}
 }
 
 func TestPublicJoinMigrationAudit(t *testing.T) {
 	f := newFixture(t)
-	db, err := sql.Open("pgx", f.db.Config().ConnString())
+	db, err := openTestConnection(t, f.db)
 	f.must(err)
 	defer db.Close()
-	provider, err := goose.NewProvider(goose.DialectPostgres, db, os.DirFS("../../migrations"))
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db, os.DirFS("../../migrations"))
 	f.must(err)
-	_, err = provider.DownTo(t.Context(), 20)
-	f.must(err)
+	_, err = provider.Up(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, err = provider.Up(t.Context())
 	f.must(err)
 	b := newBrowser(f.app.Handler)
 	sub := f.joinSubmit(b, f.joinForm(b))
 	a := f.publicApplication(sub)
-	if _, err = provider.DownTo(t.Context(), 20); err == nil {
+	if _, err = provider.DownTo(t.Context(), 0); err == nil {
 		t.Fatal("application audit discarded")
 	}
-	if _, err = f.db.Exec(t.Context(), `DELETE FROM registration_applications WHERE id=$1`, a.ID); err == nil {
+	if _, err = f.db.ExecContext(t.Context(), `DELETE FROM registration_applications WHERE id=?1`, a.ID); err == nil {
 		t.Fatal("application erased")
 	}
-	if _, err = f.db.Exec(t.Context(), `UPDATE registration_application_activities SET activity_id=activity_id WHERE application_id=$1`, a.ID); err == nil {
+	if _, err = f.db.ExecContext(t.Context(), `UPDATE registration_application_activities SET activity_id=activity_id WHERE application_id=?1`, a.ID); err == nil {
 		t.Fatal("snapshot changed")
 	}
 }
@@ -684,7 +685,7 @@ func TestPublicJoinConcurrentResolvedPersonAndFinalizers(t *testing.T) {
 			retryID = id
 		}
 	}
-	if retryID == 0 || f.id(`SELECT count(*)::integer FROM memberships`) != 1 {
+	if retryID == 0 || f.id(`SELECT count(*) FROM memberships`) != 1 {
 		t.Fatal("person/season uniqueness")
 	}
 	// Exercise two finalizers doing real creation after an availability correction.
@@ -694,17 +695,17 @@ func TestPublicJoinConcurrentResolvedPersonAndFinalizers(t *testing.T) {
 	form.Set("season_id", fmt.Sprint(freshSeason))
 	sub := f.joinSubmit(b, form)
 	f.drive()
-	f.exec(`UPDATE activities SET is_active=false WHERE id=$1`, f.activity)
+	f.exec(`UPDATE activities SET is_active=false WHERE id=?1`, f.activity)
 	ref, code := verificationFrom(t, f.mail.messages[len(f.mail.messages)-1])
 	f.must(f.app.Verifications.VerifyEmail(t.Context(), ref, code))
-	f.exec(`UPDATE activities SET is_active=true WHERE id=$1`, f.activity)
+	f.exec(`UPDATE activities SET is_active=true WHERE id=?1`, f.activity)
 	for i := 0; i < 2; i++ {
 		go func() { _, err := f.app.RegistrationApplications.Finalize(t.Context(), sub); results <- err }()
 	}
 	for i := 0; i < 2; i++ {
 		f.must(<-results)
 	}
-	if f.publicApplication(sub).Status != "membership_created" || f.id(`SELECT count(*)::integer FROM memberships WHERE person_id=$1 AND season_id=$2`, f.person, freshSeason) != 1 {
+	if f.publicApplication(sub).Status != "membership_created" || f.id(`SELECT count(*) FROM memberships WHERE person_id=?1 AND season_id=?2`, f.person, freshSeason) != 1 {
 		t.Fatal("concurrent finalizers created duplicates")
 	}
 }

@@ -13,7 +13,7 @@ func TestUsersAndRolesWebAdministration(t *testing.T) {
 	f := newFixture(t)
 	hash, err := bcrypt.GenerateFromPassword([]byte("a secure password"), bcrypt.DefaultCost)
 	f.must(err)
-	f.exec("UPDATE users SET password_hash=$2,login_email='admin@example.test' WHERE id=$1", f.approver, string(hash))
+	f.exec("UPDATE users SET password_hash=?2,login_email='admin@example.test' WHERE id=?1", f.approver, string(hash))
 	account := f.approved()
 	if len(f.mail.messages) != 1 {
 		t.Fatal("activation email missing")
@@ -57,7 +57,7 @@ func TestUsersAndRolesWebAdministration(t *testing.T) {
 		t.Fatalf("csrf: %d", got.Code)
 	}
 	var count int
-	f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=$1 AND r.name='secretary'", member).Scan(&count))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=?1 AND r.name='secretary'", member).Scan(&count))
 	if count != 0 {
 		t.Fatal("CSRF mutation persisted")
 	}
@@ -104,7 +104,7 @@ func TestUsersAndRolesWebAdministration(t *testing.T) {
 		t.Fatal("new manager detail")
 	}
 	var auditCount int
-	f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM administrative_events WHERE actor_user_id=$1 AND resource_type='user' AND role_name IN ('secretary','president') AND action IN ('role_granted','role_revoked')", f.approver).Scan(&auditCount))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM administrative_events WHERE actor_user_id=?1 AND resource_type='user' AND role_name IN ('secretary','president') AND action IN ('role_granted','role_revoked')", f.approver).Scan(&auditCount))
 	if auditCount != 4 {
 		t.Fatalf("role audit count: %d", auditCount)
 	}
@@ -114,10 +114,10 @@ func TestConcurrentRoleRemovalKeepsOneManager(t *testing.T) {
 	f := newFixture(t)
 	hash, err := bcrypt.GenerateFromPassword([]byte("a secure password"), bcrypt.DefaultCost)
 	f.must(err)
-	f.exec("UPDATE users SET password_hash=$2 WHERE id=$1", f.approver, string(hash))
+	f.exec("UPDATE users SET password_hash=?2 WHERE id=?1", f.approver, string(hash))
 	person := f.id("INSERT INTO persons(first_name,last_name) VALUES ('Other','Manager') RETURNING id")
-	other := f.id("INSERT INTO users(person_id,username,password_hash,activated_at) VALUES ($1,'othermanager',$2,now()) RETURNING id", person, string(hash))
-	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='president'", other)
+	other := f.id("INSERT INTO users(person_id,username,password_hash,activated_at) VALUES (?1,'othermanager',?2,strftime('%Y-%m-%d %H:%M:%f','now')) RETURNING id", person, string(hash))
+	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='president'", other)
 	browsers := []*browser{f.loginBrowser("admin"), f.loginBrowser("othermanager")}
 	ids := []int32{f.approver, other}
 	results := make(chan int, 2)
@@ -134,12 +134,12 @@ func TestConcurrentRoleRemovalKeepsOneManager(t *testing.T) {
 		}
 	}
 	var managers int
-	f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE r.name='president'").Scan(&managers))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE r.name='president'").Scan(&managers))
 	if managers != 1 {
 		t.Fatalf("managers remaining: %d", managers)
 	}
 	var audits int
-	f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM administrative_events WHERE action='role_revoked'").Scan(&audits))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM administrative_events WHERE action='role_revoked'").Scan(&audits))
 	if audits != 1 {
 		t.Fatalf("revocation audit count: %d", audits)
 	}

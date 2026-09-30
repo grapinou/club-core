@@ -6,12 +6,11 @@ import (
 	"context"
 	"time"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/civildate"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Decision string
@@ -37,12 +36,12 @@ type Result struct {
 	Supervised bool
 }
 type Service struct {
-	db       *pgxpool.Pool
+	db       *sql.DB
 	location *time.Location
 	now      func() time.Time
 }
 
-func New(db *pgxpool.Pool, location *time.Location) *Service {
+func New(db *sql.DB, location *time.Location) *Service {
 	if location == nil {
 		panic("minor safety requires business location")
 	}
@@ -69,11 +68,11 @@ func (s *Service) EvaluatePrivateConversation(ctx context.Context, userIDs []int
 	if !seen[actor] {
 		return deny, nil
 	}
-	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return deny, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	q := dbsqlc.New(tx)
 	people, err := q.ListInteractionParticipants(ctx, userIDs)
 	if err != nil {
@@ -86,12 +85,12 @@ func (s *Service) EvaluatePrivateConversation(ctx context.Context, userIDs []int
 	for _, p := range people {
 		ids = append(ids, p.PersonID)
 	}
-	edges, err := q.ListInteractionGuardianEdges(ctx, ids)
+	edges, err := q.ListInteractionGuardianEdges(ctx, dbsqlc.ListInteractionGuardianEdgesParams{Ids: ids, GuardianIds: ids})
 	if err != nil {
 		return deny, err
 	}
 	result := evaluate(people, edges, s.now().In(s.location))
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return deny, err
 	}
 	return result, nil
@@ -104,7 +103,7 @@ func evaluate(people []dbsqlc.ListInteractionParticipantsRow, edges []dbsqlc.Lis
 	result := Result{Decision: NotApplicable, Basis: RuleClubCoreSafety}
 	minors, adults := map[int32]bool{}, map[int32]bool{}
 	for _, p := range people {
-		if !p.BirthDate.Valid || p.BirthDate.InfinityModifier != pgtype.Finite {
+		if !p.BirthDate.Valid || !p.BirthDate.IsFinite() {
 			result.Decision = Denied
 			return result
 		}

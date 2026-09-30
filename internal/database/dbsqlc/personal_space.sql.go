@@ -7,14 +7,16 @@ package dbsqlc
 
 import (
 	"context"
+	"database/sql"
+	"strings"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 const getPersonalAccount = `-- name: GetPersonalAccount :one
 SELECT p.id AS person_id, p.first_name, p.last_name, p.email, p.phone_number, p.address, p.birth_date, u.username
 FROM users u JOIN persons p ON p.id=u.person_id
-WHERE u.id=$1 AND u.is_active AND u.activated_at IS NOT NULL
+WHERE u.id=?1 AND u.is_active AND u.activated_at IS NOT NULL
  AND u.password_hash IS NOT NULL AND p.archived_at IS NULL
 `
 
@@ -22,17 +24,17 @@ type GetPersonalAccountRow struct {
 	PersonID    int32
 	FirstName   string
 	LastName    string
-	Email       pgtype.Text
-	PhoneNumber pgtype.Text
-	Address     pgtype.Text
-	BirthDate   pgtype.Date
+	Email       sql.NullString
+	PhoneNumber sql.NullString
+	Address     sql.NullString
+	BirthDate   dbtypes.Date
 	Username    string
 }
 
 // Safe read projections only. Resource ownership is supplied by personalspace
 // after deriving the caller's Person or checking GuardianAccess.
 func (q *Queries) GetPersonalAccount(ctx context.Context, id int32) (GetPersonalAccountRow, error) {
-	row := q.db.QueryRow(ctx, getPersonalAccount, id)
+	row := q.db.QueryRowContext(ctx, getPersonalAccount, id)
 	var i GetPersonalAccountRow
 	err := row.Scan(
 		&i.PersonID,
@@ -51,8 +53,8 @@ const getPersonalChild = `-- name: GetPersonalChild :one
 SELECT p.first_name,p.last_name,p.birth_date,
  EXISTS(SELECT 1 FROM person_emergency_contacts e WHERE e.person_id=p.id) AS has_emergency,
  EXISTS(SELECT 1 FROM person_emergency_contacts e WHERE e.person_id=p.id
- AND e.contact_person_id=$1) AS viewer_is_emergency
-FROM persons p WHERE p.id=$2 AND p.archived_at IS NULL
+ AND e.contact_person_id=?1) AS viewer_is_emergency
+FROM persons p WHERE p.id=?2 AND p.archived_at IS NULL
 `
 
 type GetPersonalChildParams struct {
@@ -63,13 +65,13 @@ type GetPersonalChildParams struct {
 type GetPersonalChildRow struct {
 	FirstName         string
 	LastName          string
-	BirthDate         pgtype.Date
+	BirthDate         dbtypes.Date
 	HasEmergency      bool
 	ViewerIsEmergency bool
 }
 
 func (q *Queries) GetPersonalChild(ctx context.Context, arg GetPersonalChildParams) (GetPersonalChildRow, error) {
-	row := q.db.QueryRow(ctx, getPersonalChild, arg.ViewerPersonID, arg.ChildPersonID)
+	row := q.db.QueryRowContext(ctx, getPersonalChild, arg.ViewerPersonID, arg.ChildPersonID)
 	var i GetPersonalChildRow
 	err := row.Scan(
 		&i.FirstName,
@@ -83,10 +85,10 @@ func (q *Queries) GetPersonalChild(ctx context.Context, arg GetPersonalChildPara
 
 const getPersonalMembership = `-- name: GetPersonalMembership :one
 SELECT m.id,m.status,m.requested_at,m.joined_at,s.name AS season_name,t.name AS membership_type_name,
- ARRAY(SELECT a.name FROM activities a JOIN membership_activities ma ON ma.activity_id=a.id
- WHERE ma.membership_id=m.id ORDER BY a.name,a.id)::text[] AS activities
+ CAST((SELECT json_group_array(value) FROM (SELECT a.name AS value FROM activities a JOIN membership_activities ma ON ma.activity_id=a.id
+ WHERE ma.membership_id=m.id ORDER BY a.name,a.id)) AS JSON_TEXT_STRINGS) AS activities
 FROM memberships m JOIN seasons s ON s.id=m.season_id JOIN membership_types t ON t.id=m.membership_type_id
-WHERE m.id=$1 AND m.person_id=$2
+WHERE m.id=?1 AND m.person_id=?2
 `
 
 type GetPersonalMembershipParams struct {
@@ -97,15 +99,15 @@ type GetPersonalMembershipParams struct {
 type GetPersonalMembershipRow struct {
 	ID                 int32
 	Status             string
-	RequestedAt        pgtype.Timestamptz
-	JoinedAt           pgtype.Date
+	RequestedAt        dbtypes.Timestamp
+	JoinedAt           dbtypes.Date
 	SeasonName         string
 	MembershipTypeName string
-	Activities         []string
+	Activities         dbtypes.Strings
 }
 
 func (q *Queries) GetPersonalMembership(ctx context.Context, arg GetPersonalMembershipParams) (GetPersonalMembershipRow, error) {
-	row := q.db.QueryRow(ctx, getPersonalMembership, arg.MembershipID, arg.PersonID)
+	row := q.db.QueryRowContext(ctx, getPersonalMembership, arg.MembershipID, arg.PersonID)
 	var i GetPersonalMembershipRow
 	err := row.Scan(
 		&i.ID,
@@ -128,12 +130,12 @@ SELECT EXISTS(SELECT 1 FROM memberships WHERE person_id=p.id)
  WHERE g.resolved_by_user_id=u.id AND g.resolved_person_id=p.id
  AND a.status IN ('awaiting_identity','needs_review')) AS has_context
 FROM users u JOIN persons p ON p.id=u.person_id
-WHERE u.id=$1 AND u.is_active AND u.activated_at IS NOT NULL AND u.password_hash IS NOT NULL AND p.archived_at IS NULL
+WHERE u.id=?1 AND u.is_active AND u.activated_at IS NOT NULL AND u.password_hash IS NOT NULL AND p.archived_at IS NULL
 `
 
-func (q *Queries) HasOwnPersonalContext(ctx context.Context, id int32) (pgtype.Bool, error) {
-	row := q.db.QueryRow(ctx, hasOwnPersonalContext, id)
-	var has_context pgtype.Bool
+func (q *Queries) HasOwnPersonalContext(ctx context.Context, id int32) (sql.NullBool, error) {
+	row := q.db.QueryRowContext(ctx, hasOwnPersonalContext, id)
+	var has_context sql.NullBool
 	err := row.Scan(&has_context)
 	return has_context, err
 }
@@ -144,29 +146,41 @@ FROM registration_applications a
 JOIN registration_submissions s ON s.id=a.submission_id
 JOIN child_registration_applications c ON c.application_id=a.id
 JOIN guardian_identity_claims g ON g.id=c.guardian_claim_id
-WHERE g.resolved_by_user_id=$1
- AND g.resolved_person_id=$2
+WHERE g.resolved_by_user_id=?1
+ AND g.resolved_person_id=?2
  AND a.status IN ('awaiting_identity','needs_review')
- AND (s.resolved_person_id IS NULL OR NOT(s.resolved_person_id=ANY($3::integer[])))
+ AND (s.resolved_person_id IS NULL OR NOT(s.resolved_person_id IN (/*SLICE:managed_children*/?)))
 ORDER BY s.created_at DESC,s.id DESC
 `
 
 type ListPendingFamilyRequestsParams struct {
-	ViewerUserID    pgtype.Int4
-	ViewerPersonID  pgtype.Int4
-	ManagedChildren []int32
+	ViewerUserID    sql.NullInt32
+	ViewerPersonID  sql.NullInt32
+	ManagedChildren []sql.NullInt32
 }
 
 type ListPendingFamilyRequestsRow struct {
 	FirstName string
 	LastName  string
-	CreatedAt pgtype.Timestamptz
+	CreatedAt dbtypes.Timestamp
 }
 
 // Only authenticated family submissions made by this account. Declared child
 // data stays in staging; matching and resolved identities are never projected.
 func (q *Queries) ListPendingFamilyRequests(ctx context.Context, arg ListPendingFamilyRequestsParams) ([]ListPendingFamilyRequestsRow, error) {
-	rows, err := q.db.Query(ctx, listPendingFamilyRequests, arg.ViewerUserID, arg.ViewerPersonID, arg.ManagedChildren)
+	query := listPendingFamilyRequests
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.ViewerUserID)
+	queryParams = append(queryParams, arg.ViewerPersonID)
+	if len(arg.ManagedChildren) > 0 {
+		for _, v := range arg.ManagedChildren {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:managed_children*/?", strings.Repeat(",?", len(arg.ManagedChildren))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:managed_children*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}
@@ -179,6 +193,9 @@ func (q *Queries) ListPendingFamilyRequests(ctx context.Context, arg ListPending
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -186,13 +203,12 @@ func (q *Queries) ListPendingFamilyRequests(ctx context.Context, arg ListPending
 }
 
 const listPersonalConsents = `-- name: ListPersonalConsents :many
-SELECT d.id,d.is_active,d.title,d.version,d.description,c.decision,c.recorded_at,
- COALESCE(c.given_by_person_id=$1,false)::boolean AS given_by_viewer
+SELECT d.id,d.is_active,d.title,d.version,d.description,c.decision,c.recorded_at, CAST(COALESCE(c.given_by_person_id=?1,false) AS BOOLEAN) AS given_by_viewer
 FROM membership_consent_requirements r JOIN consent_definitions d ON d.id=r.consent_definition_id
 LEFT JOIN membership_consents c ON c.id=(SELECT mc.id FROM membership_consents mc
  WHERE mc.membership_id=r.membership_id AND mc.consent_definition_id=r.consent_definition_id
  ORDER BY mc.recorded_at DESC,mc.id DESC LIMIT 1)
-WHERE r.membership_id=$2 ORDER BY d.code,d.version
+WHERE r.membership_id=?2 ORDER BY d.code,d.version
 `
 
 type ListPersonalConsentsParams struct {
@@ -206,13 +222,13 @@ type ListPersonalConsentsRow struct {
 	Title         string
 	Version       int32
 	Description   string
-	Decision      pgtype.Text
-	RecordedAt    pgtype.Timestamptz
+	Decision      sql.NullString
+	RecordedAt    dbtypes.Timestamp
 	GivenByViewer bool
 }
 
 func (q *Queries) ListPersonalConsents(ctx context.Context, arg ListPersonalConsentsParams) ([]ListPersonalConsentsRow, error) {
-	rows, err := q.db.Query(ctx, listPersonalConsents, arg.ViewerPersonID, arg.MembershipID)
+	rows, err := q.db.QueryContext(ctx, listPersonalConsents, arg.ViewerPersonID, arg.MembershipID)
 	if err != nil {
 		return nil, err
 	}
@@ -234,6 +250,9 @@ func (q *Queries) ListPersonalConsents(ctx context.Context, arg ListPersonalCons
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -242,36 +261,36 @@ func (q *Queries) ListPersonalConsents(ctx context.Context, arg ListPersonalCons
 
 const listPersonalGroups = `-- name: ListPersonalGroups :many
 SELECT g.name AS group_name,a.name AS activity_name,gs.weekday,
- COALESCE(to_char(gs.start_time,'HH24:MI'),'')::text AS start_time,
- COALESCE(to_char(gs.end_time,'HH24:MI'),'')::text AS end_time,COALESCE((SELECT l.name FROM locations l WHERE l.id=gs.location_id),gs.location) AS location
+ CAST(COALESCE(CAST(substr(gs.start_time,1,5) AS TEXT),'') AS TEXT) AS start_time,
+ CAST(COALESCE(CAST(substr(gs.end_time,1,5) AS TEXT),'') AS TEXT) AS end_time,COALESCE((SELECT l.name FROM locations l WHERE l.id=gs.location_id),gs.location) AS location
 FROM membership_groups mg JOIN memberships m ON m.id=mg.membership_id
 JOIN groups g ON g.id=mg.group_id AND g.is_active
 JOIN activities a ON a.id=g.activity_id
 LEFT JOIN group_slots gs ON gs.group_id=g.id AND gs.season_id=m.season_id
- AND gs.is_active AND gs.valid_from<=$1::date
- AND (gs.valid_until IS NULL OR gs.valid_until>=$1::date)
-WHERE mg.membership_id=$2 AND mg.joined_at<=$1::date
- AND (mg.left_at IS NULL OR mg.left_at>$1::date)
+ AND gs.is_active AND gs.valid_from<=?1
+ AND (gs.valid_until IS NULL OR gs.valid_until>=?1)
+WHERE mg.membership_id=?2 AND mg.joined_at<=?1
+ AND (mg.left_at IS NULL OR mg.left_at>?1)
 ORDER BY g.name,g.id,gs.weekday,gs.start_time,gs.id
 `
 
 type ListPersonalGroupsParams struct {
-	Today        pgtype.Date
+	Today        dbtypes.Date
 	MembershipID int32
 }
 
 type ListPersonalGroupsRow struct {
 	GroupName    string
 	ActivityName string
-	Weekday      pgtype.Int2
+	Weekday      sql.NullInt16
 	StartTime    string
 	EndTime      string
-	Location     pgtype.Text
+	Location     sql.NullString
 }
 
 // Current assignment [joined_at,left_at); current slot validity is inclusive.
 func (q *Queries) ListPersonalGroups(ctx context.Context, arg ListPersonalGroupsParams) ([]ListPersonalGroupsRow, error) {
-	rows, err := q.db.Query(ctx, listPersonalGroups, arg.Today, arg.MembershipID)
+	rows, err := q.db.QueryContext(ctx, listPersonalGroups, arg.Today, arg.MembershipID)
 	if err != nil {
 		return nil, err
 	}
@@ -291,6 +310,9 @@ func (q *Queries) ListPersonalGroups(ctx context.Context, arg ListPersonalGroups
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -299,10 +321,10 @@ func (q *Queries) ListPersonalGroups(ctx context.Context, arg ListPersonalGroups
 
 const listPersonalMembershipSummaries = `-- name: ListPersonalMembershipSummaries :many
 SELECT m.id,m.person_id,m.season_id,m.status,s.name AS season_name,t.name AS membership_type_name,
- ARRAY(SELECT a.name FROM activities a JOIN membership_activities ma ON ma.activity_id=a.id
- WHERE ma.membership_id=m.id ORDER BY a.name,a.id)::text[] AS activities
+ CAST((SELECT json_group_array(value) FROM (SELECT a.name AS value FROM activities a JOIN membership_activities ma ON ma.activity_id=a.id
+ WHERE ma.membership_id=m.id ORDER BY a.name,a.id)) AS JSON_TEXT_STRINGS) AS activities
 FROM memberships m JOIN seasons s ON s.id=m.season_id JOIN membership_types t ON t.id=m.membership_type_id
-WHERE m.person_id=ANY($1::integer[]) ORDER BY s.starts_at DESC,m.id DESC
+WHERE m.person_id IN (/*SLICE:ids*/?) ORDER BY s.starts_at DESC,m.id DESC
 `
 
 type ListPersonalMembershipSummariesRow struct {
@@ -312,11 +334,21 @@ type ListPersonalMembershipSummariesRow struct {
 	Status             string
 	SeasonName         string
 	MembershipTypeName string
-	Activities         []string
+	Activities         dbtypes.Strings
 }
 
-func (q *Queries) ListPersonalMembershipSummaries(ctx context.Context, dollar_1 []int32) ([]ListPersonalMembershipSummariesRow, error) {
-	rows, err := q.db.Query(ctx, listPersonalMembershipSummaries, dollar_1)
+func (q *Queries) ListPersonalMembershipSummaries(ctx context.Context, ids []int32) ([]ListPersonalMembershipSummariesRow, error) {
+	query := listPersonalMembershipSummaries
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}
@@ -336,6 +368,9 @@ func (q *Queries) ListPersonalMembershipSummaries(ctx context.Context, dollar_1 
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

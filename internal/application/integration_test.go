@@ -10,10 +10,15 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/grapinou/club-core/internal/database/dbtypes"
+
+	"github.com/grapinou/club-core/internal/database"
 
 	"github.com/grapinou/club-core/internal/accounts"
 	"github.com/grapinou/club-core/internal/auth"
@@ -21,11 +26,9 @@ import (
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/mailer"
 	"github.com/grapinou/club-core/internal/memberships"
-	"github.com/jackc/pgx/v5/pgxpool"
-	_ "github.com/jackc/pgx/v5/stdlib"
+
 	"github.com/pressly/goose/v3"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
+
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -45,44 +48,28 @@ func (f *fakeMailer) Send(_ context.Context, m mailer.Message) error {
 
 type fixture struct {
 	t                                        *testing.T
-	db                                       *pgxpool.Pool
+	db                                       *sql.DB
 	app                                      *Application
 	mail                                     *fakeMailer
 	memberships                              *memberships.Service
 	person, approver, season, kind, activity int32
 }
 
-func newApplicationDatabase(t *testing.T, name string) *pgxpool.Pool {
+func newApplicationDatabase(t *testing.T, name string) *sql.DB {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
-	defer cancel()
-	container, err := postgres.Run(ctx, "postgres:16-alpine", postgres.WithDatabase(name), postgres.WithUsername("club"), postgres.WithPassword("test"), postgres.BasicWaitStrategies())
-	testcontainers.CleanupContainer(t, container)
+	db, err := database.New(t.Context(), filepath.Join(t.TempDir(), name+".db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	dsn, err := container.ConnectionString(ctx, "sslmode=disable")
+	t.Cleanup(func() { db.Close() })
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db, os.DirFS("../../migrations"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	migrationDB, err := sql.Open("pgx", dsn)
-	if err != nil {
+	if _, err = provider.Up(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	defer migrationDB.Close()
-	provider, err := goose.NewProvider(goose.DialectPostgres, migrationDB, os.DirFS("../../migrations"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = provider.Up(ctx); err != nil {
-		t.Fatal(err)
-	}
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	return pool
+	return db
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -97,8 +84,8 @@ func newFixture(t *testing.T) *fixture {
 	f.must(err)
 	f.person = f.id("INSERT INTO persons(first_name,last_name,birth_date,email) VALUES ('Rémi','Dupont','1990-01-01','remi@example.test') RETURNING id")
 	admin := f.id("INSERT INTO persons(first_name,last_name) VALUES ('Admin','Club') RETURNING id")
-	f.approver = f.id("INSERT INTO users(person_id,username,password_hash,activated_at) VALUES ($1,'admin','preserved',now()) RETURNING id", admin)
-	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='president'", f.approver)
+	f.approver = f.id("INSERT INTO users(person_id,username,password_hash,activated_at) VALUES (?1,'admin','preserved',strftime('%Y-%m-%d %H:%M:%f','now')) RETURNING id", admin)
+	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='president'", f.approver)
 	f.season = f.id("INSERT INTO seasons(name,starts_at,ends_at) VALUES ('2026','2026-09-01','2027-08-31') RETURNING id")
 	f.kind = f.id("INSERT INTO membership_types(name) VALUES ('Standard') RETURNING id")
 	f.activity = f.id("INSERT INTO activities(name) VALUES ('Practice') RETURNING id")
@@ -113,12 +100,12 @@ func (f *fixture) must(err error) {
 func (f *fixture) id(query string, args ...any) int32 {
 	f.t.Helper()
 	var id int32
-	f.must(f.db.QueryRow(f.t.Context(), query, args...).Scan(&id))
+	f.must(f.db.QueryRowContext(f.t.Context(), query, args...).Scan(&id))
 	return id
 }
 func (f *fixture) exec(query string, args ...any) {
 	f.t.Helper()
-	_, err := f.db.Exec(f.t.Context(), query, args...)
+	_, err := f.db.ExecContext(f.t.Context(), query, args...)
 	f.must(err)
 }
 func (f *fixture) request() dbsqlc.Membership {
@@ -199,13 +186,13 @@ func TestFullActivationAndUsernameLogin(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 		defer cancel()
 		var status string
-		f.must(f.db.QueryRow(ctx, "SELECT status FROM memberships WHERE id=$1", m.ID).Scan(&status))
+		f.must(f.db.QueryRowContext(ctx, "SELECT status FROM memberships WHERE id=?1", m.ID).Scan(&status))
 		if status != "active" {
 			t.Fatal("mail before committed approval")
 		}
 		digest := sha256.Sum256([]byte(codeFrom(t, message)))
 		var exists bool
-		f.must(f.db.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM user_activation_codes WHERE code_hash=$1)", digest[:]).Scan(&exists))
+		f.must(f.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM user_activation_codes WHERE code_hash=?1)", digest[:]).Scan(&exists))
 		if !exists {
 			t.Fatal("mail before committed code")
 		}
@@ -236,7 +223,7 @@ func TestFullActivationAndUsernameLogin(t *testing.T) {
 	}
 	f.must(bcrypt.CompareHashAndPassword([]byte(user.PasswordHash.String), []byte("a secure password")))
 	// No current membership is required to log in.
-	f.exec("UPDATE memberships SET status='ended',ended_at=current_date WHERE id=$1", m.ID)
+	f.exec("UPDATE memberships SET status='ended',ended_at=current_date WHERE id=?1", m.ID)
 	response = b.call("POST", "/login", url.Values{"csrf_token": {token}, "username": {"remi.dupont"}, "password": {"a secure password"}})
 	if response.Code != 303 || response.Header().Get("Location") != "/dashboard" {
 		t.Fatal("login")
@@ -277,17 +264,17 @@ func TestApprovalFailureAndResend(t *testing.T) {
 		t.Fatal("wrong operational result")
 	}
 	var status string
-	f.must(f.db.QueryRow(t.Context(), "SELECT status FROM memberships WHERE id=$1", m.ID).Scan(&status))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT status FROM memberships WHERE id=?1", m.ID).Scan(&status))
 	if status != "active" {
 		t.Fatal("SMTP rolled back membership")
 	}
 	oldCode := codeFrom(t, f.mail.messages[0])
 	oldHash := sha256.Sum256([]byte(oldCode))
-	f.exec("UPDATE persons SET email='changed@example.test' WHERE id=$1", f.person)
+	f.exec("UPDATE persons SET email='changed@example.test' WHERE id=?1", f.person)
 	f.mail.err = nil
 	f.mail.check = func(message mailer.Message) {
 		var invalidated bool
-		f.must(f.db.QueryRow(t.Context(), "SELECT invalidated_at IS NOT NULL FROM user_activation_codes WHERE code_hash=$1", oldHash[:]).Scan(&invalidated))
+		f.must(f.db.QueryRowContext(t.Context(), "SELECT invalidated_at IS NOT NULL FROM user_activation_codes WHERE code_hash=?1", oldHash[:]).Scan(&invalidated))
 		if !invalidated {
 			t.Fatal("resend before commit")
 		}
@@ -301,11 +288,11 @@ func TestApprovalFailureAndResend(t *testing.T) {
 		t.Fatal("resend")
 	}
 	f.mail.check = nil
-	f.exec("UPDATE users SET is_active=false WHERE id=$1", a.UserID)
+	f.exec("UPDATE users SET is_active=false WHERE id=?1", a.UserID)
 	if _, err = f.app.Accounts.ResendActivation(t.Context(), f.approver, a.UserID); !errors.Is(err, accounts.ErrDisabled) {
 		t.Fatal("disabled accepted")
 	}
-	f.exec("UPDATE users SET is_active=true,activated_at=now(),password_hash='preserved' WHERE id=$1", a.UserID)
+	f.exec("UPDATE users SET is_active=true,activated_at=strftime('%Y-%m-%d %H:%M:%f','now'),password_hash='preserved' WHERE id=?1", a.UserID)
 	if _, err = f.app.Accounts.ResendActivation(t.Context(), f.approver, a.UserID); !errors.Is(err, accounts.ErrAlreadyActivated) {
 		t.Fatal("activated accepted")
 	}
@@ -315,7 +302,7 @@ func TestApprovalFailureAndResend(t *testing.T) {
 }
 func TestNoEmailAndCommitFailure(t *testing.T) {
 	f := newFixture(t)
-	f.exec("UPDATE persons SET email=NULL WHERE id=$1", f.person)
+	f.exec("UPDATE persons SET email=NULL WHERE id=?1", f.person)
 	a := f.approved()
 	if a.DeliveryStatus != accounts.NoChannel || a.Membership.Status != "active" || len(f.mail.messages) != 0 {
 		t.Fatal("no channel approval")
@@ -326,15 +313,15 @@ func TestNoEmailAndCommitFailure(t *testing.T) {
 		t.Fatal("no channel resend")
 	}
 	guardian := f.id("INSERT INTO persons(first_name,last_name,email) VALUES ('Parent','Dupont','parent@example.test') RETURNING id")
-	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type,is_primary_contact) VALUES ($1,$2,'guardian',true)", f.person, guardian)
+	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type,is_primary_contact) VALUES (?1,?2,'guardian',true)", f.person, guardian)
 	result, err = f.app.Accounts.ResendActivation(t.Context(), f.approver, a.UserID)
 	f.must(err)
 	if result.DeliveryStatus != accounts.Sent || f.mail.messages[0].To != "parent@example.test" {
 		t.Fatal("guardian fallback")
 	}
-	f.exec("UPDATE persons SET email=NULL WHERE id=$1", guardian)
+	f.exec("UPDATE persons SET email=NULL WHERE id=?1", guardian)
 	other := f.id("INSERT INTO persons(first_name,last_name,email) VALUES ('Other','Guardian','other@example.test') RETURNING id")
-	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES ($1,$2,'guardian')", f.person, other)
+	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES (?1,?2,'guardian')", f.person, other)
 	result, err = f.app.Accounts.ResendActivation(t.Context(), f.approver, a.UserID)
 	f.must(err)
 	if result.DeliveryStatus != accounts.Sent || f.mail.messages[1].To != "other@example.test" {
@@ -342,14 +329,16 @@ func TestNoEmailAndCommitFailure(t *testing.T) {
 	}
 	f.season = f.id("INSERT INTO seasons(name,starts_at,ends_at) VALUES ('2028','2028-09-01','2029-08-31') RETURNING id")
 	m := f.request()
-	f.exec(`CREATE FUNCTION fail_commit_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'forced commit failure'; END; $$`)
-	f.exec("CREATE CONSTRAINT TRIGGER fail_commit_test AFTER UPDATE ON memberships DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fail_commit_test()")
+
+	// The update succeeds, but its deferred foreign key fails at COMMIT.
+	f.exec("CREATE TABLE fail_commit_test (membership_id INTEGER REFERENCES memberships(id) DEFERRABLE INITIALLY DEFERRED)")
+	f.exec("CREATE TRIGGER fail_commit_test AFTER UPDATE ON memberships BEGIN INSERT INTO fail_commit_test VALUES(-1); END;")
 	_, err = f.app.Accounts.ApproveMembership(t.Context(), m.ID, f.approver, nil)
 	if err == nil || len(f.mail.messages) != 2 {
 		t.Fatal("delivery despite failed commit")
 	}
 	var status string
-	f.must(f.db.QueryRow(t.Context(), "SELECT status FROM memberships WHERE id=$1", m.ID).Scan(&status))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT status FROM memberships WHERE id=?1", m.ID).Scan(&status))
 	if status != "pending" {
 		t.Fatal("commit failure not rolled back")
 	}
@@ -378,11 +367,11 @@ func TestActivationHTTPGenericFailures(t *testing.T) {
 			case "unknown username":
 				form.Set("username", "unknown.private")
 			case "expired":
-				f.exec("UPDATE user_activation_codes SET created_at=now()-interval '2 hours',expires_at=now()-interval '1 hour' WHERE user_id=$1", a.UserID)
+				f.exec("UPDATE user_activation_codes SET created_at=strftime('%Y-%m-%d %H:%M:%f','now','-2 hours'),expires_at=strftime('%Y-%m-%d %H:%M:%f','now','-1 hour') WHERE user_id=?1", a.UserID)
 			case "invalidated":
-				f.exec("UPDATE user_activation_codes SET invalidated_at=now() WHERE user_id=$1", a.UserID)
+				f.exec("UPDATE user_activation_codes SET invalidated_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE user_id=?1", a.UserID)
 			case "used":
-				f.exec("UPDATE user_activation_codes SET used_at=now() WHERE user_id=$1", a.UserID)
+				f.exec("UPDATE user_activation_codes SET used_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE user_id=?1", a.UserID)
 			}
 			response := b.call("POST", "/activate", form)
 			if response.Code != 303 || response.Header().Get("Location") != "/activate?error=1" {
@@ -409,7 +398,7 @@ func TestUsernameLoginFailuresAndIndependentUser(t *testing.T) {
 	f := newFixture(t)
 	hash, err := bcrypt.GenerateFromPassword([]byte("a secure password"), bcrypt.DefaultCost)
 	f.must(err)
-	uid := f.id("INSERT INTO users(person_id,username,password_hash,activated_at) VALUES ($1,'independent',$2,now()) RETURNING id", f.person, string(hash))
+	uid := f.id("INSERT INTO users(person_id,username,password_hash,activated_at) VALUES (?1,'independent',?2,strftime('%Y-%m-%d %H:%M:%f','now')) RETURNING id", f.person, string(hash))
 	login, err := auth.New(dbsqlc.New(f.db))
 	f.must(err)
 	id, err := login.Authenticate(t.Context(), "independent", "a secure password")
@@ -419,7 +408,7 @@ func TestUsernameLoginFailuresAndIndependentUser(t *testing.T) {
 	}
 	for i, state := range []string{"unknown", "wrong password", "disabled", "unactivated", "null hash", "email"} {
 		t.Run(state, func(t *testing.T) {
-			f.exec("UPDATE users SET is_active=true,activated_at=now(),password_hash=$2 WHERE id=$1", uid, string(hash))
+			f.exec("UPDATE users SET is_active=true,activated_at=strftime('%Y-%m-%d %H:%M:%f','now'),password_hash=?2 WHERE id=?1", uid, string(hash))
 			username, password := "independent", "a secure password"
 			switch state {
 			case "unknown":
@@ -427,11 +416,11 @@ func TestUsernameLoginFailuresAndIndependentUser(t *testing.T) {
 			case "wrong password":
 				password = "wrong password"
 			case "disabled":
-				f.exec("UPDATE users SET is_active=false WHERE id=$1", uid)
+				f.exec("UPDATE users SET is_active=false WHERE id=?1", uid)
 			case "unactivated":
-				f.exec("UPDATE users SET activated_at=NULL WHERE id=$1", uid)
+				f.exec("UPDATE users SET activated_at=NULL WHERE id=?1", uid)
 			case "null hash":
-				f.exec("UPDATE users SET password_hash=NULL WHERE id=$1", uid)
+				f.exec("UPDATE users SET password_hash=NULL WHERE id=?1", uid)
 			case "email":
 				username = "remi@example.test"
 			}
@@ -448,4 +437,20 @@ func TestUsernameLoginFailuresAndIndependentUser(t *testing.T) {
 			}
 		})
 	}
+}
+
+func openTestConnection(t *testing.T, db *sql.DB) (*sql.DB, error) {
+	t.Helper()
+	path, err := database.Path(t.Context(), db)
+	if err != nil {
+		return nil, err
+	}
+	return database.New(t.Context(), path)
+}
+
+func (f *fixture) waitProofExpiry(ref string) {
+	f.t.Helper()
+	var expires dbtypes.Timestamp
+	f.must(f.db.QueryRowContext(f.t.Context(), "SELECT expires_at FROM registration_email_verifications WHERE public_reference=?1", ref).Scan(&expires))
+	time.Sleep(max(0, time.Until(expires.Time)+10*time.Millisecond))
 }

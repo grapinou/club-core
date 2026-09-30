@@ -10,7 +10,7 @@ import (
 )
 
 const createUserForPersonUsername = `-- name: CreateUserForPersonUsername :one
-INSERT INTO users(person_id,username,is_active) VALUES ($1,$2,true)
+INSERT INTO users(person_id,username,is_active) VALUES (?1,?2,true)
 ON CONFLICT (username) DO NOTHING RETURNING id
 `
 
@@ -20,14 +20,14 @@ type CreateUserForPersonUsernameParams struct {
 }
 
 func (q *Queries) CreateUserForPersonUsername(ctx context.Context, arg CreateUserForPersonUsernameParams) (int32, error) {
-	row := q.db.QueryRow(ctx, createUserForPersonUsername, arg.PersonID, arg.Username)
+	row := q.db.QueryRowContext(ctx, createUserForPersonUsername, arg.PersonID, arg.Username)
 	var id int32
 	err := row.Scan(&id)
 	return id, err
 }
 
 const lockAccountPerson = `-- name: LockAccountPerson :one
-SELECT first_name,last_name FROM persons WHERE id=$1 FOR UPDATE
+SELECT first_name,last_name FROM persons WHERE id=?1
 `
 
 type LockAccountPersonRow struct {
@@ -36,7 +36,7 @@ type LockAccountPersonRow struct {
 }
 
 func (q *Queries) LockAccountPerson(ctx context.Context, id int32) (LockAccountPersonRow, error) {
-	row := q.db.QueryRow(ctx, lockAccountPerson, id)
+	row := q.db.QueryRowContext(ctx, lockAccountPerson, id)
 	var i LockAccountPersonRow
 	err := row.Scan(&i.FirstName, &i.LastName)
 	return i, err

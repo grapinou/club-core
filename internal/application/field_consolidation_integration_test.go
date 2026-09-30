@@ -2,13 +2,14 @@ package application
 
 import (
 	"fmt"
-	"github.com/grapinou/club-core/internal/memberships"
-	"github.com/grapinou/club-core/internal/trials"
 	"net/url"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/grapinou/club-core/internal/memberships"
+	"github.com/grapinou/club-core/internal/trials"
 )
 
 func TestP432PublicWindowAndProgressiveForm(t *testing.T) {
@@ -98,8 +99,8 @@ func TestP432DashboardDirectoryAndPersonalContext(t *testing.T) {
 	f := newFixture(t)
 	b := p43Secretary(f)
 	for i, name := range []string{"HierSansResultat", "Aujourdhui", "Demain", "PlusDeux"} {
-		p := f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES($1,'Recette','1990-01-01') RETURNING id", name)
-		f.exec("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES($1,$2,CURRENT_DATE+$3::integer,'registered')", p, f.activity, i-1)
+		p := f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES(?1,'Recette','1990-01-01') RETURNING id", name)
+		f.exec("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES(?1,?2,date(CURRENT_DATE,?3||' days'),'registered')", p, f.activity, i-1)
 	}
 	body := officeOK(t, b, "/admin", "Aujourdhui", "Demain", "HierSansResultat")
 	if strings.Contains(body, "PlusDeux") || strings.Contains(body, "href=\"/trials?pending=1\"") || strings.Contains(body, "class=\"personal-space-link\"") {
@@ -114,14 +115,14 @@ func TestP432DashboardDirectoryAndPersonalContext(t *testing.T) {
 		t.Fatal("person shortcuts")
 	}
 	child, parent := f.guardianPair()
-	f.exec("INSERT INTO person_emergency_contacts(person_id,contact_person_id,priority) VALUES($1,$2,1)", child, parent)
+	f.exec("INSERT INTO person_emergency_contacts(person_id,contact_person_id,priority) VALUES(?1,?2,1)", child, parent)
 	body = officeOK(t, b, officePerson(child), "id=\"urgence-personne\"", "Être enregistré comme responsable")
 	family := body[strings.Index(body, "id=\"famille\""):strings.Index(body, "id=\"urgence-personne\"")]
 	if strings.Contains(family, "urgence") {
 		t.Fatal("emergency mixed with family")
 	}
-	adminPerson := f.id("SELECT person_id AS id FROM users WHERE id=$1", f.approver)
-	f.exec("INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES($1,$2,$3,'active')", adminPerson, f.season, f.kind)
+	adminPerson := f.id("SELECT person_id AS id FROM users WHERE id=?1", f.approver)
+	f.exec("INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES(?1,?2,?3,'active')", adminPerson, f.season, f.kind)
 	body = officeOK(t, b, "/admin")
 	if !strings.Contains(body, "class=\"personal-space-link\"") {
 		t.Fatal("member secretary personal context")
@@ -131,16 +132,16 @@ func TestP432DashboardDirectoryAndPersonalContext(t *testing.T) {
 	if strings.Contains(main, "Ouvrir mon tableau de bord") || strings.Contains(main, "Configurer mon association") {
 		t.Fatal("administrative block")
 	}
-	f.exec("UPDATE persons SET email=NULL WHERE id=$1", f.person)
+	f.exec("UPDATE persons SET email=NULL WHERE id=?1", f.person)
 	approved := f.approved()
 	body = officeOK(t, b, dossierPath(approved.Membership.ID), "aucun email n’est renseigné", "non renseigné")
 	if strings.Contains(body, "resend-activation") {
 		t.Fatal("false resend")
 	}
 	officeOK(t, b, "/admin", "aucun email n’est renseigné")
-	n := f.count("SELECT count(*) FROM user_activation_codes WHERE user_id=$1", approved.UserID)
+	n := f.count("SELECT count(*) FROM user_activation_codes WHERE user_id=?1", approved.UserID)
 	r := b.call("POST", resendPath(approved.UserID), url.Values{"csrf_token": {b.csrf(t, "/persons")}, "membership_id": {fmt.Sprint(approved.Membership.ID)}})
-	if r.Code != 303 || !strings.Contains(r.Header().Get("Location"), "resend_no_channel") || f.count("SELECT count(*) FROM user_activation_codes WHERE user_id=$1", approved.UserID) != n {
+	if r.Code != 303 || !strings.Contains(r.Header().Get("Location"), "resend_no_channel") || f.count("SELECT count(*) FROM user_activation_codes WHERE user_id=?1", approved.UserID) != n {
 		t.Fatal("manual resend without email")
 	}
 }
@@ -150,14 +151,14 @@ func TestP432GroupChoicesAndFutureSeason(t *testing.T) {
 	b := p43Secretary(f)
 	g, _ := f.officeGroup()
 	other := f.id("INSERT INTO activities(name) VALUES('Autre activité') RETURNING id")
-	foreign := f.id("INSERT INTO groups(activity_id,name) VALUES($1,'Hors activité') RETURNING id", other)
+	foreign := f.id("INSERT INTO groups(activity_id,name) VALUES(?1,'Hors activité') RETURNING id", other)
 	path := officePerson(f.person) + "/memberships/new"
 	body := officeOK(t, b, path, "Seul groupe disponible")
 	form := recipeForm(t, body, path)
 	if form.Get(fmt.Sprintf("group-%d", f.activity)) != fmt.Sprint(g) {
 		t.Fatal("unique default", form)
 	}
-	f.exec("INSERT INTO groups(activity_id,name) VALUES($1,'Second groupe')", f.activity)
+	f.exec("INSERT INTO groups(activity_id,name) VALUES(?1,'Second groupe')", f.activity)
 	body = officeOK(t, b, path, "Choisir un groupe")
 	form = recipeForm(t, body, path)
 	if form.Get(fmt.Sprintf("group-%d", f.activity)) != "" {
@@ -176,8 +177,8 @@ func TestP432GroupChoicesAndFutureSeason(t *testing.T) {
 	if r.Code != 303 {
 		t.Fatal(r.Code, r.Body.String())
 	}
-	m := f.id("SELECT id FROM memberships WHERE person_id=$1", f.person)
-	if f.count("SELECT count(*) FROM membership_groups WHERE membership_id=$1 AND joined_at='2030-09-01'", m) != 1 {
+	m := f.id("SELECT id FROM memberships WHERE person_id=?1", f.person)
+	if f.count("SELECT count(*) FROM membership_groups WHERE membership_id=?1 AND joined_at='2030-09-01'", m) != 1 {
 		t.Fatal("future start")
 	}
 	body = officeOK(t, b, dossierPath(m)+"/groups", "value=\"2030-09-01\"")
@@ -194,7 +195,7 @@ func TestP432GroupChoicesAndFutureSeason(t *testing.T) {
 	if b.call("POST", path, form).Code != 303 {
 		t.Fatal("without group")
 	}
-	if f.count("SELECT count(*) FROM membership_groups mg JOIN memberships m ON m.id=mg.membership_id WHERE m.person_id=$1", p) != 0 {
+	if f.count("SELECT count(*) FROM membership_groups mg JOIN memberships m ON m.id=mg.membership_id WHERE m.person_id=?1", p) != 0 {
 		t.Fatal("implicit group")
 	}
 	// Multiple activities remain independent and are assigned in the same request.
@@ -209,7 +210,7 @@ func TestP432GroupChoicesAndFutureSeason(t *testing.T) {
 	if b.call("POST", path, form).Code != 303 {
 		t.Fatal("multiple activities")
 	}
-	if f.count("SELECT count(*) FROM membership_groups mg JOIN memberships m ON m.id=mg.membership_id WHERE m.person_id=$1", multi) != 2 {
+	if f.count("SELECT count(*) FROM membership_groups mg JOIN memberships m ON m.id=mg.membership_id WHERE m.person_id=?1", multi) != 2 {
 		t.Fatal("multiple assignments")
 	}
 	// An activity with no active group remains selectable and requires no assignment.
@@ -247,13 +248,13 @@ func TestP432ConsentChangesAndAuthorization(t *testing.T) {
 		t.Fatal("consent CSRF")
 	}
 	post(adult, personalPath, "withdrawn", 999999, 303)
-	if f.count("SELECT count(*) FROM membership_consents WHERE membership_id=$1", m.ID) != 2 {
+	if f.count("SELECT count(*) FROM membership_consents WHERE membership_id=?1", m.ID) != 2 {
 		t.Fatal("history overwritten")
 	}
 	officePath := fmt.Sprintf("/memberships/%d/consents/%d", m.ID, definition)
 	post(office, officePath, "granted", 999999, 422)
 	post(office, officePath, "refused", f.person, 303)
-	if f.count("SELECT count(*) FROM administrative_events WHERE resource_id=$1 AND action='membership_consent_recorded'", m.ID) != 1 {
+	if f.count("SELECT count(*) FROM administrative_events WHERE resource_id=?1 AND action='membership_consent_recorded'", m.ID) != 1 {
 		t.Fatal("operator audit")
 	}
 	child, parent := f.guardianPair()
@@ -264,7 +265,7 @@ func TestP432ConsentChangesAndAuthorization(t *testing.T) {
 	if guardian.call("GET", childPath, nil).Code != 404 {
 		t.Fatal("relation alone allowed")
 	}
-	f.exec("INSERT INTO guardian_access_grants(child_person_id,guardian_person_id,granted_by_user_id) VALUES($1,$2,$3)", child, parent, f.approver)
+	f.exec("INSERT INTO guardian_access_grants(child_person_id,guardian_person_id,granted_by_user_id) VALUES(?1,?2,?3)", child, parent, f.approver)
 	if !strings.Contains(officeOK(t, guardian, "/dashboard"), "class=\"personal-space-link\"") {
 		t.Fatal("guardian personal context")
 	}
@@ -280,17 +281,17 @@ func TestP432ConsentChangesAndAuthorization(t *testing.T) {
 	if adult.call("POST", officePath, url.Values{"csrf_token": {adult.csrf(t, "/dashboard")}, "decision": {"granted"}, "giver_id": {fmt.Sprint(f.person)}}).Code != 403 {
 		t.Fatal("unauthorized secretary POST")
 	}
-	f.exec("UPDATE guardian_access_grants SET revoked_at=now(),revoked_by_user_id=$1 WHERE child_person_id=$2", f.approver, child)
+	f.exec("UPDATE guardian_access_grants SET revoked_at=strftime('%Y-%m-%d %H:%M:%f','now'),revoked_by_user_id=?1 WHERE child_person_id=?2", f.approver, child)
 	if guardian.call("POST", childPath, url.Values{"csrf_token": {token}, "decision": {"granted"}}).Code != 404 {
 		t.Fatal("revoked grant")
 	}
 	if strings.Contains(officeOK(t, guardian, "/dashboard"), "class=\"personal-space-link\"") {
 		t.Fatal("revoked guardian navigation")
 	}
-	if f.count("SELECT count(*) FROM membership_consents WHERE membership_id=$1", cm.ID) != 3 {
+	if f.count("SELECT count(*) FROM membership_consents WHERE membership_id=?1", cm.ID) != 3 {
 		t.Fatal("child history")
 	}
-	if _, err = f.db.Exec(t.Context(), "UPDATE membership_consents SET decision='refused' WHERE membership_id=$1", m.ID); err == nil {
+	if _, err = f.db.ExecContext(t.Context(), "UPDATE membership_consents SET decision='refused' WHERE membership_id=?1", m.ID); err == nil {
 		t.Fatal("destructive UPDATE allowed")
 	}
 }
@@ -303,7 +304,7 @@ func TestP432RegistrationReviewWithoutGuardianEmail(t *testing.T) {
 	d, err := f.app.Reviews.GetDetails(t.Context(), f.approver, id)
 	f.must(err)
 	guardian := d.Child.Guardian.ResolvedPersonID.Int32
-	f.exec("UPDATE persons SET email=NULL WHERE id=$1", guardian)
+	f.exec("UPDATE persons SET email=NULL WHERE id=?1", guardian)
 	b := p43Secretary(f)
 	path := fmt.Sprintf("/registration-reviews/%d", id)
 	body := officeOK(t, b, path, "aucun email n’est renseigné")
@@ -324,8 +325,8 @@ func TestP432TrialWeekBoundaries(t *testing.T) {
 		{"2030-01-06", "AvantSemaine"}, {"2030-01-07", "LundiSemaine"},
 		{"2030-01-13", "DimancheSemaine"}, {"2030-01-14", "ApresSemaine"},
 	} {
-		person := f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES($1,'Calendrier','1990-01-01') RETURNING id", row.name)
-		f.exec("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES($1,$2,$3,'registered')", person, f.activity, row.date)
+		person := f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES(?1,'Calendrier','1990-01-01') RETURNING id", row.name)
+		f.exec("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES(?1,?2,?3,'registered')", person, f.activity, row.date)
 	}
 	start, _ := time.Parse("2006-01-02", "2030-01-07")
 	rows, err := f.app.Administration.TrialsInWeek(f.authenticatedContext(f.approver), start)

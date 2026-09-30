@@ -8,12 +8,13 @@ import (
 	"fmt"
 	"time"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 	"github.com/grapinou/club-core/internal/guardianaccess"
 	"github.com/grapinou/club-core/internal/memberships"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 var ErrNotFound = errors.New("personal resource unavailable")
@@ -90,7 +91,7 @@ type Membership struct {
 }
 
 func unavailable(err error) error {
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
 	return err
@@ -160,7 +161,7 @@ func (s *Service) GetDashboard(ctx context.Context) (Dashboard, error) {
 	for _, c := range children {
 		managed = append(managed, c.PersonID)
 	}
-	pending, err := s.q.ListPendingFamilyRequests(ctx, dbsqlc.ListPendingFamilyRequestsParams{ViewerUserID: pgtype.Int4{Int32: actor, Valid: true}, ViewerPersonID: pgtype.Int4{Int32: a.PersonID, Valid: true}, ManagedChildren: managed})
+	pending, err := s.q.ListPendingFamilyRequests(ctx, dbsqlc.ListPendingFamilyRequestsParams{ViewerUserID: sql.NullInt32{Int32: actor, Valid: true}, ViewerPersonID: sql.NullInt32{Int32: a.PersonID, Valid: true}, ManagedChildren: nullableIDs(managed)})
 	if err != nil {
 		return Dashboard{}, err
 	}
@@ -264,7 +265,7 @@ func (s *Service) membership(ctx context.Context, id, person, viewer int32) (Mem
 		m.Consents = append(m.Consents, Consent{ID: c.ID, Editable: c.IsActive || c.Decision.String == "granted", Title: c.Title, Description: c.Description, Version: c.Version, Decision: c.Decision.String, RecordedAt: at, GivenByViewer: c.GivenByViewer})
 	}
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	groups, err := s.q.ListPersonalGroups(ctx, dbsqlc.ListPersonalGroupsParams{MembershipID: id, Today: pgtype.Date{Time: today, Valid: true}})
+	groups, err := s.q.ListPersonalGroups(ctx, dbsqlc.ListPersonalGroupsParams{MembershipID: id, Today: dbtypes.Date{Time: today, Valid: true}})
 	if err != nil {
 		return Membership{}, err
 	}
@@ -314,4 +315,12 @@ func (s *Service) HasContext(ctx context.Context) (bool, error) {
 	}
 	children, err := s.guardians.ListManagedChildren(ctx)
 	return len(children) > 0, err
+}
+
+func nullableIDs(ids []int32) []sql.NullInt32 {
+	result := make([]sql.NullInt32, len(ids))
+	for i, id := range ids {
+		result[i] = sql.NullInt32{Int32: id, Valid: true}
+	}
+	return result
 }

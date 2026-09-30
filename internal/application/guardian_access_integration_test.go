@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -21,7 +20,6 @@ import (
 	"github.com/grapinou/club-core/internal/mailer"
 	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/grapinou/club-core/internal/minorsafety"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pressly/goose/v3"
 )
 
@@ -47,16 +45,16 @@ func (f *fixture) authenticatedContext(user int32) context.Context {
 func (f *fixture) guardianPair() (int32, int32) {
 	child := f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES ('Arthur','Famille','2011-09-12') RETURNING id")
 	guardian := f.id("INSERT INTO persons(first_name,last_name,birth_date,email) VALUES ('Claire','Famille','1980-01-01','claire@example.test') RETURNING id")
-	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES ($1,$2,'mother')", child, guardian)
+	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES (?1,?2,'mother')", child, guardian)
 	return child, guardian
 }
 func (f *fixture) activeUser(person int32, username string) int32 {
-	return f.id("INSERT INTO users(person_id,username,password_hash,activated_at) VALUES ($1,$2,'hash',now()) RETURNING id", person, username)
+	return f.id("INSERT INTO users(person_id,username,password_hash,activated_at) VALUES (?1,?2,'hash',strftime('%Y-%m-%d %H:%M:%f','now')) RETURNING id", person, username)
 }
 func (f *fixture) count(query string, args ...any) int {
 	f.t.Helper()
 	var n int
-	f.must(f.db.QueryRow(f.t.Context(), query, args...).Scan(&n))
+	f.must(f.db.QueryRowContext(f.t.Context(), query, args...).Scan(&n))
 	return n
 }
 
@@ -120,15 +118,15 @@ func TestGuardianGrantLifecycleAndEffectiveAccess(t *testing.T) {
 	}
 	for _, query := range []string{
 		"DELETE FROM guardian_access_grants",
-		"TRUNCATE guardian_access_grants",
-		"UPDATE guardian_access_grants SET granted_at=granted_at + interval '1 second'",
-		"DELETE FROM person_guardians WHERE child_person_id=$1",
+		"DELETE FROM guardian_access_grants",
+		"UPDATE guardian_access_grants SET granted_at=strftime('%Y-%m-%d %H:%M:%f',granted_at,'+1 second')",
+		"DELETE FROM person_guardians WHERE child_person_id=?1",
 	} {
 		var err error
-		if query == "DELETE FROM person_guardians WHERE child_person_id=$1" {
-			_, err = f.db.Exec(t.Context(), query, child)
+		if query == "DELETE FROM person_guardians WHERE child_person_id=?1" {
+			_, err = f.db.ExecContext(t.Context(), query, child)
 		} else {
-			_, err = f.db.Exec(t.Context(), query)
+			_, err = f.db.ExecContext(t.Context(), query)
 		}
 		if err == nil {
 			t.Fatalf("audit protection: %s", query)
@@ -138,7 +136,7 @@ func TestGuardianGrantLifecycleAndEffectiveAccess(t *testing.T) {
 	second := f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES ('Thomas','Famille','1980-01-01') RETURNING id")
 	secondUser := f.activeUser(second, "thomas")
 	secondCtx := f.authenticatedContext(secondUser)
-	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES ($1,$2,'father')", child, second)
+	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES (?1,?2,'father')", child, second)
 	_, err = g.Grant(ctx, child, second)
 	f.must(err)
 	f.must(g.Revoke(ctx, child, parent))
@@ -151,7 +149,7 @@ func TestGuardianGrantLifecycleAndEffectiveAccess(t *testing.T) {
 	if len(transparent) != 1 {
 		t.Fatal("revoked listed")
 	}
-	historical := f.count("SELECT count(*) FROM guardian_access_grants WHERE id=$1 AND revoked_at IS NOT NULL AND revoked_by_user_id=$2", grant.ID, f.approver)
+	historical := f.count("SELECT count(*) FROM guardian_access_grants WHERE id=?1 AND revoked_at IS NOT NULL AND revoked_by_user_id=?2", grant.ID, f.approver)
 	if historical != 1 {
 		t.Fatal("revocation audit")
 	}
@@ -165,16 +163,16 @@ func TestGuardianGrantLifecycleAndEffectiveAccess(t *testing.T) {
 		off, on string
 		id      int32
 	}{
-		{"UPDATE persons SET archived_at=now() WHERE id=$1", "UPDATE persons SET archived_at=NULL WHERE id=$1", parent},
-		{"UPDATE persons SET archived_at=now() WHERE id=$1", "UPDATE persons SET archived_at=NULL WHERE id=$1", child},
-		{"UPDATE users SET is_active=false WHERE id=$1", "UPDATE users SET is_active=true WHERE id=$1", user},
+		{"UPDATE persons SET archived_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?1", "UPDATE persons SET archived_at=NULL WHERE id=?1", parent},
+		{"UPDATE persons SET archived_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?1", "UPDATE persons SET archived_at=NULL WHERE id=?1", child},
+		{"UPDATE users SET is_active=false WHERE id=?1", "UPDATE users SET is_active=true WHERE id=?1", user},
 	} {
 		f.exec(tc.off, tc.id)
 		check(false)
 		f.exec(tc.on, tc.id)
 		check(true)
 	}
-	f.exec("UPDATE persons SET birth_date=NULL WHERE id=$1", child)
+	f.exec("UPDATE persons SET birth_date=NULL WHERE id=?1", child)
 	check(false)
 	for _, tc := range []struct {
 		birth, date string
@@ -183,7 +181,7 @@ func TestGuardianGrantLifecycleAndEffectiveAccess(t *testing.T) {
 		{"2008-09-13", "2026-09-12", true}, {"2008-09-13", "2026-09-13", false},
 		{"2008-02-29", "2026-02-28", true}, {"2008-02-29", "2026-03-01", false},
 	} {
-		f.exec("UPDATE persons SET birth_date=$2 WHERE id=$1", child, tc.birth)
+		f.exec("UPDATE persons SET birth_date=?2 WHERE id=?1", child, tc.birth)
 		now, _ = time.Parse("2006-01-02", tc.date)
 		check(tc.want)
 		b, _ := time.Parse("2006-01-02", tc.birth)
@@ -201,13 +199,13 @@ func TestGuardianGrantLifecycleAndEffectiveAccess(t *testing.T) {
 	}
 	f.must(g.RemoveRelationship(ctx, child, parent))
 	// Restore a minor birth date so refusal proves removal, not majority.
-	f.exec("UPDATE persons SET birth_date='2011-09-12' WHERE id=$1", child)
+	f.exec("UPDATE persons SET birth_date='2011-09-12' WHERE id=?1", child)
 	check(false)
 
-	if f.count("SELECT count(*) FROM person_guardians WHERE child_person_id=$1 AND guardian_person_id=$2", child, parent) != 0 {
+	if f.count("SELECT count(*) FROM person_guardians WHERE child_person_id=?1 AND guardian_person_id=?2", child, parent) != 0 {
 		t.Fatal("relation not removed")
 	}
-	if f.count("SELECT count(*) FROM guardian_access_grants WHERE guardian_person_id=$1", parent) != 2 {
+	if f.count("SELECT count(*) FROM guardian_access_grants WHERE guardian_person_id=?1", parent) != 2 {
 		t.Fatal("history lost")
 	}
 }
@@ -237,7 +235,7 @@ func TestIndependentUserAndGuardianActivation(t *testing.T) {
 	if f.count("SELECT count(*) FROM memberships") != 0 || len(f.mail.messages) != 0 {
 		t.Fatal("unexpected membership/email")
 	}
-	f.exec("UPDATE users SET is_active=false WHERE id=$1", user.ID)
+	f.exec("UPDATE users SET is_active=false WHERE id=?1", user.ID)
 	reused, err = f.app.Accounts.EnsureUserForPerson(ctx, f.person)
 	f.must(err)
 	if reused.IsActive {
@@ -250,7 +248,7 @@ func TestIndependentUserAndGuardianActivation(t *testing.T) {
 	_, err = f.app.GuardianAccess.Grant(ctx, child, parent)
 	f.must(err)
 	f.mail.check = func(msg mailer.Message) {
-		if f.count("SELECT count(*) FROM users WHERE person_id=$1", parent) != 1 || f.count("SELECT count(*) FROM user_activation_codes c JOIN users u ON u.id=c.user_id WHERE u.person_id=$1", parent) != 1 {
+		if f.count("SELECT count(*) FROM users WHERE person_id=?1", parent) != 1 || f.count("SELECT count(*) FROM user_activation_codes c JOIN users u ON u.id=c.user_id WHERE u.person_id=?1", parent) != 1 {
 			t.Fatal("SMTP before commit")
 		}
 	}
@@ -259,26 +257,26 @@ func TestIndependentUserAndGuardianActivation(t *testing.T) {
 	if result.DeliveryStatus != accounts.Sent || len(f.mail.messages) != 1 {
 		t.Fatalf("%+v", result)
 	}
-	if f.count("SELECT count(*) FROM users WHERE person_id=$1", child) != 0 || f.count("SELECT count(*) FROM memberships") != 0 {
+	if f.count("SELECT count(*) FROM users WHERE person_id=?1", child) != 0 || f.count("SELECT count(*) FROM memberships") != 0 {
 		t.Fatal("child account or membership created")
 	}
 	f.mail.check = nil
 	// Missing own email never falls back to the child's email or another relative.
-	f.exec("UPDATE persons SET email=NULL WHERE id=$1", parent)
-	f.exec("UPDATE persons SET email='child@example.test' WHERE id=$1", child)
-	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES ($1,$2,'other')", parent, f.person)
+	f.exec("UPDATE persons SET email=NULL WHERE id=?1", parent)
+	f.exec("UPDATE persons SET email='child@example.test' WHERE id=?1", child)
+	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES (?1,?2,'other')", parent, f.person)
 	result, err = f.app.Accounts.EnsureGuardianUser(ctx, child, parent)
 	f.must(err)
 	if result.DeliveryStatus != accounts.NoChannel || len(f.mail.messages) != 1 {
 		t.Fatalf("%+v", result)
 	}
-	f.exec("UPDATE persons SET email='invalid' WHERE id=$1", parent)
+	f.exec("UPDATE persons SET email='invalid' WHERE id=?1", parent)
 	result, err = f.app.Accounts.EnsureGuardianUser(ctx, child, parent)
 	f.must(err)
 	if result.DeliveryStatus != accounts.NoChannel {
 		t.Fatal("invalid email delivered")
 	}
-	f.exec("UPDATE persons SET email='claire@example.test' WHERE id=$1", parent)
+	f.exec("UPDATE persons SET email='claire@example.test' WHERE id=?1", parent)
 	result, err = f.app.Accounts.EnsureGuardianUser(ctx, child, parent)
 	f.must(err)
 	if result.DeliveryStatus != accounts.Sent {
@@ -309,11 +307,11 @@ func TestIndependentUserAndGuardianActivation(t *testing.T) {
 	if result.DeliveryStatus != accounts.NotRequired {
 		t.Fatal("activated user changed")
 	}
-	f.exec("UPDATE users SET is_active=false WHERE id=$1", result.UserID)
+	f.exec("UPDATE users SET is_active=false WHERE id=?1", result.UserID)
 	if _, err = f.app.Accounts.EnsureGuardianUser(ctx, child, parent); !errors.Is(err, accounts.ErrDisabled) {
 		t.Fatal("disabled guardian reactivated")
 	}
-	f.exec("UPDATE persons SET birth_date='1990-01-01' WHERE id=$1", child)
+	f.exec("UPDATE persons SET birth_date='1990-01-01' WHERE id=?1", child)
 	if _, err = f.app.Accounts.EnsureGuardianUser(ctx, child, parent); !errors.Is(err, guardianaccess.ErrIneligible) {
 		t.Fatal("adult child accepted")
 	}
@@ -354,7 +352,7 @@ func TestGuardianConcurrency(t *testing.T) {
 	}
 	ensure := func() error { _, err := f.app.Accounts.EnsureUserForPerson(ctx, parent); return err }
 	concurrent(ensure, ensure)
-	if f.count("SELECT count(*) FROM users WHERE person_id=$1", parent) != 1 {
+	if f.count("SELECT count(*) FROM users WHERE person_id=?1", parent) != 1 {
 		t.Fatal("duplicate users")
 	}
 	if f.count("SELECT count(*) FROM memberships") != 0 {
@@ -389,35 +387,37 @@ func TestMinorSafetyUsesAuthenticatedDatabaseFacts(t *testing.T) {
 	check(t.Context(), []int32{childUser, parentUser}, minorsafety.Denied, false)
 	check(adultCtx, []int32{childUser, parentUser}, minorsafety.Denied, false)
 	check(childCtx, []int32{childUser, parentUser, parentUser}, minorsafety.Denied, false)
-	f.exec("UPDATE users SET is_active=false WHERE id=$1", parentUser)
+	f.exec("UPDATE users SET is_active=false WHERE id=?1", parentUser)
 	check(childCtx, []int32{childUser, parentUser, adult}, minorsafety.Denied, false)
-	f.exec("UPDATE users SET is_active=true WHERE id=$1", parentUser)
+	f.exec("UPDATE users SET is_active=true WHERE id=?1", parentUser)
 	f.must(f.app.GuardianAccess.Revoke(ctx, child, parent))
 	check(childCtx, []int32{childUser, parentUser, adult}, minorsafety.SupervisionRequired, false)
-	f.exec("UPDATE persons SET birth_date='2000-01-01' WHERE id=$1", child)
+	f.exec("UPDATE persons SET birth_date='2000-01-01' WHERE id=?1", child)
 	check(childCtx, []int32{childUser, adult}, minorsafety.NotApplicable, false)
 }
 
 func TestGuardianMigrationRollbackProtectsHistory(t *testing.T) {
 	f := newFixture(t)
 	ctx := f.authenticatedContext(f.approver)
-	db, err := sql.Open("pgx", f.db.Config().ConnString())
+	db, err := openTestConnection(t, f.db)
 	f.must(err)
 	defer db.Close()
-	provider, err := goose.NewProvider(goose.DialectPostgres, db, os.DirFS("../../migrations"))
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db, os.DirFS("../../migrations"))
 	f.must(err)
-	_, err = provider.DownTo(t.Context(), 21)
-	f.must(err)
+	_, err = provider.Up(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, err = provider.Up(t.Context())
 	f.must(err)
 	child, parent := f.guardianPair()
 	_, err = f.app.GuardianAccess.Grant(ctx, child, parent)
 	f.must(err)
-	if _, err = provider.DownTo(t.Context(), 21); err == nil {
+	if _, err = provider.DownTo(t.Context(), 0); err == nil {
 		t.Fatal("active audit erased")
 	}
 	f.must(f.app.GuardianAccess.Revoke(ctx, child, parent))
-	if _, err = provider.DownTo(t.Context(), 21); err == nil {
+	if _, err = provider.DownTo(t.Context(), 0); err == nil {
 		t.Fatal("historical audit erased")
 	}
 	if f.count("SELECT count(*) FROM guardian_access_grants WHERE revoked_at IS NOT NULL") != 1 {
@@ -431,10 +431,9 @@ func TestGuardianProvisionSingleConnection(t *testing.T) {
 	child, parent := f.guardianPair()
 	_, err := f.app.GuardianAccess.Grant(ctx, child, parent)
 	f.must(err)
-	cfg := f.db.Config()
-	cfg.MaxConns = 1
-	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
+	pool, err := openTestConnection(t, f.db)
 	f.must(err)
+	pool.SetMaxOpenConns(1)
 	defer pool.Close()
 	permissions := authorization.New(dbsqlc.New(pool))
 	guardians := guardianaccess.New(pool, permissions, time.UTC)

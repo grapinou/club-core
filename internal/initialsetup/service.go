@@ -14,11 +14,13 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"database/sql"
+
+	"github.com/grapinou/club-core/internal/database/dbtypes"
+
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/authorization"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"modernc.org/sqlite"
 )
 
 var ErrInitialized = errors.New("installation already configured")
@@ -40,9 +42,9 @@ type Input struct {
 
 type Result struct{ PersonID, UserID int32 }
 
-type Service struct{ db *pgxpool.Pool }
+type Service struct{ db *sql.DB }
 
-func New(db *pgxpool.Pool) *Service { return &Service{db: db} }
+func New(db *sql.DB) *Service { return &Service{db: db} }
 
 func initialRoleValid() bool {
 	for _, name := range authorization.RolesWith(authorization.RolesManage) {
@@ -54,10 +56,10 @@ func initialRoleValid() bool {
 }
 
 func hasManager(ctx context.Context, q interface {
-	QueryRow(context.Context, string, ...any) pgx.Row
+	QueryRowContext(context.Context, string, ...any) *sql.Row
 }) (bool, error) {
 	var exists bool
-	err := q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE r.name=ANY($1))`, authorization.RolesWith(authorization.RolesManage)).Scan(&exists)
+	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE r.name IN (SELECT value FROM json_each(?1)))`, dbtypes.Strings(authorization.RolesWith(authorization.RolesManage))).Scan(&exists)
 	return exists, err
 }
 
@@ -65,7 +67,7 @@ func (s *Service) Status(ctx context.Context) (State, error) {
 	var st State
 	var initialized *time.Time
 	var hash []byte
-	err := s.db.QueryRow(ctx, `SELECT initialized_at,secret_hash FROM installation_setup WHERE id=TRUE`).Scan(&initialized, &hash)
+	err := s.db.QueryRowContext(ctx, `SELECT initialized_at,secret_hash FROM installation_setup WHERE id=TRUE`).Scan(&initialized, &hash)
 	if err != nil {
 		return st, err
 	}
@@ -84,14 +86,14 @@ func (s *Service) IssueSecret(ctx context.Context, rotate bool) (string, error) 
 	if !initialRoleValid() {
 		return "", ErrInitialized
 	}
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	var initialized *time.Time
 	var oldHash []byte
-	err = tx.QueryRow(ctx, `SELECT initialized_at,secret_hash FROM installation_setup WHERE id=TRUE FOR UPDATE`).Scan(&initialized, &oldHash)
+	err = tx.QueryRowContext(ctx, `SELECT initialized_at,secret_hash FROM installation_setup WHERE id=TRUE`).Scan(&initialized, &oldHash)
 	if err != nil {
 		return "", err
 	}
@@ -111,11 +113,11 @@ func (s *Service) IssueSecret(ctx context.Context, rotate bool) (string, error) 
 	}
 	secret := hex.EncodeToString(random[:])
 	digest := sha256.Sum256([]byte(secret))
-	_, err = tx.Exec(ctx, `UPDATE installation_setup SET secret_hash=$1,secret_issued_at=clock_timestamp(),secret_generation=secret_generation+1 WHERE id=TRUE`, digest[:])
+	_, err = tx.ExecContext(ctx, `UPDATE installation_setup SET secret_hash=?1,secret_issued_at=strftime('%Y-%m-%d %H:%M:%f','now'),secret_generation=secret_generation+1 WHERE id=TRUE`, digest[:])
 	if err != nil {
 		return "", err
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return "", err
 	}
 	return secret, nil
@@ -123,32 +125,32 @@ func (s *Service) IssueSecret(ctx context.Context, rotate bool) (string, error) 
 
 // WithLocalRoleGrant serializes a privileged CLI grant with web setup. The
 // callback must use the supplied transaction for its role write.
-func (s *Service) WithLocalRoleGrant(ctx context.Context, grant func(pgx.Tx) error) error {
-	tx, err := s.db.Begin(ctx)
+func (s *Service) WithLocalRoleGrant(ctx context.Context, grant func(*sql.Tx) error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	var initialized *time.Time
-	if err = tx.QueryRow(ctx, `SELECT initialized_at FROM installation_setup WHERE id=TRUE FOR UPDATE`).Scan(&initialized); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT initialized_at FROM installation_setup WHERE id=TRUE`).Scan(&initialized); err != nil {
 		return err
 	}
 	if err = grant(tx); err != nil {
 		return err
 	}
 	if initialized != nil {
-		return tx.Commit(ctx)
+		return tx.Commit()
 	}
 	manager, err := hasManager(ctx, tx)
 	if err != nil {
 		return err
 	}
 	if manager {
-		if _, err = tx.Exec(ctx, `UPDATE installation_setup SET initialized_at=clock_timestamp(),secret_hash=NULL,secret_issued_at=NULL WHERE id=TRUE`); err != nil {
+		if _, err = tx.ExecContext(ctx, `UPDATE installation_setup SET initialized_at=strftime('%Y-%m-%d %H:%M:%f','now'),secret_hash=NULL,secret_issued_at=NULL WHERE id=TRUE`); err != nil {
 			return err
 		}
 	}
-	return tx.Commit(ctx)
+	return tx.Commit()
 }
 
 var usernamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{2,63}$`)
@@ -185,14 +187,14 @@ func (s *Service) Complete(ctx context.Context, input Input) (Result, error) {
 	if !initialRoleValid() {
 		return result, ErrInitialized
 	}
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return result, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	var initialized *time.Time
 	var stored []byte
-	err = tx.QueryRow(ctx, `SELECT initialized_at,secret_hash FROM installation_setup WHERE id=TRUE FOR UPDATE`).Scan(&initialized, &stored)
+	err = tx.QueryRowContext(ctx, `SELECT initialized_at,secret_hash FROM installation_setup WHERE id=TRUE`).Scan(&initialized, &stored)
 	if err != nil {
 		return result, err
 	}
@@ -214,30 +216,30 @@ func (s *Service) Complete(ctx context.Context, input Input) (Result, error) {
 	if err != nil {
 		return result, ErrInvalidInput
 	}
-	err = tx.QueryRow(ctx, `INSERT INTO persons(first_name,last_name,email) VALUES ($1,$2,$3) RETURNING id`, input.FirstName, input.LastName, input.Email).Scan(&result.PersonID)
+	err = tx.QueryRowContext(ctx, `INSERT INTO persons(first_name,last_name,email) VALUES (?1,?2,?3) RETURNING id`, input.FirstName, input.LastName, input.Email).Scan(&result.PersonID)
 	if err != nil {
 		return Result{}, err
 	}
-	err = tx.QueryRow(ctx, `INSERT INTO users(person_id,username,login_email,password_hash,is_active,activated_at) VALUES ($1,$2,$3,$4,TRUE,clock_timestamp()) RETURNING id`, result.PersonID, input.Username, input.Email, string(hash)).Scan(&result.UserID)
+	err = tx.QueryRowContext(ctx, `INSERT INTO users(person_id,username,login_email,password_hash,is_active,activated_at) VALUES (?1,?2,?3,?4,TRUE,strftime('%Y-%m-%d %H:%M:%f','now')) RETURNING id`, result.PersonID, input.Username, input.Email, string(hash)).Scan(&result.UserID)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		var pgErr *sqlite.Error
+		if errors.As(err, &pgErr) && pgErr.Code() == 2067 {
 			return Result{}, ErrInvalidInput
 		}
 		return Result{}, err
 	}
-	command, err := tx.Exec(ctx, `INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name=$2`, result.UserID, initialRole)
+	command, err := tx.ExecContext(ctx, `INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name=?2`, result.UserID, initialRole)
 	if err != nil {
 		return Result{}, err
 	}
-	if command.RowsAffected() != 1 {
+	if affected, affectedErr := command.RowsAffected(); affectedErr != nil || affected != 1 {
 		return Result{}, ErrInitialized
 	}
-	_, err = tx.Exec(ctx, `UPDATE installation_setup SET initialized_at=clock_timestamp(),first_admin_user_id=$1,secret_hash=NULL,secret_issued_at=NULL WHERE id=TRUE`, result.UserID)
+	_, err = tx.ExecContext(ctx, `UPDATE installation_setup SET initialized_at=strftime('%Y-%m-%d %H:%M:%f','now'),first_admin_user_id=?1,secret_hash=NULL,secret_issued_at=NULL WHERE id=TRUE`, result.UserID)
 	if err != nil {
 		return Result{}, err
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return Result{}, err
 	}
 	return result, nil

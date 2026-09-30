@@ -7,22 +7,23 @@ package dbsqlc
 
 import (
 	"context"
+	"database/sql"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 const closeGroupSlot = `-- name: CloseGroupSlot :one
-UPDATE group_slots SET valid_until = $2::date, updated_at = NOW()
-WHERE id = $1 RETURNING id, group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, created_at, updated_at, location_id, practice_label
+UPDATE group_slots SET valid_until = ?1, updated_at = strftime('%Y-%m-%d %H:%M:%f','now')
+WHERE id = ?2 RETURNING id, group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, created_at, updated_at, location_id, practice_label
 `
 
 type CloseGroupSlotParams struct {
+	ValidUntil dbtypes.Date
 	ID         int32
-	ValidUntil pgtype.Date
 }
 
 func (q *Queries) CloseGroupSlot(ctx context.Context, arg CloseGroupSlotParams) (GroupSlot, error) {
-	row := q.db.QueryRow(ctx, closeGroupSlot, arg.ID, arg.ValidUntil)
+	row := q.db.QueryRowContext(ctx, closeGroupSlot, arg.ValidUntil, arg.ID)
 	var i GroupSlot
 	err := row.Scan(
 		&i.ID,
@@ -45,25 +46,25 @@ func (q *Queries) CloseGroupSlot(ctx context.Context, arg CloseGroupSlotParams) 
 
 const createGroupSlot = `-- name: CreateGroupSlot :one
 INSERT INTO group_slots (group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, location_id, practice_label)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id, group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, created_at, updated_at, location_id, practice_label
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) RETURNING id, group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, created_at, updated_at, location_id, practice_label
 `
 
 type CreateGroupSlotParams struct {
 	GroupID       int32
 	SeasonID      int32
 	Weekday       int16
-	StartTime     pgtype.Time
-	EndTime       pgtype.Time
-	Location      pgtype.Text
-	ValidFrom     pgtype.Date
-	ValidUntil    pgtype.Date
+	StartTime     dbtypes.Time
+	EndTime       dbtypes.Time
+	Location      sql.NullString
+	ValidFrom     dbtypes.Date
+	ValidUntil    dbtypes.Date
 	IsActive      bool
-	LocationID    pgtype.Int4
-	PracticeLabel pgtype.Text
+	LocationID    sql.NullInt32
+	PracticeLabel sql.NullString
 }
 
 func (q *Queries) CreateGroupSlot(ctx context.Context, arg CreateGroupSlotParams) (GroupSlot, error) {
-	row := q.db.QueryRow(ctx, createGroupSlot,
+	row := q.db.QueryRowContext(ctx, createGroupSlot,
 		arg.GroupID,
 		arg.SeasonID,
 		arg.Weekday,
@@ -97,12 +98,12 @@ func (q *Queries) CreateGroupSlot(ctx context.Context, arg CreateGroupSlotParams
 }
 
 const deactivateGroupSlot = `-- name: DeactivateGroupSlot :one
-UPDATE group_slots SET is_active = FALSE, updated_at = NOW()
-WHERE id = $1 RETURNING id, group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, created_at, updated_at, location_id, practice_label
+UPDATE group_slots SET is_active = FALSE, updated_at = strftime('%Y-%m-%d %H:%M:%f','now')
+WHERE id = ?1 RETURNING id, group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, created_at, updated_at, location_id, practice_label
 `
 
 func (q *Queries) DeactivateGroupSlot(ctx context.Context, id int32) (GroupSlot, error) {
-	row := q.db.QueryRow(ctx, deactivateGroupSlot, id)
+	row := q.db.QueryRowContext(ctx, deactivateGroupSlot, id)
 	var i GroupSlot
 	err := row.Scan(
 		&i.ID,
@@ -128,7 +129,7 @@ SELECT gs.id, gs.group_id, gs.season_id, gs.weekday, gs.start_time, gs.end_time,
 FROM group_slots gs
 JOIN groups g ON g.id = gs.group_id
 JOIN seasons s ON s.id = gs.season_id
-WHERE gs.group_id = $1 AND gs.season_id = $2
+WHERE gs.group_id = ?1 AND gs.season_id = ?2
   AND gs.is_active AND gs.valid_from <= CURRENT_DATE
   AND (gs.valid_until IS NULL OR gs.valid_until >= CURRENT_DATE)
 ORDER BY gs.weekday, gs.start_time, gs.valid_from, gs.id
@@ -144,22 +145,22 @@ type ListCurrentGroupSlotsRow struct {
 	GroupID       int32
 	SeasonID      int32
 	Weekday       int16
-	StartTime     pgtype.Time
-	EndTime       pgtype.Time
-	Location      pgtype.Text
-	ValidFrom     pgtype.Date
-	ValidUntil    pgtype.Date
+	StartTime     dbtypes.Time
+	EndTime       dbtypes.Time
+	Location      sql.NullString
+	ValidFrom     dbtypes.Date
+	ValidUntil    dbtypes.Date
 	IsActive      bool
-	CreatedAt     pgtype.Timestamptz
-	UpdatedAt     pgtype.Timestamptz
-	LocationID    pgtype.Int4
-	PracticeLabel pgtype.Text
+	CreatedAt     dbtypes.Timestamp
+	UpdatedAt     dbtypes.Timestamp
+	LocationID    sql.NullInt32
+	PracticeLabel sql.NullString
 	GroupName     string
 	SeasonName    string
 }
 
 func (q *Queries) ListCurrentGroupSlots(ctx context.Context, arg ListCurrentGroupSlotsParams) ([]ListCurrentGroupSlotsRow, error) {
-	rows, err := q.db.Query(ctx, listCurrentGroupSlots, arg.GroupID, arg.SeasonID)
+	rows, err := q.db.QueryContext(ctx, listCurrentGroupSlots, arg.GroupID, arg.SeasonID)
 	if err != nil {
 		return nil, err
 	}
@@ -189,6 +190,9 @@ func (q *Queries) ListCurrentGroupSlots(ctx context.Context, arg ListCurrentGrou
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -200,7 +204,7 @@ SELECT gs.id, gs.group_id, gs.season_id, gs.weekday, gs.start_time, gs.end_time,
 FROM group_slots gs
 JOIN groups g ON g.id = gs.group_id
 JOIN seasons s ON s.id = gs.season_id
-WHERE gs.group_id = $1
+WHERE gs.group_id = ?1
 ORDER BY gs.weekday, gs.start_time, gs.valid_from, gs.id
 `
 
@@ -209,22 +213,22 @@ type ListGroupSlotsRow struct {
 	GroupID       int32
 	SeasonID      int32
 	Weekday       int16
-	StartTime     pgtype.Time
-	EndTime       pgtype.Time
-	Location      pgtype.Text
-	ValidFrom     pgtype.Date
-	ValidUntil    pgtype.Date
+	StartTime     dbtypes.Time
+	EndTime       dbtypes.Time
+	Location      sql.NullString
+	ValidFrom     dbtypes.Date
+	ValidUntil    dbtypes.Date
 	IsActive      bool
-	CreatedAt     pgtype.Timestamptz
-	UpdatedAt     pgtype.Timestamptz
-	LocationID    pgtype.Int4
-	PracticeLabel pgtype.Text
+	CreatedAt     dbtypes.Timestamp
+	UpdatedAt     dbtypes.Timestamp
+	LocationID    sql.NullInt32
+	PracticeLabel sql.NullString
 	GroupName     string
 	SeasonName    string
 }
 
 func (q *Queries) ListGroupSlots(ctx context.Context, groupID int32) ([]ListGroupSlotsRow, error) {
-	rows, err := q.db.Query(ctx, listGroupSlots, groupID)
+	rows, err := q.db.QueryContext(ctx, listGroupSlots, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -254,6 +258,9 @@ func (q *Queries) ListGroupSlots(ctx context.Context, groupID int32) ([]ListGrou
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -265,7 +272,7 @@ SELECT gs.id, gs.group_id, gs.season_id, gs.weekday, gs.start_time, gs.end_time,
 FROM group_slots gs
 JOIN groups g ON g.id = gs.group_id
 JOIN seasons s ON s.id = gs.season_id
-WHERE gs.group_id = $1 AND gs.season_id = $2
+WHERE gs.group_id = ?1 AND gs.season_id = ?2
 ORDER BY gs.weekday, gs.start_time, gs.valid_from, gs.id
 `
 
@@ -279,22 +286,22 @@ type ListGroupSlotsForSeasonRow struct {
 	GroupID       int32
 	SeasonID      int32
 	Weekday       int16
-	StartTime     pgtype.Time
-	EndTime       pgtype.Time
-	Location      pgtype.Text
-	ValidFrom     pgtype.Date
-	ValidUntil    pgtype.Date
+	StartTime     dbtypes.Time
+	EndTime       dbtypes.Time
+	Location      sql.NullString
+	ValidFrom     dbtypes.Date
+	ValidUntil    dbtypes.Date
 	IsActive      bool
-	CreatedAt     pgtype.Timestamptz
-	UpdatedAt     pgtype.Timestamptz
-	LocationID    pgtype.Int4
-	PracticeLabel pgtype.Text
+	CreatedAt     dbtypes.Timestamp
+	UpdatedAt     dbtypes.Timestamp
+	LocationID    sql.NullInt32
+	PracticeLabel sql.NullString
 	GroupName     string
 	SeasonName    string
 }
 
 func (q *Queries) ListGroupSlotsForSeason(ctx context.Context, arg ListGroupSlotsForSeasonParams) ([]ListGroupSlotsForSeasonRow, error) {
-	rows, err := q.db.Query(ctx, listGroupSlotsForSeason, arg.GroupID, arg.SeasonID)
+	rows, err := q.db.QueryContext(ctx, listGroupSlotsForSeason, arg.GroupID, arg.SeasonID)
 	if err != nil {
 		return nil, err
 	}
@@ -324,6 +331,9 @@ func (q *Queries) ListGroupSlotsForSeason(ctx context.Context, arg ListGroupSlot
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -332,36 +342,36 @@ func (q *Queries) ListGroupSlotsForSeason(ctx context.Context, arg ListGroupSlot
 
 const updateGroupSlot = `-- name: UpdateGroupSlot :one
 UPDATE group_slots
-SET weekday = $2, start_time = $3, end_time = $4, location = $5, location_id = $9, practice_label = $10,
-    valid_from = $6, valid_until = $7, is_active = $8, updated_at = NOW()
-WHERE id = $1 RETURNING id, group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, created_at, updated_at, location_id, practice_label
+SET weekday = ?1, start_time = ?2, end_time = ?3, location = ?4, location_id = ?5, practice_label = ?6,
+    valid_from = ?7, valid_until = ?8, is_active = ?9, updated_at = strftime('%Y-%m-%d %H:%M:%f','now')
+WHERE id = ?10 RETURNING id, group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, created_at, updated_at, location_id, practice_label
 `
 
 type UpdateGroupSlotParams struct {
-	ID            int32
 	Weekday       int16
-	StartTime     pgtype.Time
-	EndTime       pgtype.Time
-	Location      pgtype.Text
-	ValidFrom     pgtype.Date
-	ValidUntil    pgtype.Date
+	StartTime     dbtypes.Time
+	EndTime       dbtypes.Time
+	Location      sql.NullString
+	LocationID    sql.NullInt32
+	PracticeLabel sql.NullString
+	ValidFrom     dbtypes.Date
+	ValidUntil    dbtypes.Date
 	IsActive      bool
-	LocationID    pgtype.Int4
-	PracticeLabel pgtype.Text
+	ID            int32
 }
 
 func (q *Queries) UpdateGroupSlot(ctx context.Context, arg UpdateGroupSlotParams) (GroupSlot, error) {
-	row := q.db.QueryRow(ctx, updateGroupSlot,
-		arg.ID,
+	row := q.db.QueryRowContext(ctx, updateGroupSlot,
 		arg.Weekday,
 		arg.StartTime,
 		arg.EndTime,
 		arg.Location,
+		arg.LocationID,
+		arg.PracticeLabel,
 		arg.ValidFrom,
 		arg.ValidUntil,
 		arg.IsActive,
-		arg.LocationID,
-		arg.PracticeLabel,
+		arg.ID,
 	)
 	var i GroupSlot
 	err := row.Scan(

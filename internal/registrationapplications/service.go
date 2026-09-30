@@ -8,22 +8,23 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"github.com/grapinou/club-core/internal/accounts"
-	"github.com/grapinou/club-core/internal/guardianaccess"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/grapinou/club-core/internal/accounts"
+	"github.com/grapinou/club-core/internal/guardianaccess"
+
+	"database/sql"
+
+	"github.com/grapinou/club-core/internal/database"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 	"github.com/grapinou/club-core/internal/identityresolution"
 	"github.com/grapinou/club-core/internal/memberships"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"modernc.org/sqlite"
 )
 
 const PresentationValidity = time.Hour
@@ -31,13 +32,13 @@ const PresentationValidity = time.Hour
 type Service struct {
 	guardians   *guardianaccess.Service
 	accounts    *accounts.Service
-	db          *pgxpool.Pool
+	db          *sql.DB
 	identities  *identityresolution.Submitter
 	memberships *memberships.Service
 	key         [32]byte
 }
 
-func New(db *pgxpool.Pool, identities *identityresolution.Submitter, m *memberships.Service) (*Service, error) {
+func New(db *sql.DB, identities *identityresolution.Submitter, m *memberships.Service) (*Service, error) {
 	s := &Service{db: db, identities: identities, memberships: m}
 	if _, err := rand.Read(s.key[:]); err != nil {
 		return nil, err
@@ -167,7 +168,7 @@ func (s *Service) validate(ctx context.Context, q *dbsqlc.Queries, in Input, csr
 	if in.Child != nil {
 		s.validateChild(in, fields, family)
 	} else {
-		if !in.Identity.BirthDate.Valid || in.Identity.BirthDate.InfinityModifier != pgtype.Finite {
+		if !in.Identity.BirthDate.Valid || !in.Identity.BirthDate.IsFinite() {
 			fields["birth_date"] = "Indiquez une date de naissance valide."
 		} else if !s.memberships.IsAdult(in.Identity.BirthDate) {
 			fields["birth_date"] = "Ce formulaire est réservé aux personnes majeures. Utilisez le parcours « J’inscris mon enfant »."
@@ -258,11 +259,11 @@ func (s *Service) Submit(ctx context.Context, in Input, csrf string) (identityre
 }
 func (s *Service) submit(ctx context.Context, in Input, csrf string, family bool) (identityresolution.Acceptance, error) {
 	zero := identityresolution.Acceptance{}
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return zero, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	q := dbsqlc.New(tx)
 	p, err := s.presentation(in.Presentation, csrf)
 	if err != nil {
@@ -270,12 +271,9 @@ func (s *Service) submit(ctx context.Context, in Input, csrf string, family bool
 	}
 	key := sha256.Sum256([]byte(p.Nonce))
 	// Same browser presentation can be retried safely, including concurrent POSTs.
-	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(7212,$1)`, int32(binary.BigEndian.Uint32(key[:4]))); err != nil {
-		return zero, err
-	}
 	if _, err = q.GetRegistrationApplicationByRequest(ctx, key[:]); err == nil {
-		return identityresolution.Acceptance{Status: "submission accepted"}, tx.Commit(ctx)
-	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return identityresolution.Acceptance{Status: "submission accepted"}, tx.Commit()
+	} else if !errors.Is(err, sql.ErrNoRows) {
 		return zero, err
 	}
 	if _, err = s.validate(ctx, q, in, csrf, family); err != nil {
@@ -283,7 +281,7 @@ func (s *Service) submit(ctx context.Context, in Input, csrf string, family bool
 	}
 	in.Identity.FirstName = strings.TrimSpace(in.Identity.FirstName)
 	in.Identity.LastName = strings.TrimSpace(in.Identity.LastName)
-	for _, v := range []*pgtype.Text{&in.Identity.Email, &in.Identity.PhoneNumber, &in.Identity.Address} {
+	for _, v := range []*sql.NullString{&in.Identity.Email, &in.Identity.PhoneNumber, &in.Identity.Address} {
 		v.String = strings.TrimSpace(v.String)
 		v.Valid = v.String != ""
 	}
@@ -304,7 +302,7 @@ func (s *Service) submit(ctx context.Context, in Input, csrf string, family bool
 	if err != nil {
 		return zero, err
 	}
-	app, err := q.CreateRegistrationApplication(ctx, dbsqlc.CreateRegistrationApplicationParams{SubmissionID: sub.ID, RequestKey: key[:], SeasonID: in.SeasonID, MembershipTypeID: in.MembershipTypeID})
+	app, err := q.CreateRegistrationApplication(ctx, dbsqlc.CreateRegistrationApplicationParams{SubmissionID: sub.ID, RequestKey: key[:], SeasonID: in.SeasonID, MembershipTypeID: in.MembershipTypeID, RequiredActivityID: in.ActivityIDs[0]})
 	if err != nil {
 		return zero, err
 	}
@@ -320,7 +318,7 @@ func (s *Service) submit(ctx context.Context, in Input, csrf string, family bool
 		}
 	}
 	for _, d := range in.Consents {
-		if err = q.CreateRegistrationApplicationConsent(ctx, dbsqlc.CreateRegistrationApplicationConsentParams{ApplicationID: app.ID, ConsentDefinitionID: d.ConsentDefinitionID, Decision: d.Decision, PresentedAt: pgtype.Timestamptz{Time: time.Unix(p.At, 0), Valid: true}}); err != nil {
+		if err = q.CreateRegistrationApplicationConsent(ctx, dbsqlc.CreateRegistrationApplicationConsentParams{ApplicationID: app.ID, ConsentDefinitionID: d.ConsentDefinitionID, Decision: d.Decision, PresentedAt: dbtypes.Timestamp{Time: time.Unix(p.At, 0), Valid: true}}); err != nil {
 			return zero, err
 		}
 	}
@@ -343,7 +341,7 @@ func (s *Service) submit(ctx context.Context, in Input, csrf string, family bool
 			return zero, err
 		}
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return zero, err
 	}
 	return identityresolution.Acceptance{Status: "submission accepted"}, nil
@@ -352,11 +350,16 @@ func (s *Service) submit(ctx context.Context, in Input, csrf string, family bool
 // Finalize is idempotent and also permits retry of a needs_review application
 // after the club restores the availability of its original choices.
 func (s *Service) Finalize(ctx context.Context, submissionID int32) (dbsqlc.RegistrationApplication, error) {
-	tx, err := s.db.Begin(ctx)
+	unlock, _, err := database.LockDelivery(ctx, s.db, submissionID, true)
 	if err != nil {
 		return dbsqlc.RegistrationApplication{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer unlock()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return dbsqlc.RegistrationApplication{}, err
+	}
+	defer tx.Rollback()
 	if err = s.FinalizeSubmission(ctx, tx, submissionID); err != nil {
 		return dbsqlc.RegistrationApplication{}, err
 	}
@@ -364,25 +367,22 @@ func (s *Service) Finalize(ctx context.Context, submissionID int32) (dbsqlc.Regi
 	if err != nil {
 		return a, err
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return a, err
 	}
 	s.AfterResolution(ctx, submissionID)
 	return a, nil
 }
-func (s *Service) FinalizeSubmission(ctx context.Context, tx pgx.Tx, id int32) error {
-	if err := identityresolution.LockDeliveryDecision(ctx, tx, id); err != nil {
-		return err
-	}
+func (s *Service) FinalizeSubmission(ctx context.Context, tx *sql.Tx, id int32) error {
 	if _, err := dbsqlc.New(tx).LockRegistrationSubmission(ctx, id); err != nil {
 		return err
 	}
 	return s.finalize(ctx, tx, id, false)
 }
-func (s *Service) finalize(ctx context.Context, tx pgx.Tx, id int32, strict bool) error {
+func (s *Service) finalize(ctx context.Context, tx *sql.Tx, id int32, strict bool) error {
 	q := dbsqlc.New(tx)
 	a, err := q.LockRegistrationApplication(ctx, id)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
@@ -397,7 +397,7 @@ func (s *Service) finalize(ctx context.Context, tx pgx.Tx, id int32, strict bool
 	}
 	child, childErr := q.GetChildRegistrationApplication(ctx, a.ID)
 	isChild := childErr == nil
-	if childErr != nil && !errors.Is(childErr, pgx.ErrNoRows) {
+	if childErr != nil && !errors.Is(childErr, sql.ErrNoRows) {
 		return childErr
 	}
 	giver := sub.ResolvedPersonID.Int32
@@ -408,7 +408,7 @@ func (s *Service) finalize(ctx context.Context, tx pgx.Tx, id int32, strict bool
 			return err
 		}
 		if reason != "" {
-			return q.MarkRegistrationApplicationReview(ctx, dbsqlc.MarkRegistrationApplicationReviewParams{ID: a.ID, LastErrorCode: pgtype.Text{String: reason, Valid: true}})
+			return q.MarkRegistrationApplicationReview(ctx, dbsqlc.MarkRegistrationApplicationReviewParams{ID: a.ID, LastErrorCode: sql.NullString{String: reason, Valid: true}})
 		}
 	} else if sub.Status != "resolved" {
 		return nil
@@ -432,12 +432,13 @@ func (s *Service) finalize(ctx context.Context, tx pgx.Tx, id int32, strict bool
 	}
 	// Savepoint preserves a completed identity proof even when membership creation
 	// fails (including a concurrent unique person/season conflict).
-	nested, err := tx.Begin(ctx)
+	_, err = tx.ExecContext(ctx, "SAVEPOINT membership_creation")
+	nested := tx
 	if err != nil {
 		return err
 	}
-	var birth pgtype.Date
-	err = nested.QueryRow(ctx, `SELECT birth_date FROM persons WHERE id=$1 FOR NO KEY UPDATE`, r.PersonID).Scan(&birth)
+	var birth dbtypes.Date
+	err = nested.QueryRowContext(ctx, `SELECT birth_date FROM persons WHERE id=?1`, r.PersonID).Scan(&birth)
 	reason := ""
 	if err == nil && !isChild && !s.memberships.IsAdult(birth) {
 		reason = "member_not_adult"
@@ -446,11 +447,11 @@ func (s *Service) finalize(ctx context.Context, tx pgx.Tx, id int32, strict bool
 	if err == nil && reason == "" {
 		m, err = s.memberships.CreateRequestWithPresentedConsentsTx(ctx, nested, r, presented)
 		if err == nil {
-			err = dbsqlc.New(nested).MarkRegistrationApplicationCreated(ctx, dbsqlc.MarkRegistrationApplicationCreatedParams{ID: a.ID, MembershipID: pgtype.Int4{Int32: m.ID, Valid: true}})
+			err = dbsqlc.New(nested).MarkRegistrationApplicationCreated(ctx, dbsqlc.MarkRegistrationApplicationCreatedParams{ID: a.ID, MembershipID: sql.NullInt32{Int32: m.ID, Valid: true}})
 		}
 	}
 	if err != nil || reason != "" {
-		if rollbackErr := nested.Rollback(ctx); rollbackErr != nil {
+		if rollbackErr := rollbackMembershipSavepoint(ctx, tx); rollbackErr != nil {
 			return rollbackErr
 		}
 		if strict {
@@ -461,16 +462,25 @@ func (s *Service) finalize(ctx context.Context, tx pgx.Tx, id int32, strict bool
 		}
 		if reason == "" {
 			reason = "membership_unavailable"
-			var pgerr *pgconn.PgError
-			if errors.As(err, &pgerr) && pgerr.Code == "23505" {
+			var sqliteErr *sqlite.Error
+			if errors.As(err, &sqliteErr) && sqliteErr.Code() == 2067 {
 				reason = "membership_already_exists"
-			} else if errors.Is(err, memberships.ErrInvalidRequest) || errors.Is(err, pgx.ErrNoRows) {
+			} else if errors.Is(err, memberships.ErrInvalidRequest) || errors.Is(err, sql.ErrNoRows) {
 				reason = "choices_unavailable"
 			}
 		}
-		return q.MarkRegistrationApplicationReview(ctx, dbsqlc.MarkRegistrationApplicationReviewParams{ID: a.ID, LastErrorCode: pgtype.Text{String: reason, Valid: true}})
+		return q.MarkRegistrationApplicationReview(ctx, dbsqlc.MarkRegistrationApplicationReviewParams{ID: a.ID, LastErrorCode: sql.NullString{String: reason, Valid: true}})
 	}
-	return nested.Commit(ctx)
+	_, err = tx.ExecContext(ctx, "RELEASE membership_creation")
+	return err
 }
 
 func consentField(id int32) string { return "consent_" + strconv.FormatInt(int64(id), 10) }
+
+func rollbackMembershipSavepoint(ctx context.Context, tx *sql.Tx) error {
+	if _, err := tx.ExecContext(ctx, "ROLLBACK TO membership_creation"); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, "RELEASE membership_creation")
+	return err
+}

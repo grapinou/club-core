@@ -8,8 +8,8 @@ import (
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/civildate"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 	"github.com/grapinou/club-core/internal/guardianaccess"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type PermissionChecker interface {
@@ -33,22 +33,22 @@ func (s *Service) RecordForActor(ctx context.Context, p dbsqlc.CreateMembershipC
 			return authorization.ErrForbidden
 		}
 	}
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	var person, viewer int32
-	if err = tx.QueryRow(ctx, "SELECT person_id FROM memberships WHERE id=$1", p.MembershipID).Scan(&person); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT person_id FROM memberships WHERE id=?1", p.MembershipID).Scan(&person); err != nil {
 		return err
 	}
-	if err = tx.QueryRow(ctx, "SELECT person_id FROM users WHERE id=$1", actor).Scan(&viewer); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT person_id FROM users WHERE id=?1", actor).Scan(&viewer); err != nil {
 		return err
 	}
 	if !office {
 		p.GivenByPersonID = viewer
 	}
-	rows, err := tx.Query(ctx, "SELECT id FROM persons WHERE id=ANY($1::integer[]) ORDER BY id FOR UPDATE", []int32{person, viewer, p.GivenByPersonID})
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM persons WHERE id IN (SELECT value FROM json_each(?1)) ORDER BY id", dbtypes.IDs{person, viewer, p.GivenByPersonID})
 	if err != nil {
 		return err
 	}
@@ -60,15 +60,15 @@ func (s *Service) RecordForActor(ctx context.Context, p dbsqlc.CreateMembershipC
 		return err
 	}
 	var active bool
-	err = tx.QueryRow(ctx, `SELECT u.is_active AND u.activated_at IS NOT NULL AND u.password_hash IS NOT NULL AND p.archived_at IS NULL FROM users u JOIN persons p ON p.id=u.person_id WHERE u.id=$1 FOR SHARE OF u`, actor).Scan(&active)
+	err = tx.QueryRowContext(ctx, `SELECT u.is_active AND u.activated_at IS NOT NULL AND u.password_hash IS NOT NULL AND p.archived_at IS NULL FROM users u JOIN persons p ON p.id=u.person_id WHERE u.id=?1`, actor).Scan(&active)
 	if err != nil {
 		return err
 	}
 	if !active {
 		return authorization.ErrForbidden
 	}
-	var birth pgtype.Date
-	err = tx.QueryRow(ctx, "SELECT birth_date FROM persons WHERE id=$1 AND archived_at IS NULL", person).Scan(&birth)
+	var birth dbtypes.Date
+	err = tx.QueryRowContext(ctx, "SELECT birth_date FROM persons WHERE id=?1 AND archived_at IS NULL", person).Scan(&birth)
 	if err != nil {
 		return err
 	}
@@ -87,7 +87,7 @@ func (s *Service) RecordForActor(ctx context.Context, p dbsqlc.CreateMembershipC
 			}
 		} else {
 			var relation int32
-			err = tx.QueryRow(ctx, "SELECT r.id FROM person_guardians r JOIN persons p ON p.id=r.guardian_person_id AND p.archived_at IS NULL WHERE child_person_id=$1 AND guardian_person_id=$2 FOR SHARE OF r", person, p.GivenByPersonID).Scan(&relation)
+			err = tx.QueryRowContext(ctx, "SELECT r.id FROM person_guardians r JOIN persons p ON p.id=r.guardian_person_id AND p.archived_at IS NULL WHERE child_person_id=?1 AND guardian_person_id=?2", person, p.GivenByPersonID).Scan(&relation)
 			if err != nil {
 				return ErrUnauthorizedGiver
 			}
@@ -96,7 +96,7 @@ func (s *Service) RecordForActor(ctx context.Context, p dbsqlc.CreateMembershipC
 		return ErrUnauthorizedGiver
 	}
 	var presented bool
-	err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM membership_consent_requirements WHERE membership_id=$1 AND consent_definition_id=$2)", p.MembershipID, p.ConsentDefinitionID).Scan(&presented)
+	err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM membership_consent_requirements WHERE membership_id=?1 AND consent_definition_id=?2)", p.MembershipID, p.ConsentDefinitionID).Scan(&presented)
 	if err != nil {
 		return err
 	}
@@ -112,5 +112,5 @@ func (s *Service) RecordForActor(ctx context.Context, p dbsqlc.CreateMembershipC
 			return err
 		}
 	}
-	return tx.Commit(ctx)
+	return tx.Commit()
 }

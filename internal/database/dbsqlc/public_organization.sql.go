@@ -8,11 +8,11 @@ package dbsqlc
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 const listCurrentPublicSeasons = `-- name: ListCurrentPublicSeasons :many
-SELECT id,name FROM seasons WHERE is_active AND $1::date BETWEEN starts_at AND ends_at
+SELECT id,name FROM seasons WHERE is_active AND (?1>=starts_at AND ?1<=ends_at)
 ORDER BY starts_at,id
 `
 
@@ -21,8 +21,8 @@ type ListCurrentPublicSeasonsRow struct {
 	Name string
 }
 
-func (q *Queries) ListCurrentPublicSeasons(ctx context.Context, today pgtype.Date) ([]ListCurrentPublicSeasonsRow, error) {
-	rows, err := q.db.Query(ctx, listCurrentPublicSeasons, today)
+func (q *Queries) ListCurrentPublicSeasons(ctx context.Context, today dbtypes.Date) ([]ListCurrentPublicSeasonsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCurrentPublicSeasons, today)
 	if err != nil {
 		return nil, err
 	}
@@ -35,6 +35,9 @@ func (q *Queries) ListCurrentPublicSeasons(ctx context.Context, today pgtype.Dat
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -42,22 +45,22 @@ func (q *Queries) ListCurrentPublicSeasons(ctx context.Context, today pgtype.Dat
 }
 
 const listPublicSchedule = `-- name: ListPublicSchedule :many
-SELECT gs.weekday,to_char(gs.start_time,'HH24:MI')::text AS start_time,
- to_char(gs.end_time,'HH24:MI')::text AS end_time,a.name AS activity_name,
- CASE WHEN g.show_name_publicly THEN g.name ELSE '' END::text AS group_name,
- coalesce(gs.practice_label,'')::text AS practice_label,
- coalesce(l.name,gs.location,'')::text AS location_name,coalesce(l.address,'')::text AS location_address
+SELECT gs.weekday,CAST(substr(gs.start_time,1,5) AS TEXT) AS start_time,
+ CAST(substr(gs.end_time,1,5) AS TEXT) AS end_time,a.name AS activity_name,
+ CASE WHEN g.show_name_publicly THEN g.name ELSE '' END AS group_name,
+ coalesce(gs.practice_label,'') AS practice_label,
+ coalesce(l.name,gs.location,'') AS location_name, CAST(coalesce(l.address,'') AS TEXT) AS location_address
 FROM group_slots gs JOIN groups g ON g.id=gs.group_id JOIN activities a ON a.id=g.activity_id
 JOIN seasons s ON s.id=gs.season_id LEFT JOIN locations l ON l.id=gs.location_id
-WHERE gs.season_id=$1 AND s.is_active AND g.is_active AND a.is_active AND gs.is_active
- AND gs.valid_from<=$2::date AND (gs.valid_until IS NULL OR gs.valid_until>=$2::date)
- AND (gs.location_id IS NULL OR (l.is_active AND l.organization_id=$3))
+WHERE gs.season_id=?1 AND s.is_active AND g.is_active AND a.is_active AND gs.is_active
+ AND gs.valid_from<=?2 AND (gs.valid_until IS NULL OR gs.valid_until>=?2)
+ AND (gs.location_id IS NULL OR (l.is_active AND l.organization_id=?3))
 ORDER BY gs.weekday,gs.start_time,gs.id
 `
 
 type ListPublicScheduleParams struct {
 	SeasonID       int32
-	Today          pgtype.Date
+	Today          dbtypes.Date
 	OrganizationID int32
 }
 
@@ -73,7 +76,7 @@ type ListPublicScheduleRow struct {
 }
 
 func (q *Queries) ListPublicSchedule(ctx context.Context, arg ListPublicScheduleParams) ([]ListPublicScheduleRow, error) {
-	rows, err := q.db.Query(ctx, listPublicSchedule, arg.SeasonID, arg.Today, arg.OrganizationID)
+	rows, err := q.db.QueryContext(ctx, listPublicSchedule, arg.SeasonID, arg.Today, arg.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -94,6 +97,9 @@ func (q *Queries) ListPublicSchedule(ctx context.Context, arg ListPublicSchedule
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

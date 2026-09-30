@@ -9,14 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/activation"
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/identityresolution"
 	"github.com/grapinou/club-core/internal/mailer"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -29,39 +28,39 @@ type AccountFields map[string]string
 func (e AccountFields) Error() string { return "invalid account fields" }
 
 type SelfService struct {
-	db   *pgxpool.Pool
+	db   *sql.DB
 	mail mailer.Mailer
 	from string
 	ttl  time.Duration
 }
 
-func NewSelfService(db *pgxpool.Pool, sender mailer.Mailer, from string, ttl time.Duration) *SelfService {
+func NewSelfService(db *sql.DB, sender mailer.Mailer, from string, ttl time.Duration) *SelfService {
 	if ttl <= 0 {
 		panic("email change TTL must be positive")
 	}
 	return &SelfService{db: db, mail: sender, from: from, ttl: ttl}
 }
-func optionalContact(value string) pgtype.Text {
+func optionalContact(value string) sql.NullString {
 	value = strings.TrimSpace(value)
-	return pgtype.Text{String: value, Valid: value != ""}
+	return sql.NullString{String: value, Valid: value != ""}
 }
 
 // The only selector is the authenticated context, never a browser-supplied ID.
-func (s *SelfService) locked(ctx context.Context) (pgx.Tx, *dbsqlc.Queries, dbsqlc.LockSelfServiceAccountRow, error) {
+func (s *SelfService) locked(ctx context.Context) (*sql.Tx, *dbsqlc.Queries, dbsqlc.LockSelfServiceAccountRow, error) {
 	var zero dbsqlc.LockSelfServiceAccountRow
 	id, ok := auth.UserID(ctx)
 	if !ok {
 		return nil, nil, zero, ErrSelfServiceUnavailable
 	}
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, nil, zero, err
 	}
 	q := dbsqlc.New(tx)
 	u, err := q.LockSelfServiceAccount(ctx, id)
 	if err != nil {
-		_ = tx.Rollback(ctx)
-		if errors.Is(err, pgx.ErrNoRows) {
+		_ = tx.Rollback()
+		if errors.Is(err, sql.ErrNoRows) {
 			err = ErrSelfServiceUnavailable
 		}
 		return nil, nil, zero, err
@@ -97,14 +96,14 @@ func (s *SelfService) UpdateContact(ctx context.Context, phone, address string) 
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	if err = q.UpdateSelfServiceContact(ctx, dbsqlc.UpdateSelfServiceContactParams{ID: u.PersonID, PhoneNumber: p, Address: a}); err != nil {
 		return err
 	}
 	if err = accountEvent(ctx, q, u, "profile_contact_updated"); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return tx.Commit()
 }
 func (s *SelfService) RequestEmail(ctx context.Context, email, password string) error {
 	email = strings.TrimSpace(email)
@@ -116,7 +115,7 @@ func (s *SelfService) RequestEmail(ctx context.Context, email, password string) 
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	if err = checkCurrent(u, password); err != nil {
 		return err
 	}
@@ -146,7 +145,7 @@ func (s *SelfService) RequestEmail(ctx context.Context, email, password string) 
 	if err = accountEvent(ctx, q, u, "email_change_requested"); err != nil {
 		return err
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return err
 	}
 	// Delivery follows commit. Never expose its error, recipient or plaintext code.
@@ -161,9 +160,9 @@ func (s *SelfService) VerifyEmail(ctx context.Context, code string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	req, err := q.LockActiveEmailChange(ctx, dbsqlc.LockActiveEmailChangeParams{UserID: u.ID, PersonID: u.PersonID})
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) {
 		return invalid
 	}
 	if err != nil {
@@ -186,7 +185,7 @@ func (s *SelfService) VerifyEmail(ctx context.Context, code string) error {
 	if err = accountEvent(ctx, q, u, "email_changed"); err != nil {
 		return err
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return err
 	}
 	// Best-effort security notification; never roll back or expose delivery details.
@@ -214,7 +213,7 @@ func (s *SelfService) ChangePassword(ctx context.Context, current, password, con
 	if err != nil {
 		return zero, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	if err = checkCurrent(u, current); err != nil {
 		return zero, err
 	}
@@ -225,7 +224,7 @@ func (s *SelfService) ChangePassword(ctx context.Context, current, password, con
 	if err != nil {
 		return zero, err
 	}
-	if err = q.UpdateSelfServicePassword(ctx, dbsqlc.UpdateSelfServicePasswordParams{ID: u.ID, PasswordHash: pgtype.Text{String: string(hash), Valid: true}}); err != nil {
+	if err = q.UpdateSelfServicePassword(ctx, dbsqlc.UpdateSelfServicePasswordParams{ID: u.ID, PasswordHash: sql.NullString{String: string(hash), Valid: true}}); err != nil {
 		return zero, err
 	}
 	// A pending channel replacement must not survive a password security change.
@@ -235,7 +234,7 @@ func (s *SelfService) ChangePassword(ctx context.Context, current, password, con
 	if err = accountEvent(ctx, q, u, "password_changed"); err != nil {
 		return zero, err
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return zero, err
 	}
 	return sha256.Sum256(hash), nil

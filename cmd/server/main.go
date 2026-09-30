@@ -35,24 +35,27 @@ func main() {
 	defer stop()
 
 	db, err := database.New(
-		ctx, os.Getenv("DATABASE_URL"),
+		ctx, os.Getenv("DATABASE_PATH"),
 	)
 	if err != nil {
 		log.Fatalf(
-			"impossible de créer le pool PostgreSQL : %v",
+			"impossible de créer le fichier SQLite : %v",
 			err,
 		)
 	}
 	defer db.Close()
+	if err = database.Migrate(ctx, db); err != nil {
+		log.Fatalf("migrations SQLite : %v", err)
+	}
 
-	if err := db.Ping(ctx); err != nil {
+	if err := db.PingContext(ctx); err != nil {
 		log.Fatalf(
-			"impossible de se connecter à PostgreSQL : %v",
+			"impossible de se connecter à SQLite : %v",
 			err,
 		)
 	}
 
-	log.Println("Connexion à PostgreSQL établie")
+	log.Println("Connexion à SQLite établie")
 
 	app, err := application.New(cfg, runtime, db)
 	if err != nil {

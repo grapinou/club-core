@@ -8,12 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/clubconfig"
 	"github.com/grapinou/club-core/internal/views"
 	"github.com/grapinou/club-core/internal/websecurity"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
+	"modernc.org/sqlite"
 )
 
 type ClubConfigHandler struct {
@@ -88,7 +89,7 @@ func (h *ClubConfigHandler) edit(w http.ResponseWriter, r *http.Request) {
 	v := h.view(r)
 	v.Editing = true
 	v.Section, v.Record, e = h.service.Record(r.Context(), r.PathValue("section"), id)
-	if errors.Is(e, pgx.ErrNoRows) {
+	if errors.Is(e, sql.ErrNoRows) {
 		http.NotFound(w, r)
 		return
 	}
@@ -116,7 +117,7 @@ func (h *ClubConfigHandler) save(w http.ResponseWriter, r *http.Request) {
 	v := h.view(r)
 	v.Editing = true
 	v.Section, v.Record, e = h.service.Record(r.Context(), r.PathValue("section"), id)
-	if errors.Is(e, pgx.ErrNoRows) {
+	if errors.Is(e, sql.ErrNoRows) {
 		http.NotFound(w, r)
 		return
 	}
@@ -133,7 +134,7 @@ func (h *ClubConfigHandler) save(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin/config/"+v.Section.Key+"?saved=1", 303)
 		return
 	}
-	var dbErr *pgconn.PgError
+	var dbErr *sqlite.Error
 	status := 422
 	switch {
 	case errors.Is(e, authorization.ErrForbidden):
@@ -145,9 +146,9 @@ func (h *ClubConfigHandler) save(w http.ResponseWriter, r *http.Request) {
 		v.Error = "Vérifiez les champs du formulaire, les dates et les éléments choisis."
 	case errors.Is(e, clubconfig.ErrHistorical):
 		v.Error = "Cet élément est déjà utilisé. Désactivez-le et créez un nouvel élément pour préserver l’historique."
-	case errors.As(e, &dbErr) && dbErr.Code == "23505":
+	case errors.As(e, &dbErr) && dbErr.Code() == 2067:
 		v.Error = "Cet élément existe déjà."
-	case errors.As(e, &dbErr) && strings.HasPrefix(dbErr.Code, "23"):
+	case errors.As(e, &dbErr) && dbErr.Code()&255 == 19:
 		v.Error = "Cette modification n’est pas compatible avec les données existantes."
 	default:
 		status = 503

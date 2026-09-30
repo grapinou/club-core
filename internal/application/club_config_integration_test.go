@@ -47,12 +47,12 @@ func TestBlankAssociationConfiguredInBrowser(t *testing.T) {
 	post("lieux", "new", url.Values{"name": {"Salle municipale"}, "address": {"12 rue du Jeu, Senlis"}, "is_active": {"yes"}})
 	post("activites", "new", url.Values{"name": {"Échecs"}, "is_active": {"yes"}})
 	var season, location, activity int32
-	if err := db.QueryRow(t.Context(), `SELECT (SELECT id FROM seasons WHERE name='2026/2027'),(SELECT id FROM locations WHERE name='Salle municipale'),(SELECT id FROM activities WHERE name='Échecs')`).Scan(&season, &location, &activity); err != nil {
+	if err := db.QueryRowContext(t.Context(), `SELECT (SELECT id FROM seasons WHERE name='2026/2027'),(SELECT id FROM locations WHERE name='Salle municipale'),(SELECT id FROM activities WHERE name='Échecs')`).Scan(&season, &location, &activity); err != nil {
 		t.Fatal(err)
 	}
 	post("groupes", "new", url.Values{"activity_id": {fmt.Sprint(activity)}, "name": {"Jeunes"}, "description": {"Découverte et parties."}, "show_name_publicly": {"yes"}, "is_active": {"yes"}})
 	var group int32
-	if err := db.QueryRow(t.Context(), `SELECT id FROM groups WHERE name='Jeunes'`).Scan(&group); err != nil {
+	if err := db.QueryRowContext(t.Context(), `SELECT id FROM groups WHERE name='Jeunes'`).Scan(&group); err != nil {
 		t.Fatal(err)
 	}
 	slot := url.Values{"group_id": {fmt.Sprint(group)}, "season_id": {fmt.Sprint(season)}, "location_id": {fmt.Sprint(location)}, "weekday": {"3"}, "start_time": {"14:00"}, "end_time": {"15:30"}, "valid_from": {"2026-09-01"}, "is_active": {"yes"}}
@@ -68,7 +68,7 @@ func TestBlankAssociationConfiguredInBrowser(t *testing.T) {
 	post("horaires", "new", slot)
 	post("tarifs", "new", url.Values{"name": {"Jeunes"}, "amount": {"85,50"}, "currency": {"EUR"}, "public_note": {"Cotisation annuelle"}, "is_active": {"yes"}})
 	var org int32
-	if err := db.QueryRow(t.Context(), `SELECT id FROM organizations WHERE is_active`).Scan(&org); err != nil {
+	if err := db.QueryRowContext(t.Context(), `SELECT id FROM organizations WHERE is_active`).Scan(&org); err != nil {
 		t.Fatal(err)
 	}
 	post("contenu", fmt.Sprint(org), url.Values{"trial_session_description": {"Venez découvrir les échecs."}, "trial_items_to_bring": {"Curiosité\nBonne humeur"}, "public_rules_description": {"Le règlement est remis lors de la première visite."}})
@@ -86,19 +86,19 @@ func TestBlankAssociationConfiguredInBrowser(t *testing.T) {
 		t.Fatal("configuration progress")
 	}
 	var audits int
-	if err := db.QueryRow(t.Context(), `SELECT count(*) FROM administrative_events WHERE action='club_configuration_saved'`).Scan(&audits); err != nil || audits != 9 {
+	if err := db.QueryRowContext(t.Context(), `SELECT count(*) FROM administrative_events WHERE action='club_configuration_saved'`).Scan(&audits); err != nil || audits != 9 {
 		t.Fatalf("audit: %d %v", audits, err)
 	}
 	// Disabling a referenced location keeps the existing slot and its history.
 	post("lieux", fmt.Sprint(location), url.Values{"name": {"Salle municipale"}, "address": {"12 rue du Jeu, Senlis"}})
 	var slots int
-	if err := db.QueryRow(t.Context(), `SELECT count(*) FROM group_slots WHERE location_id=$1`, location).Scan(&slots); err != nil || slots != 1 {
+	if err := db.QueryRowContext(t.Context(), `SELECT count(*) FROM group_slots WHERE location_id=?1`, location).Scan(&slots); err != nil || slots != 1 {
 		t.Fatal("slot history lost", err)
 	}
 	// A group with a schedule cannot be silently moved to another activity.
 	post("activites", "new", url.Values{"name": {"Chorale"}, "is_active": {"yes"}})
 	var otherActivity int32
-	if err := db.QueryRow(t.Context(), `SELECT id FROM activities WHERE name='Chorale'`).Scan(&otherActivity); err != nil {
+	if err := db.QueryRowContext(t.Context(), `SELECT id FROM activities WHERE name='Chorale'`).Scan(&otherActivity); err != nil {
 		t.Fatal(err)
 	}
 	move := url.Values{"activity_id": {fmt.Sprint(otherActivity)}, "name": {"Jeunes"}, "is_active": {"yes"}, "csrf_token": {browser.csrf(t, "/admin/config/groupes/"+fmt.Sprint(group))}}
@@ -112,14 +112,14 @@ func TestBlankAssociationConfiguredInBrowser(t *testing.T) {
 	}
 	// A signed-in account with no role cannot open or mutate club configuration.
 	person := int32(0)
-	if err := db.QueryRow(t.Context(), `INSERT INTO persons(first_name,last_name) VALUES('Nora','Visiteuse') RETURNING id`).Scan(&person); err != nil {
+	if err := db.QueryRowContext(t.Context(), `INSERT INTO persons(first_name,last_name) VALUES('Nora','Visiteuse') RETURNING id`).Scan(&person); err != nil {
 		t.Fatal(err)
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte("a secure password"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(t.Context(), `INSERT INTO users(person_id,username,password_hash,activated_at) VALUES($1,'nora', $2,now())`, person, string(hash)); err != nil {
+	if _, err := db.ExecContext(t.Context(), `INSERT INTO users(person_id,username,password_hash,activated_at) VALUES(?1,'nora', ?2,strftime('%Y-%m-%d %H:%M:%f','now'))`, person, string(hash)); err != nil {
 		t.Fatal(err)
 	}
 	ordinary := newBrowser(app.Handler)

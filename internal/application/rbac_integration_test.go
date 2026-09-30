@@ -2,7 +2,6 @@ package application
 
 import (
 	"bytes"
-	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -30,7 +29,7 @@ func (f *fixture) loginBrowser(username string) *browser {
 func (f *fixture) personSnapshot() string {
 	f.t.Helper()
 	var value string
-	f.must(f.db.QueryRow(f.t.Context(), "SELECT coalesce(jsonb_agg(to_jsonb(p) ORDER BY id)::text,'[]') FROM persons p").Scan(&value))
+	f.must(f.db.QueryRowContext(f.t.Context(), "SELECT coalesce(json_group_array(json_object('id',p.id,'first_name',p.first_name,'last_name',p.last_name,'birth_date',p.birth_date,'phone_number',p.phone_number,'email',p.email,'address',p.address,'created_at',p.created_at,'archived_at',p.archived_at,'notes',p.notes,'updated_at',p.updated_at) ORDER BY id),'[]') FROM persons p").Scan(&value))
 	return value
 }
 func TestPersonsRoutePermissionMatrix(t *testing.T) {
@@ -42,13 +41,13 @@ func TestPersonsRoutePermissionMatrix(t *testing.T) {
 			b := newBrowser(f.app.Handler)
 			allowed := role == "secretary" || role == "president"
 			if role != "anonymous" {
-				person := f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES ($1,'Actor','1990-01-01') RETURNING id", role)
-				user := f.id("INSERT INTO users(person_id,username,password_hash,activated_at) VALUES ($1,$2,$3,now()) RETURNING id", person, role, string(hash))
+				person := f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES (?1,'Actor','1990-01-01') RETURNING id", role)
+				user := f.id("INSERT INTO users(person_id,username,password_hash,activated_at) VALUES (?1,?2,?3,strftime('%Y-%m-%d %H:%M:%f','now')) RETURNING id", person, role, string(hash))
 				if role != "none" {
-					f.exec("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name=$2", user, role)
+					f.exec("INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name=?2", user, role)
 				}
 				if role == "none" {
-					f.exec("INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES ($1,$2,$3,'active')", person, f.season, f.kind)
+					f.exec("INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES (?1,?2,?3,'active')", person, f.season, f.kind)
 				}
 				b = f.loginBrowser(role)
 			}
@@ -111,14 +110,14 @@ func TestRevocationKeepsSession(t *testing.T) {
 	f := newFixture(t)
 	hash, err := bcrypt.GenerateFromPassword([]byte("a secure password"), bcrypt.DefaultCost)
 	f.must(err)
-	user := f.id("INSERT INTO users(person_id,username,password_hash,activated_at) VALUES ($1,'secretary',$2,now()) RETURNING id", f.person, string(hash))
-	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='secretary'", user)
+	user := f.id("INSERT INTO users(person_id,username,password_hash,activated_at) VALUES (?1,'secretary',?2,strftime('%Y-%m-%d %H:%M:%f','now')) RETURNING id", f.person, string(hash))
+	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='secretary'", user)
 	b := f.loginBrowser("secretary")
 	if response := b.call("GET", "/persons", nil); response.Code != 200 {
 		t.Fatal("initial access")
 	}
 	cookie := b.cookies["__Host-club_session"].Value
-	f.exec("DELETE FROM user_roles WHERE user_id=$1", user)
+	f.exec("DELETE FROM user_roles WHERE user_id=?1", user)
 	if response := b.call("GET", "/persons", nil); response.Code != 403 {
 		t.Fatal("revocation not immediate")
 	}
@@ -129,7 +128,7 @@ func TestRevocationKeepsSession(t *testing.T) {
 	if strings.Contains(page.Body.String(), `href="/persons"`) {
 		t.Fatal("stale navigation")
 	}
-	f.exec("UPDATE users SET is_active=false WHERE id=$1", user)
+	f.exec("UPDATE users SET is_active=false WHERE id=?1", user)
 	if response := b.call("GET", "/persons", nil); response.Code != 303 {
 		t.Fatal("disabled user remains authenticated")
 	}
@@ -185,47 +184,47 @@ func TestAuthorizedAccountUseCases(t *testing.T) {
 	f := newFixture(t)
 	m := f.request()
 	// Existing approver is a president. Removing its role denies before any write.
-	f.exec("DELETE FROM user_roles WHERE user_id=$1", f.approver)
+	f.exec("DELETE FROM user_roles WHERE user_id=?1", f.approver)
 	_, err := f.app.Accounts.ApproveMembership(t.Context(), m.ID, f.approver, nil)
 	if !errors.Is(err, authorization.ErrForbidden) {
 		t.Fatal("unprivileged approval", err)
 	}
 	var status string
-	f.must(f.db.QueryRow(t.Context(), "SELECT status FROM memberships WHERE id=$1", m.ID).Scan(&status))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT status FROM memberships WHERE id=?1", m.ID).Scan(&status))
 	if status != "pending" || len(f.mail.messages) != 0 {
 		t.Fatal("unauthorized approval side effects")
 	}
-	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='secretary'", f.approver)
+	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='secretary'", f.approver)
 	a, err := f.app.Accounts.ApproveMembership(t.Context(), m.ID, f.approver, nil)
 	f.must(err)
 	if a.DeliveryStatus != accounts.Sent {
 		t.Fatal("secretary approval")
 	}
 	var count int
-	f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM user_activation_codes WHERE user_id=$1", a.UserID).Scan(&count))
-	f.exec("DELETE FROM user_roles WHERE user_id=$1", f.approver)
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM user_activation_codes WHERE user_id=?1", a.UserID).Scan(&count))
+	f.exec("DELETE FROM user_roles WHERE user_id=?1", f.approver)
 	if _, err = f.app.Accounts.ResendActivation(t.Context(), f.approver, a.UserID); !errors.Is(err, authorization.ErrForbidden) {
 		t.Fatal("unprivileged resend")
 	}
 	var after int
-	f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM user_activation_codes WHERE user_id=$1", a.UserID).Scan(&after))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM user_activation_codes WHERE user_id=?1", a.UserID).Scan(&after))
 	if after != count || len(f.mail.messages) != 1 {
 		t.Fatal("unauthorized resend side effects")
 	}
-	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='secretary'", f.approver)
+	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='secretary'", f.approver)
 	resend, err := f.app.Accounts.ResendActivation(t.Context(), f.approver, a.UserID)
 	f.must(err)
 	if resend.DeliveryStatus != accounts.Sent {
 		t.Fatal("secretary resend")
 	}
-	f.exec("UPDATE users SET is_active=false WHERE id=$1", f.approver)
+	f.exec("UPDATE users SET is_active=false WHERE id=?1", f.approver)
 	if _, err = f.app.Accounts.ResendActivation(t.Context(), f.approver, a.UserID); !errors.Is(err, authorization.ErrForbidden) {
 		t.Fatal("disabled operator")
 	}
 }
 func TestClubctlAndRolesMigration(t *testing.T) {
 	f := newFixture(t)
-	user := f.id("INSERT INTO users(person_id,username) VALUES ($1,'bootstrap') RETURNING id", f.person)
+	user := f.id("INSERT INTO users(person_id,username) VALUES (?1,'bootstrap') RETURNING id", f.person)
 	q := dbsqlc.New(f.db)
 	run := func(args ...string) (string, error) {
 		var out bytes.Buffer
@@ -280,15 +279,17 @@ func TestClubctlAndRolesMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Previously existing reference data and assignments must survive reapplication.
-	db, err := sql.Open("pgx", f.db.Config().ConnString())
+	db, err := openTestConnection(t, f.db)
 	f.must(err)
 	defer db.Close()
-	provider, err := goose.NewProvider(goose.DialectPostgres, db, os.DirFS("../../migrations"))
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db, os.DirFS("../../migrations"))
 	f.must(err)
-	_, err = provider.DownTo(t.Context(), 16)
-	f.must(err)
+	_, err = provider.Up(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	f.exec("INSERT INTO roles(name) VALUES ('historical_role')")
-	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='historical_role'", user)
+	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='historical_role'", user)
 	_, err = provider.Up(t.Context())
 	f.must(err)
 	available, err := q.ListAvailableRoles(t.Context())

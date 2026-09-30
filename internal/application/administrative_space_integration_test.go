@@ -49,17 +49,17 @@ func officeOK(t *testing.T, b *browser, path string, values ...string) string {
 	return r.Body.String()
 }
 func (f *fixture) officeGroup() (int32, int32) {
-	g := f.id("INSERT INTO groups(activity_id,name) VALUES($1,'Groupe adultes') RETURNING id", f.activity)
-	slot := f.id("INSERT INTO group_slots(group_id,season_id,weekday,start_time,end_time,location,valid_from) VALUES($1,$2,3,'18:30','20:00','Dojo municipal','2026-09-01') RETURNING id", g, f.season)
+	g := f.id("INSERT INTO groups(activity_id,name) VALUES(?1,'Groupe adultes') RETURNING id", f.activity)
+	slot := f.id("INSERT INTO group_slots(group_id,season_id,weekday,start_time,end_time,location,valid_from) VALUES(?1,?2,3,'18:30','20:00','Dojo municipal','2026-09-01') RETURNING id", g, f.season)
 	return g, slot
 }
 func TestAdministrativeMultiSessionAndPersons(t *testing.T) {
 	f := newFixture(t)
 	aID, a := f.personalBrowser(f.person, "member.a")
 	b := f.membershipAdminBrowser()
-	f.exec("DELETE FROM user_roles WHERE user_id=$1", f.approver)
+	f.exec("DELETE FROM user_roles WHERE user_id=?1", f.approver)
 	for _, role := range []string{"treasurer", "coach", "president"} {
-		f.exec("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name=$2", f.approver, role)
+		f.exec("INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name=?2", f.approver, role)
 		want := 403
 		if role == "president" {
 			want = 200
@@ -69,13 +69,13 @@ func TestAdministrativeMultiSessionAndPersons(t *testing.T) {
 				t.Fatal("role matrix", role, path, r.Code)
 			}
 		}
-		f.exec("DELETE FROM user_roles WHERE user_id=$1", f.approver)
+		f.exec("DELETE FROM user_roles WHERE user_id=?1", f.approver)
 	}
-	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='secretary'", f.approver)
+	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='secretary'", f.approver)
 	child := f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES('Enfant','Famille','2015-01-01') RETURNING id")
 	parent := f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES('Parent','Famille','1980-01-01') RETURNING id")
 	cID, c := f.personalBrowser(parent, "guardian.c")
-	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type,is_primary_contact) VALUES($1,$2,'mother',true)", child, parent)
+	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type,is_primary_contact) VALUES(?1,?2,'mother',true)", child, parent)
 	_, err := f.app.GuardianAccess.Grant(f.authenticatedContext(f.approver), child, parent)
 	f.must(err)
 	m := f.request()
@@ -114,7 +114,7 @@ func TestAdministrativeMultiSessionAndPersons(t *testing.T) {
 			t.Fatal("absent", path, r.Code)
 		}
 	}
-	f.exec("UPDATE persons SET phone_number='+33612345678' WHERE id=$1", f.person)
+	f.exec("UPDATE persons SET phone_number='+33612345678' WHERE id=?1", f.person)
 	for _, search := range []string{"rémi", "Dupont", "remi@example.test", "06 12 34 56 78"} {
 		r := officePost(t, b, "/persons/search", url.Values{"search": {search}}, 200)
 		if !strings.Contains(r.Body.String(), officePerson(f.person)) {
@@ -133,20 +133,20 @@ func TestAdministrativeMultiSessionAndPersons(t *testing.T) {
 	}
 
 	f.personalOK(a, "/me/account")
-	if f.count("SELECT count(*) FROM administrative_events WHERE actor_user_id=$1 AND action='person_notes_updated' AND resource_id=$2", f.approver, f.person) != 1 {
+	if f.count("SELECT count(*) FROM administrative_events WHERE actor_user_id=?1 AND action='person_notes_updated' AND resource_id=?2", f.approver, f.person) != 1 {
 		t.Fatal("audit missing")
 	}
 	var audit string
-	f.must(f.db.QueryRow(t.Context(), "SELECT jsonb_agg(to_jsonb(e))::text FROM administrative_events e").Scan(&audit))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT json_group_array(json_object('id',e.id,'actor_user_id',e.actor_user_id,'action',e.action,'resource_type',e.resource_type,'resource_id',e.resource_id,'created_at',e.created_at,'role_name',e.role_name)) FROM administrative_events e").Scan(&audit))
 	if strings.Contains(audit, "SECRET_PERSON_NOTE") {
 		t.Fatal("sensitive audit")
 	}
 	// A role and a guardian grant remain independent when held by the same user.
-	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='secretary'", cID)
+	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='secretary'", cID)
 	officeOK(t, c, "/admin")
 	f.personalOK(c, personalChild(child))
 	f.personalDenied(c, personalMembership(m.ID))
-	f.exec("DELETE FROM user_roles WHERE user_id=$1", cID)
+	f.exec("DELETE FROM user_roles WHERE user_id=?1", cID)
 	if r := c.call("GET", "/admin", nil); r.Code != 403 {
 		t.Fatal("role cache")
 	}
@@ -155,7 +155,7 @@ func TestAdministrativeMultiSessionAndPersons(t *testing.T) {
 		t.Fatal("service RBAC", err)
 	}
 	// The list is bounded without a per-person query and search wildcards are literal.
-	f.exec("INSERT INTO persons(first_name,last_name) SELECT 'Extra','ZZZ'||n FROM generate_series(1,55) n")
+	f.exec("WITH RECURSIVE numbers(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM numbers WHERE n<55) INSERT INTO persons(first_name,last_name) SELECT 'Extra','ZZZ'||n FROM numbers")
 	body := officeOK(t, b, "/persons", "Page suivante")
 	if strings.Count(body, "Modifier les informations") != 0 || strings.Count(body, "<article class=\"section-panel\">") != 50 {
 		t.Fatal("list bound")
@@ -182,19 +182,19 @@ func TestAdministrativeTrialWorkflowAndConcurrency(t *testing.T) {
 	form.Set("group_id", "")
 	officePost(t, b, newPath, form, 422)
 	form.Set("group_id", fmt.Sprint(g))
-	f.exec("UPDATE groups SET is_active=false WHERE id=$1", g)
+	f.exec("UPDATE groups SET is_active=false WHERE id=?1", g)
 	officePost(t, b, newPath, form, 422)
-	f.exec("UPDATE groups SET is_active=true WHERE id=$1", g)
-	f.exec("UPDATE group_slots SET is_active=false WHERE id=$1", slot)
+	f.exec("UPDATE groups SET is_active=true WHERE id=?1", g)
+	f.exec("UPDATE group_slots SET is_active=false WHERE id=?1", slot)
 	officePost(t, b, newPath, form, 422)
-	f.exec("UPDATE group_slots SET is_active=true WHERE id=$1", slot)
+	f.exec("UPDATE group_slots SET is_active=true WHERE id=?1", slot)
 	otherActivity := f.id("INSERT INTO activities(name) VALUES('Other') RETURNING id")
 	form.Set("activity_id", fmt.Sprint(otherActivity))
 	officePost(t, b, newPath, form, 422)
 	form.Set("activity_id", fmt.Sprint(f.activity))
 	r := officePost(t, b, newPath, form, 303)
 	path := strings.TrimSuffix(r.Header().Get("Location"), "?saved=1")
-	id := f.id("SELECT id FROM trial_registrations WHERE person_id=$1", f.person)
+	id := f.id("SELECT id FROM trial_registrations WHERE person_id=?1", f.person)
 	if path != officeTrial(id) {
 		t.Fatal("wrong trial person")
 	}
@@ -234,12 +234,12 @@ func TestAdministrativeTrialWorkflowAndConcurrency(t *testing.T) {
 	if trial.Revision != 4 || trial.Status != "no_show" {
 		t.Fatal("trial concurrency state")
 	}
-	if f.count("SELECT count(*) FROM administrative_events WHERE resource_type='trial' AND resource_id=$1", id) != 5 {
+	if f.count("SELECT count(*) FROM administrative_events WHERE resource_type='trial' AND resource_id=?1", id) != 5 {
 		t.Fatal("failed writes audited")
 	}
 	// Audit failure rolls back the business write.
-	f.exec("CREATE FUNCTION reject_office_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test audit failure'; END $$")
-	f.exec("CREATE TRIGGER reject_office_audit BEFORE INSERT ON administrative_events FOR EACH ROW EXECUTE FUNCTION reject_office_audit()")
+
+	f.exec("CREATE TRIGGER reject_office_audit BEFORE INSERT ON administrative_events BEGIN SELECT RAISE(ABORT, 'test audit failure'); END;")
 	officePost(t, b, path+"/notes", url.Values{"revision": {"4"}, "notes": {"MUST_ROLL_BACK"}}, 503)
 	trial, err = dbsqlc.New(f.db).LockAdministrativeTrial(t.Context(), id)
 	f.must(err)
@@ -252,16 +252,16 @@ func TestAdministrativeAttentionAndFamilyWorkflow(t *testing.T) {
 	f := newFixture(t)
 	b := f.membershipAdminBrowser()
 	group, slot := f.officeGroup()
-	f.exec("UPDATE group_slots SET practice_label='Séance découverte' WHERE id=$1", slot)
+	f.exec("UPDATE group_slots SET practice_label='Séance découverte' WHERE id=?1", slot)
 	today := f.app.Administration.Today().Time
 	past, present, future := today.AddDate(0, 0, -1).Format("2006-01-02"), today.Format("2006-01-02"), today.AddDate(0, 0, 1).Format("2006-01-02")
-	child := f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES('Lina','Parcours',$1) RETURNING id", today.AddDate(-9, 0, 0))
-	guardian := f.id("INSERT INTO persons(first_name,last_name,birth_date,email,phone_number) VALUES('Camille','Parcours',$1,'camille@example.test','0601020304') RETURNING id", today.AddDate(-35, 0, 0))
-	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type,is_primary_contact) VALUES($1,$2,'mother',true)", child, guardian)
-	f.exec("UPDATE persons SET phone_number='0605060708' WHERE id=$1", f.person)
-	pastTrial := f.id("INSERT INTO trial_registrations(person_id,activity_id,group_id,group_slot_id,trial_date,status,notes) VALUES($1,$2,$3,$4,$5,'registered','Matériel demandé : taille M') RETURNING id", child, f.activity, group, slot, past)
-	todayTrial := f.id("INSERT INTO trial_registrations(person_id,activity_id,group_id,group_slot_id,trial_date,status) VALUES($1,$2,$3,$4,$5,'registered') RETURNING id", f.person, f.activity, group, slot, present)
-	futureTrial := f.id("INSERT INTO trial_registrations(person_id,activity_id,group_id,group_slot_id,trial_date,status) VALUES($1,$2,$3,$4,$5,'registered') RETURNING id", f.person, f.activity, group, slot, future)
+	child := f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES('Lina','Parcours',?1) RETURNING id", today.AddDate(-9, 0, 0).Format("2006-01-02"))
+	guardian := f.id("INSERT INTO persons(first_name,last_name,birth_date,email,phone_number) VALUES('Camille','Parcours',?1,'camille@example.test','0601020304') RETURNING id", today.AddDate(-35, 0, 0).Format("2006-01-02"))
+	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type,is_primary_contact) VALUES(?1,?2,'mother',true)", child, guardian)
+	f.exec("UPDATE persons SET phone_number='0605060708' WHERE id=?1", f.person)
+	pastTrial := f.id("INSERT INTO trial_registrations(person_id,activity_id,group_id,group_slot_id,trial_date,status,notes) VALUES(?1,?2,?3,?4,?5,'registered','Matériel demandé : taille M') RETURNING id", child, f.activity, group, slot, past)
+	todayTrial := f.id("INSERT INTO trial_registrations(person_id,activity_id,group_id,group_slot_id,trial_date,status) VALUES(?1,?2,?3,?4,?5,'registered') RETURNING id", f.person, f.activity, group, slot, present)
+	futureTrial := f.id("INSERT INTO trial_registrations(person_id,activity_id,group_id,group_slot_id,trial_date,status) VALUES(?1,?2,?3,?4,?5,'registered') RETURNING id", f.person, f.activity, group, slot, future)
 	f.request()
 
 	home := officeOK(t, b, "/admin", "Essais passés sans résultat", "Aujourd’hui", "Demain", "Lina Parcours", "Note à consulter", "Séance découverte")
@@ -317,9 +317,9 @@ func TestAdministrativeMembershipFromTrialAndGroups(t *testing.T) {
 	b := f.membershipAdminBrowser()
 	g, slot := f.officeGroup()
 	_, a := f.personalBrowser(f.person, "member")
-	trial := f.id("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES($1,$2,'2026-09-16','attended') RETURNING id", f.person, f.activity)
+	trial := f.id("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES(?1,?2,'2026-09-16','attended') RETURNING id", f.person, f.activity)
 	other := f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES('Other','Person','1990-01-01') RETURNING id")
-	foreignTrial := f.id("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES($1,$2,'2026-09-16','registered') RETURNING id", other, f.activity)
+	foreignTrial := f.id("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES(?1,?2,'2026-09-16','registered') RETURNING id", other, f.activity)
 	def := f.id("INSERT INTO consent_definitions(code,version,title,description) VALUES('photo',1,'Photographie','Texte initial') RETURNING id")
 	path := officePerson(f.person) + "/memberships/new"
 	officeOK(t, b, path+"?trial="+fmt.Sprint(trial), "Décisions recueillies", "Photographie")
@@ -336,7 +336,7 @@ func TestAdministrativeMembershipFromTrialAndGroups(t *testing.T) {
 	officePost(t, b, path, form, 422)
 	form.Set("consent-"+fmt.Sprint(def), "refused")
 	r := officePost(t, b, path, form, 303)
-	id := f.id("SELECT id FROM memberships WHERE person_id=$1 AND season_id=$2", f.person, f.season)
+	id := f.id("SELECT id FROM memberships WHERE person_id=?1 AND season_id=?2", f.person, f.season)
 	if r.Header().Get("Location") != dossierPath(id)+"?notice=requested" {
 		t.Fatal("membership destination")
 	}
@@ -352,16 +352,16 @@ func TestAdministrativeMembershipFromTrialAndGroups(t *testing.T) {
 	officePost(t, b, groups, groupForm, 422)
 	groupForm.Set("joined_at", "2026-09-01")
 	different := f.id("INSERT INTO activities(name) VALUES('Different') RETURNING id")
-	wrongGroup := f.id("INSERT INTO groups(activity_id,name) VALUES($1,'Wrong group') RETURNING id", different)
+	wrongGroup := f.id("INSERT INTO groups(activity_id,name) VALUES(?1,'Wrong group') RETURNING id", different)
 	groupForm.Set("group_id", fmt.Sprint(wrongGroup))
 	officePost(t, b, groups, groupForm, 422)
 	groupForm.Set("group_id", fmt.Sprint(g))
 	officePost(t, b, groups, groupForm, 303)
 	officePost(t, b, groups, groupForm, 422)
-	assignment := f.id("SELECT id FROM membership_groups WHERE membership_id=$1", id)
+	assignment := f.id("SELECT id FROM membership_groups WHERE membership_id=?1", id)
 	officeOK(t, b, groups, "Groupe adultes", "Actuel")
 	f.personalOK(a, personalMembership(id), "Groupe adultes", "18:30", "Dojo municipal")
-	foreignMember := f.id("INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES($1,$2,$3,'pending') RETURNING id", other, f.season, f.kind)
+	foreignMember := f.id("INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES(?1,?2,?3,'pending') RETURNING id", other, f.season, f.kind)
 	officePost(t, b, fmt.Sprintf("/memberships/%d/groups/%d/close", foreignMember, assignment), url.Values{"left_at": {"2026-09-10"}}, 404)
 	officePost(t, b, fmt.Sprintf("%s/%d/close", groups, assignment), url.Values{"left_at": {"2026-08-31"}}, 422)
 	officePost(t, b, fmt.Sprintf("%s/%d/close", groups, assignment), url.Values{"left_at": {"2026-09-10"}}, 303)
@@ -372,19 +372,19 @@ func TestAdministrativeMembershipFromTrialAndGroups(t *testing.T) {
 	officePost(t, b, groups, groupForm, 422)
 	groupForm.Set("joined_at", "2026-09-10")
 	officePost(t, b, groups, groupForm, 303)
-	if f.count("SELECT count(*) FROM membership_groups WHERE membership_id=$1", id) != 2 {
+	if f.count("SELECT count(*) FROM membership_groups WHERE membership_id=?1", id) != 2 {
 		t.Fatal("lost group history")
 	}
 	officePost(t, b, dossierPath(id)+"/notes", url.Values{"notes": {"SECRET_ADMIN_NOTE <script>x</script>"}}, 303)
 	officeOK(t, b, dossierPath(id)+"/notes", "SECRET_ADMIN_NOTE &lt;script&gt;")
 	f.personalOK(a, personalMembership(id))
-	f.exec("UPDATE consent_definitions SET is_active=false WHERE id=$1", def)
+	f.exec("UPDATE consent_definitions SET is_active=false WHERE id=?1", def)
 	f.id("INSERT INTO consent_definitions(code,version,title,description) VALUES('photo',2,'NEW_NOT_PRESENTED','Changed') RETURNING id")
 	if strings.Contains(officeOK(t, b, dossierPath(id)), "NEW_NOT_PRESENTED") {
 		t.Fatal("historical consent changed")
 	}
 	oldSeason := f.id("INSERT INTO seasons(name,starts_at,ends_at) VALUES('Historique 2025','2025-09-01','2026-08-31') RETURNING id")
-	f.id("INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES($1,$2,$3,'ended') RETURNING id", f.person, oldSeason, f.kind)
+	f.id("INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES(?1,?2,?3,'ended') RETURNING id", f.person, oldSeason, f.kind)
 	officeOK(t, b, officePerson(f.person), "Historique 2025", "Terminée")
 	_ = slot
 }
@@ -439,7 +439,7 @@ func TestAdministrativeHTTPSecurityAndGroupConcurrency(t *testing.T) {
 	if codes[303] != 1 || codes[422] != 1 {
 		t.Fatal("group race", codes)
 	}
-	if f.count("SELECT count(*) FROM membership_groups WHERE membership_id=$1", m.ID) != 1 || f.count("SELECT count(*) FROM administrative_events") != 1 {
+	if f.count("SELECT count(*) FROM membership_groups WHERE membership_id=?1", m.ID) != 1 || f.count("SELECT count(*) FROM administrative_events") != 1 {
 		t.Fatal("duplicate assignment or audit")
 	}
 }
@@ -448,7 +448,7 @@ func TestAdministrativeMembershipConcurrencyAndRollback(t *testing.T) {
 	f := newFixture(t)
 	b := f.membershipAdminBrowser()
 	b2 := f.loginBrowser("admin")
-	trial := f.id("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES($1,$2,'2026-09-16','attended') RETURNING id", f.person, f.activity)
+	trial := f.id("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES(?1,?2,'2026-09-16','attended') RETURNING id", f.person, f.activity)
 	path := officePerson(f.person) + "/memberships/new"
 	tokens := []string{b.csrf(t, "/persons"), b2.csrf(t, "/persons")}
 	done := make(chan int, 2)
@@ -466,14 +466,14 @@ func TestAdministrativeMembershipConcurrencyAndRollback(t *testing.T) {
 	if codes[303] != 1 || codes[422] != 1 {
 		t.Fatal("concurrent conversion", codes)
 	}
-	if f.count("SELECT count(*) FROM memberships WHERE person_id=$1", f.person) != 1 || f.count("SELECT count(*) FROM administrative_events") != 1 {
+	if f.count("SELECT count(*) FROM memberships WHERE person_id=?1", f.person) != 1 || f.count("SELECT count(*) FROM administrative_events") != 1 {
 		t.Fatal("conversion duplicated")
 	}
 	other := f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES('Other','Contact','1990-01-01') RETURNING id")
-	f.exec("CREATE FUNCTION reject_conversion_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test'; END $$")
-	f.exec("CREATE TRIGGER reject_conversion_audit BEFORE INSERT ON administrative_events FOR EACH ROW EXECUTE FUNCTION reject_conversion_audit()")
+
+	f.exec("CREATE TRIGGER reject_conversion_audit BEFORE INSERT ON administrative_events BEGIN SELECT RAISE(ABORT, 'test'); END;")
 	officePost(t, b, officePerson(other)+"/memberships/new", url.Values{"season_id": {fmt.Sprint(f.season)}, "type_id": {fmt.Sprint(f.kind)}, "activities": {fmt.Sprint(f.activity)}}, 503)
-	if f.count("SELECT count(*) FROM memberships WHERE person_id=$1", other) != 0 || f.count("SELECT count(*) FROM membership_activities") != 1 {
+	if f.count("SELECT count(*) FROM memberships WHERE person_id=?1", other) != 0 || f.count("SELECT count(*) FROM membership_activities") != 1 {
 		t.Fatal("conversion not atomic")
 	}
 	// Authentication precedes parsing and CSRF, as on established administrative routes.

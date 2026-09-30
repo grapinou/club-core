@@ -37,3 +37,10 @@ review.diff
 
 # Campagne locale : identités, mots de passe, connexions, captures et boîte mail
 /runtime/multi-user/
+
+# Local SQLite data and transient WAL / delivery locks
+/data/
+*.db
+*.db-wal
+*.db-shm
+*.db.locks/

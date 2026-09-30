@@ -25,12 +25,12 @@ func TestPublicTrialBooking(t *testing.T) {
 	}
 	exec := func(q string, args ...any) {
 		t.Helper()
-		if _, err := db.Exec(ctx, q, args...); err != nil {
+		if _, err := db.ExecContext(ctx, q, args...); err != nil {
 			t.Fatal(err)
 		}
 	}
-	exec("UPDATE seasons SET starts_at=CURRENT_DATE-1,ends_at=CURRENT_DATE+365")
-	exec("UPDATE group_slots SET valid_from=CURRENT_DATE-1,valid_until=CURRENT_DATE+365")
+	exec("UPDATE seasons SET starts_at=date('now','-1 days'),ends_at=date('now','+365 days')")
+	exec("UPDATE group_slots SET valid_from=date('now','-1 days'),valid_until=date('now','+365 days')")
 	now := time.Now().UTC()
 	service := trials.NewPublic(db, time.UTC)
 	offers, err := service.Offerings(ctx, now)
@@ -67,7 +67,7 @@ func TestPublicTrialBooking(t *testing.T) {
 	count := func(table string) int {
 		t.Helper()
 		var n int
-		if err := db.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil {
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
 		return n
@@ -82,7 +82,7 @@ func TestPublicTrialBooking(t *testing.T) {
 	}
 	var status string
 	var personID, groupID, slotID int32
-	if err := db.QueryRow(ctx, "SELECT status,person_id,group_id,group_slot_id FROM trial_registrations WHERE id=$1", confirm.TrialID).Scan(&status, &personID, &groupID, &slotID); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT status,person_id,group_id,group_slot_id FROM trial_registrations WHERE id=?1", confirm.TrialID).Scan(&status, &personID, &groupID, &slotID); err != nil {
 		t.Fatal(err)
 	}
 	if status != "registered" || groupID != chosen.GroupID || slotID != chosen.SlotID {
@@ -113,11 +113,11 @@ func TestPublicTrialBooking(t *testing.T) {
 		t.Fatal("minor booking incomplete")
 	}
 	var notes string
-	if err := db.QueryRow(ctx, "SELECT notes FROM trial_registrations WHERE id=$1", minorConfirm.TrialID).Scan(&notes); err != nil || !strings.Contains(notes, "1,42 m") {
+	if err := db.QueryRowContext(ctx, "SELECT notes FROM trial_registrations WHERE id=?1", minorConfirm.TrialID).Scan(&notes); err != nil || !strings.Contains(notes, "1,42 m") {
 		t.Fatalf("equipment note: %q %v", notes, err)
 	}
 	var guardianEmail string
-	if err := db.QueryRow(ctx, `SELECT p.email FROM trial_registrations t JOIN person_guardians g ON g.child_person_id=t.person_id JOIN persons p ON p.id=g.guardian_person_id WHERE t.id=$1`, minorConfirm.TrialID).Scan(&guardianEmail); err != nil || guardianEmail != "parent@example.test" {
+	if err := db.QueryRowContext(ctx, `SELECT p.email FROM trial_registrations t JOIN person_guardians g ON g.child_person_id=t.person_id JOIN persons p ON p.id=g.guardian_person_id WHERE t.id=?1`, minorConfirm.TrialID).Scan(&guardianEmail); err != nil || guardianEmail != "parent@example.test" {
 		t.Fatalf("guardian: %v %s", err, guardianEmail)
 	}
 	invalidChild := child
@@ -138,11 +138,11 @@ func TestPublicTrialBooking(t *testing.T) {
 			b.Date = d.AddDate(0, 0, 1).Format("2006-01-02")
 		}, ""},
 		{"invalid form", func(b *trials.PublicBooking) { b.Email = "bad" }, ""},
-		{"inactive slot", nil, "UPDATE group_slots SET is_active=false WHERE id=$1"},
-		{"inactive group", nil, "UPDATE groups SET is_active=false WHERE id=$1"},
-		{"inactive activity", nil, "UPDATE activities SET is_active=false WHERE id=$1"},
+		{"inactive slot", nil, "UPDATE group_slots SET is_active=false WHERE id=?1"},
+		{"inactive group", nil, "UPDATE groups SET is_active=false WHERE id=?1"},
+		{"inactive activity", nil, "UPDATE activities SET is_active=false WHERE id=?1"},
 		{"inactive season", nil, "UPDATE seasons SET is_active=false"},
-		{"outside period", nil, "UPDATE group_slots SET valid_until=CURRENT_DATE WHERE id=$1"},
+		{"outside period", nil, "UPDATE group_slots SET valid_until=CURRENT_DATE WHERE id=?1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -168,9 +168,9 @@ func TestPublicTrialBooking(t *testing.T) {
 			if count("persons") != p0 || count("trial_registrations") != t0 || count("person_guardians") != g0 {
 				t.Fatal("partial creation")
 			}
-			exec("UPDATE group_slots SET is_active=true,valid_until=CURRENT_DATE+365 WHERE id=$1", chosen.SlotID)
-			exec("UPDATE groups SET is_active=true WHERE id=$1", chosen.GroupID)
-			exec("UPDATE activities SET is_active=true WHERE id=$1", chosen.ActivityID)
+			exec("UPDATE group_slots SET is_active=true,valid_until=date('now','+365 days') WHERE id=?1", chosen.SlotID)
+			exec("UPDATE groups SET is_active=true WHERE id=?1", chosen.GroupID)
+			exec("UPDATE activities SET is_active=true WHERE id=?1", chosen.ActivityID)
 			exec("UPDATE seasons SET is_active=true")
 		})
 	}
@@ -220,7 +220,7 @@ func TestPublicTrialBooking(t *testing.T) {
 		}
 	}
 	var adultNotes *string
-	if err := db.QueryRow(ctx, "SELECT notes FROM trial_registrations WHERE person_id=(SELECT id FROM persons WHERE email='bruno@example.test')").Scan(&adultNotes); err != nil || adultNotes != nil {
+	if err := db.QueryRowContext(ctx, "SELECT notes FROM trial_registrations WHERE person_id=(SELECT id FROM persons WHERE email='bruno@example.test')").Scan(&adultNotes); err != nil || adultNotes != nil {
 		t.Fatalf("no equipment should leave notes empty: %v %v", adultNotes, err)
 	}
 	mail.err = errors.New("relay unavailable")
@@ -262,7 +262,7 @@ func TestPublicTrialVisibleInOffice(t *testing.T) {
 		t.Fatal("wrong office target")
 	}
 	var personID int32
-	if err := f.db.QueryRow(t.Context(), "SELECT person_id FROM trial_registrations WHERE id=$1", confirmation.TrialID).Scan(&personID); err != nil {
+	if err := f.db.QueryRowContext(t.Context(), "SELECT person_id FROM trial_registrations WHERE id=?1", confirmation.TrialID).Scan(&personID); err != nil {
 		t.Fatal(err)
 	}
 	b := f.membershipAdminBrowser()
@@ -284,8 +284,47 @@ func TestPublicTrialVisibleInOffice(t *testing.T) {
 	}
 	officeOK(t, b, fmt.Sprintf("/trials/%d", minor.TrialID), "Enfant Essai", "Parent Essai", "parent@example.test", "0611223355", "taille enfant")
 	var childPersonID int32
-	if err := f.db.QueryRow(t.Context(), "SELECT person_id FROM trial_registrations WHERE id=$1", minor.TrialID).Scan(&childPersonID); err != nil {
+	if err := f.db.QueryRowContext(t.Context(), "SELECT person_id FROM trial_registrations WHERE id=?1", minor.TrialID).Scan(&childPersonID); err != nil {
 		t.Fatal(err)
 	}
 	officeOK(t, b, fmt.Sprintf("/persons/%d", childPersonID), "Parent Essai", "Contact principal", "0611223355")
+}
+
+func TestPublicTrialInclusiveCalendarBoundary(t *testing.T) {
+	for _, boundary := range []string{"season_end", "slot_end"} {
+		t.Run(boundary, func(t *testing.T) {
+			db := newApplicationDatabase(t, "calendar_boundary_demo")
+			if err := demodata.SeedBudokan(t.Context(), db, true); err != nil {
+				t.Fatal(err)
+			}
+			now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+			first, last := trials.PublicWindow(now, time.UTC)
+			seasonEnd, slotEnd := last, last
+			if boundary == "season_end" {
+				seasonEnd = first
+			} else {
+				slotEnd = first
+			}
+			if _, err := db.ExecContext(t.Context(), "UPDATE seasons SET starts_at=?1,ends_at=?2", first.Format("2006-01-02"), seasonEnd.Format("2006-01-02")); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.ExecContext(t.Context(), "UPDATE group_slots SET valid_from=?1,valid_until=?2", first.Format("2006-01-02"), slotEnd.Format("2006-01-02")); err != nil {
+				t.Fatal(err)
+			}
+			service := trials.NewPublic(db, time.UTC)
+			offers, err := service.Offerings(t.Context(), now)
+			if err != nil || len(offers) != 3 {
+				t.Fatal("inclusive Monday boundary offerings", len(offers), err)
+			}
+			for _, offer := range offers {
+				if len(offer.Dates) != 1 || offer.Dates[0] != first.Format("2006-01-02") {
+					t.Fatal("calendar boundary date", offer.Dates)
+				}
+			}
+			_, err = service.Book(t.Context(), trials.PublicBooking{Offering: offers[0], Date: offers[0].Dates[0], FirstName: "Calendar", LastName: "Boundary", BirthDate: "1990-01-01", Email: "calendar@example.test", Phone: "0612345678"}, now)
+			if err != nil {
+				t.Fatal("inclusive boundary booking", err)
+			}
+		})
+	}
 }

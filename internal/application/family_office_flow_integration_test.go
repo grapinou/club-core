@@ -97,7 +97,7 @@ func TestP42FamilyEntryAndSessionIdentity(t *testing.T) {
 	}
 	// An exact existing child match remains an administrative decision, even when
 	// the requesting guardian has a different, valid family space.
-	other := f.id(`INSERT INTO persons(first_name,last_name,birth_date) VALUES('Arthur','Famille',$1) RETURNING id`, v.Get("birth_date"))
+	other := f.id(`INSERT INTO persons(first_name,last_name,birth_date) VALUES('Arthur','Famille',?1) RETURNING id`, v.Get("birth_date"))
 	v = f.familyForm(b, "/me/children/new")
 	if r = b.call("POST", "/me/children/new", v); r.Code != 303 {
 		t.Fatal(r.Code, r.Body.String())
@@ -108,15 +108,15 @@ func TestP42FamilyEntryAndSessionIdentity(t *testing.T) {
 	if d.Submission.Status != "awaiting_identity_review" || d.Submission.ResolvedPersonID.Valid || d.Application.MembershipID.Valid {
 		t.Fatal("existing child automatically resolved")
 	}
-	if f.count(`SELECT count(*) FROM person_guardians WHERE child_person_id=$1`, other) != 0 {
+	if f.count(`SELECT count(*) FROM person_guardians WHERE child_person_id=?1`, other) != 0 {
 		t.Fatal("arbitrary relationship")
 	}
-	f.exec(`UPDATE persons SET email=NULL WHERE id=$1`, parent)
+	f.exec(`UPDATE persons SET email=NULL WHERE id=?1`, parent)
 	missingEmail := f.familyForm(b, "/me/children/new")
 	if r = b.call("POST", "/me/children/new", missingEmail); r.Code != 422 || !strings.Contains(r.Body.String(), "Complétez l’adresse email de votre compte") {
 		t.Fatal("missing account contact not explained", r.Code)
 	}
-	f.exec(`UPDATE persons SET email='claire@example.test' WHERE id=$1`, parent)
+	f.exec(`UPDATE persons SET email='claire@example.test' WHERE id=?1`, parent)
 	f.must(f.app.GuardianAccess.Revoke(f.authenticatedContext(f.approver), child, parent))
 	if r = b.call("POST", "/me/children/new", v); r.Code != 403 {
 		t.Fatal("revoked family entry")
@@ -149,11 +149,11 @@ func TestP42ManagedChildActionsAndUniqueSeason(t *testing.T) {
 	if r.Code != 303 {
 		t.Fatal(r.Code, r.Body.String())
 	}
-	id := f.id(`SELECT id FROM memberships WHERE person_id=$1 AND season_id=$2`, child, f.season)
+	id := f.id(`SELECT id FROM memberships WHERE person_id=?1 AND season_id=?2`, child, f.season)
 	if r.Header().Get("Location") != familyMembership(child, id) {
 		t.Fatal("wrong destination")
 	}
-	if f.count(`SELECT count(*) FROM membership_consents WHERE membership_id=$1 AND given_by_person_id=$2 AND consent_definition_id=$3 AND decision='refused'`, id, parent, consent) != 1 {
+	if f.count(`SELECT count(*) FROM membership_consents WHERE membership_id=?1 AND given_by_person_id=?2 AND consent_definition_id=?3 AND decision='refused'`, id, parent, consent) != 1 {
 		t.Fatal("consent attribution")
 	}
 	for _, route := range []string{"/dashboard", personalChild(child)} {
@@ -165,10 +165,10 @@ func TestP42ManagedChildActionsAndUniqueSeason(t *testing.T) {
 	if r = b.call("POST", path, v); r.Code != 422 || !strings.Contains(r.Body.String(), "existe déjà") {
 		t.Fatal("duplicate not explained", r.Code)
 	}
-	if f.count(`SELECT count(*) FROM memberships WHERE person_id=$1`, child) != 1 {
+	if f.count(`SELECT count(*) FROM memberships WHERE person_id=?1`, child) != 1 {
 		t.Fatal("duplicate membership")
 	}
-	f.exec(`INSERT INTO person_emergency_contacts(person_id,contact_person_id,priority) VALUES($1,$2,1)`, child, parent)
+	f.exec(`INSERT INTO person_emergency_contacts(person_id,contact_person_id,priority) VALUES(?1,?2,1)`, child, parent)
 	_, err = f.app.Accounts.ApproveMembership(t.Context(), id, f.approver, nil)
 	f.must(err)
 	f.personalOK(b, "/dashboard", "Voir l’adhésion", familyMembership(child, id))
@@ -185,23 +185,23 @@ func TestP42RolesFiltersArchiveAndHistory(t *testing.T) {
 	f := newFixture(t)
 	membership := f.request()
 	child := f.id(`INSERT INTO persons(first_name,last_name,birth_date) VALUES('Petit','Filtre','2016-01-01') RETURNING id`)
-	f.exec(`INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES($1,$2,'guardian')`, child, f.person)
+	f.exec(`INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES(?1,?2,'guardian')`, child, f.person)
 	prospect := f.id(`INSERT INTO persons(first_name,last_name,birth_date,notes) VALUES('Prospect','Filtre','1990-01-01','Historique conservé') RETURNING id`)
-	trial := f.id(`INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES($1,$2,CURRENT_DATE-1,'attended') RETURNING id`, prospect, f.activity)
+	trial := f.id(`INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES(?1,?2,date('now','-1 days'),'attended') RETURNING id`, prospect, f.activity)
 	_, parent := f.guardianPair()
 	office := f.membershipAdminBrowser()
-	f.exec(`DELETE FROM user_roles WHERE user_id=$1`, f.approver)
-	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='secretary'`, f.approver)
+	f.exec(`DELETE FROM user_roles WHERE user_id=?1`, f.approver)
+	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='secretary'`, f.approver)
 	officeOK(t, office, "/admin", "Mon tableau de bord", "Secrétaire")
 	if r := office.call("GET", "/admin/users", nil); r.Code != 403 {
 		t.Fatal("secretary gained president permission")
 	}
-	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='president'`, f.approver)
+	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='president'`, f.approver)
 	officeOK(t, office, "/admin", "Président", "Secrétaire")
 	if r := office.call("GET", "/admin/users", nil); r.Code != 200 {
 		t.Fatal("president permission changed")
 	}
-	f.exec(`DELETE FROM user_roles WHERE user_id=$1 AND role_id=(SELECT id FROM roles WHERE name='secretary')`, f.approver)
+	f.exec(`DELETE FROM user_roles WHERE user_id=?1 AND role_id=(SELECT id FROM roles WHERE name='secretary')`, f.approver)
 	body := officeOK(t, office, "/admin", "Président")
 	if strings.Contains(body, ">Secrétaire</span>") {
 		t.Fatal("stale role")
@@ -251,7 +251,7 @@ func TestP42RolesFiltersArchiveAndHistory(t *testing.T) {
 		}
 		officeOK(t, office, "/persons/archived", officePerson(id)+"/restore")
 	}
-	if f.count(`SELECT count(*) FROM trial_registrations WHERE id=$1`, trial) != 1 || f.count(`SELECT count(*) FROM memberships WHERE id=$1`, membership.ID) != 1 || f.count(`SELECT count(*) FROM person_guardians WHERE guardian_person_id=$1`, f.person) != 1 || f.count(`SELECT count(*) FROM persons WHERE id=$1 AND notes='Historique conservé'`, prospect) != 1 {
+	if f.count(`SELECT count(*) FROM trial_registrations WHERE id=?1`, trial) != 1 || f.count(`SELECT count(*) FROM memberships WHERE id=?1`, membership.ID) != 1 || f.count(`SELECT count(*) FROM person_guardians WHERE guardian_person_id=?1`, f.person) != 1 || f.count(`SELECT count(*) FROM persons WHERE id=?1 AND notes='Historique conservé'`, prospect) != 1 {
 		t.Fatal("archive erased history")
 	}
 	for _, id := range []int32{prospect, f.person} {
@@ -278,8 +278,8 @@ func (p42ReadOnlyReview) HasPermission(_ context.Context, _ int32, p authorizati
 
 func TestP42ReviewOffersExistingApproval(t *testing.T) {
 	f := newFixture(t)
-	f.exec(`DELETE FROM user_roles WHERE user_id=$1`, f.approver)
-	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='secretary'`, f.approver)
+	f.exec(`DELETE FROM user_roles WHERE user_id=?1`, f.approver)
+	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='secretary'`, f.approver)
 	public := newBrowser(f.app.Handler)
 	v := f.childForm(public)
 	v.Set("emergency_contact", "no")
@@ -294,7 +294,7 @@ func TestP42ReviewOffersExistingApproval(t *testing.T) {
 	}
 	d, err := f.app.Reviews.GetDetails(t.Context(), f.approver, sub)
 	f.must(err)
-	f.exec(`INSERT INTO person_emergency_contacts(person_id,contact_person_id,priority) VALUES($1,$2,1)`, d.Submission.ResolvedPersonID, d.Child.Guardian.ResolvedPersonID)
+	f.exec(`INSERT INTO person_emergency_contacts(person_id,contact_person_id,priority) VALUES(?1,?2,1)`, d.Submission.ResolvedPersonID, d.Child.Guardian.ResolvedPersonID)
 	body = officeOK(t, office, reviewPath(sub), "Adhésion prête à valider", "Valider l’adhésion", approvePath(m), "La relation avec le responsable est résolue")
 	// Exercise the handler's independent approval-permission branch. Current
 	// built-in reviewer roles all approve; no production policy is changed here.

@@ -7,31 +7,36 @@ package dbsqlc
 
 import (
 	"context"
+	"database/sql"
+	"strings"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 const createRegistrationApplication = `-- name: CreateRegistrationApplication :one
-INSERT INTO registration_applications(submission_id,request_key,season_id,membership_type_id)
-VALUES ($1,$2,$3,$4) RETURNING id, submission_id, request_key, season_id, membership_type_id, status, membership_id, last_error_code, created_at, updated_at, finalized_at
+INSERT INTO registration_applications(submission_id,request_key,season_id,membership_type_id,required_activity_id)
+VALUES (?1,?2,?3,?4,?5) RETURNING required_activity_id, id, submission_id, request_key, season_id, membership_type_id, status, membership_id, last_error_code, created_at, updated_at, finalized_at
 `
 
 type CreateRegistrationApplicationParams struct {
-	SubmissionID     int32
-	RequestKey       []byte
-	SeasonID         int32
-	MembershipTypeID int32
+	SubmissionID       int32
+	RequestKey         []byte
+	SeasonID           int32
+	MembershipTypeID   int32
+	RequiredActivityID int32
 }
 
 func (q *Queries) CreateRegistrationApplication(ctx context.Context, arg CreateRegistrationApplicationParams) (RegistrationApplication, error) {
-	row := q.db.QueryRow(ctx, createRegistrationApplication,
+	row := q.db.QueryRowContext(ctx, createRegistrationApplication,
 		arg.SubmissionID,
 		arg.RequestKey,
 		arg.SeasonID,
 		arg.MembershipTypeID,
+		arg.RequiredActivityID,
 	)
 	var i RegistrationApplication
 	err := row.Scan(
+		&i.RequiredActivityID,
 		&i.ID,
 		&i.SubmissionID,
 		&i.RequestKey,
@@ -48,7 +53,7 @@ func (q *Queries) CreateRegistrationApplication(ctx context.Context, arg CreateR
 }
 
 const createRegistrationApplicationActivity = `-- name: CreateRegistrationApplicationActivity :exec
-INSERT INTO registration_application_activities(application_id,activity_id) VALUES ($1,$2)
+INSERT INTO registration_application_activities(application_id,activity_id) VALUES (?1,?2)
 `
 
 type CreateRegistrationApplicationActivityParams struct {
@@ -57,23 +62,23 @@ type CreateRegistrationApplicationActivityParams struct {
 }
 
 func (q *Queries) CreateRegistrationApplicationActivity(ctx context.Context, arg CreateRegistrationApplicationActivityParams) error {
-	_, err := q.db.Exec(ctx, createRegistrationApplicationActivity, arg.ApplicationID, arg.ActivityID)
+	_, err := q.db.ExecContext(ctx, createRegistrationApplicationActivity, arg.ApplicationID, arg.ActivityID)
 	return err
 }
 
 const createRegistrationApplicationConsent = `-- name: CreateRegistrationApplicationConsent :exec
-INSERT INTO registration_application_consents(application_id,consent_definition_id,decision,presented_at) VALUES ($1,$2,$3,$4)
+INSERT INTO registration_application_consents(application_id,consent_definition_id,decision,presented_at) VALUES (?1,?2,?3,?4)
 `
 
 type CreateRegistrationApplicationConsentParams struct {
 	ApplicationID       int32
 	ConsentDefinitionID int32
 	Decision            string
-	PresentedAt         pgtype.Timestamptz
+	PresentedAt         dbtypes.Timestamp
 }
 
 func (q *Queries) CreateRegistrationApplicationConsent(ctx context.Context, arg CreateRegistrationApplicationConsentParams) error {
-	_, err := q.db.Exec(ctx, createRegistrationApplicationConsent,
+	_, err := q.db.ExecContext(ctx, createRegistrationApplicationConsent,
 		arg.ApplicationID,
 		arg.ConsentDefinitionID,
 		arg.Decision,
@@ -83,13 +88,14 @@ func (q *Queries) CreateRegistrationApplicationConsent(ctx context.Context, arg 
 }
 
 const getRegistrationApplicationByRequest = `-- name: GetRegistrationApplicationByRequest :one
-SELECT id, submission_id, request_key, season_id, membership_type_id, status, membership_id, last_error_code, created_at, updated_at, finalized_at FROM registration_applications WHERE request_key=$1
+SELECT required_activity_id, id, submission_id, request_key, season_id, membership_type_id, status, membership_id, last_error_code, created_at, updated_at, finalized_at FROM registration_applications WHERE request_key=?1
 `
 
 func (q *Queries) GetRegistrationApplicationByRequest(ctx context.Context, requestKey []byte) (RegistrationApplication, error) {
-	row := q.db.QueryRow(ctx, getRegistrationApplicationByRequest, requestKey)
+	row := q.db.QueryRowContext(ctx, getRegistrationApplicationByRequest, requestKey)
 	var i RegistrationApplication
 	err := row.Scan(
+		&i.RequiredActivityID,
 		&i.ID,
 		&i.SubmissionID,
 		&i.RequestKey,
@@ -106,31 +112,33 @@ func (q *Queries) GetRegistrationApplicationByRequest(ctx context.Context, reque
 }
 
 const getRegistrationApplicationDetails = `-- name: GetRegistrationApplicationDetails :one
-SELECT a.id, a.submission_id, a.request_key, a.season_id, a.membership_type_id, a.status, a.membership_id, a.last_error_code, a.created_at, a.updated_at, a.finalized_at,s.name AS season_name,t.name AS membership_type_name
+SELECT a.required_activity_id, a.id, a.submission_id, a.request_key, a.season_id, a.membership_type_id, a.status, a.membership_id, a.last_error_code, a.created_at, a.updated_at, a.finalized_at,s.name AS season_name,t.name AS membership_type_name
 FROM registration_applications a JOIN seasons s ON s.id=a.season_id JOIN membership_types t ON t.id=a.membership_type_id
-WHERE a.submission_id=$1
+WHERE a.submission_id=?1
 `
 
 type GetRegistrationApplicationDetailsRow struct {
+	RequiredActivityID int32
 	ID                 int32
 	SubmissionID       int32
 	RequestKey         []byte
 	SeasonID           int32
 	MembershipTypeID   int32
 	Status             string
-	MembershipID       pgtype.Int4
-	LastErrorCode      pgtype.Text
-	CreatedAt          pgtype.Timestamptz
-	UpdatedAt          pgtype.Timestamptz
-	FinalizedAt        pgtype.Timestamptz
+	MembershipID       sql.NullInt32
+	LastErrorCode      sql.NullString
+	CreatedAt          dbtypes.Timestamp
+	UpdatedAt          dbtypes.Timestamp
+	FinalizedAt        dbtypes.Timestamp
 	SeasonName         string
 	MembershipTypeName string
 }
 
 func (q *Queries) GetRegistrationApplicationDetails(ctx context.Context, submissionID int32) (GetRegistrationApplicationDetailsRow, error) {
-	row := q.db.QueryRow(ctx, getRegistrationApplicationDetails, submissionID)
+	row := q.db.QueryRowContext(ctx, getRegistrationApplicationDetails, submissionID)
 	var i GetRegistrationApplicationDetailsRow
 	err := row.Scan(
+		&i.RequiredActivityID,
 		&i.ID,
 		&i.SubmissionID,
 		&i.RequestKey,
@@ -150,22 +158,32 @@ func (q *Queries) GetRegistrationApplicationDetails(ctx context.Context, submiss
 
 const getVerifiedRegistrationApplicationStatus = `-- name: GetVerifiedRegistrationApplicationStatus :one
 SELECT a.status FROM registration_email_verifications v JOIN registration_applications a ON a.submission_id=v.submission_id
-WHERE v.public_reference=$1 AND v.used_at IS NOT NULL
+WHERE v.public_reference=?1 AND v.used_at IS NOT NULL
 `
 
 func (q *Queries) GetVerifiedRegistrationApplicationStatus(ctx context.Context, publicReference string) (string, error) {
-	row := q.db.QueryRow(ctx, getVerifiedRegistrationApplicationStatus, publicReference)
+	row := q.db.QueryRowContext(ctx, getVerifiedRegistrationApplicationStatus, publicReference)
 	var status string
 	err := row.Scan(&status)
 	return status, err
 }
 
 const listPresentedRegistrationConsents = `-- name: ListPresentedRegistrationConsents :many
-SELECT id, code, version, title, description, is_active, created_at FROM consent_definitions WHERE id=ANY($1::integer[]) ORDER BY code,version
+SELECT id, code, version, title, description, is_active, created_at FROM consent_definitions WHERE id IN (/*SLICE:ids*/?) ORDER BY code,version
 `
 
-func (q *Queries) ListPresentedRegistrationConsents(ctx context.Context, dollar_1 []int32) ([]ConsentDefinition, error) {
-	rows, err := q.db.Query(ctx, listPresentedRegistrationConsents, dollar_1)
+func (q *Queries) ListPresentedRegistrationConsents(ctx context.Context, ids []int32) ([]ConsentDefinition, error) {
+	query := listPresentedRegistrationConsents
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}
@@ -186,6 +204,9 @@ func (q *Queries) ListPresentedRegistrationConsents(ctx context.Context, dollar_
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -197,7 +218,7 @@ SELECT id, name, is_active, created_at FROM activities WHERE is_active ORDER BY 
 `
 
 func (q *Queries) ListRegistrationActivities(ctx context.Context) ([]Activity, error) {
-	rows, err := q.db.Query(ctx, listRegistrationActivities)
+	rows, err := q.db.QueryContext(ctx, listRegistrationActivities)
 	if err != nil {
 		return nil, err
 	}
@@ -214,6 +235,9 @@ func (q *Queries) ListRegistrationActivities(ctx context.Context) ([]Activity, e
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -222,11 +246,11 @@ func (q *Queries) ListRegistrationActivities(ctx context.Context) ([]Activity, e
 }
 
 const listRegistrationApplicationActivities = `-- name: ListRegistrationApplicationActivities :many
-SELECT a.id, a.name, a.is_active, a.created_at FROM registration_application_activities r JOIN activities a ON a.id=r.activity_id WHERE r.application_id=$1 ORDER BY a.name,a.id
+SELECT a.id, a.name, a.is_active, a.created_at FROM registration_application_activities r JOIN activities a ON a.id=r.activity_id WHERE r.application_id=?1 ORDER BY a.name,a.id
 `
 
 func (q *Queries) ListRegistrationApplicationActivities(ctx context.Context, applicationID int32) ([]Activity, error) {
-	rows, err := q.db.Query(ctx, listRegistrationApplicationActivities, applicationID)
+	rows, err := q.db.QueryContext(ctx, listRegistrationApplicationActivities, applicationID)
 	if err != nil {
 		return nil, err
 	}
@@ -243,6 +267,9 @@ func (q *Queries) ListRegistrationApplicationActivities(ctx context.Context, app
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -252,14 +279,14 @@ func (q *Queries) ListRegistrationApplicationActivities(ctx context.Context, app
 
 const listRegistrationApplicationConsents = `-- name: ListRegistrationApplicationConsents :many
 SELECT r.application_id, r.consent_definition_id, r.decision, r.presented_at,d.code,d.version,d.title,d.description FROM registration_application_consents r
-JOIN consent_definitions d ON d.id=r.consent_definition_id WHERE r.application_id=$1 ORDER BY d.code,d.version
+JOIN consent_definitions d ON d.id=r.consent_definition_id WHERE r.application_id=?1 ORDER BY d.code,d.version
 `
 
 type ListRegistrationApplicationConsentsRow struct {
 	ApplicationID       int32
 	ConsentDefinitionID int32
 	Decision            string
-	PresentedAt         pgtype.Timestamptz
+	PresentedAt         dbtypes.Timestamp
 	Code                string
 	Version             int32
 	Title               string
@@ -267,7 +294,7 @@ type ListRegistrationApplicationConsentsRow struct {
 }
 
 func (q *Queries) ListRegistrationApplicationConsents(ctx context.Context, applicationID int32) ([]ListRegistrationApplicationConsentsRow, error) {
-	rows, err := q.db.Query(ctx, listRegistrationApplicationConsents, applicationID)
+	rows, err := q.db.QueryContext(ctx, listRegistrationApplicationConsents, applicationID)
 	if err != nil {
 		return nil, err
 	}
@@ -289,6 +316,9 @@ func (q *Queries) ListRegistrationApplicationConsents(ctx context.Context, appli
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -300,7 +330,7 @@ SELECT id, name, is_active, created_at, amount_cents, currency, public_note FROM
 `
 
 func (q *Queries) ListRegistrationMembershipTypes(ctx context.Context) ([]MembershipType, error) {
-	rows, err := q.db.Query(ctx, listRegistrationMembershipTypes)
+	rows, err := q.db.QueryContext(ctx, listRegistrationMembershipTypes)
 	if err != nil {
 		return nil, err
 	}
@@ -321,6 +351,9 @@ func (q *Queries) ListRegistrationMembershipTypes(ctx context.Context) ([]Member
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -332,7 +365,7 @@ SELECT id, name, starts_at, ends_at, is_active, created_at FROM seasons WHERE is
 `
 
 func (q *Queries) ListRegistrationSeasons(ctx context.Context) ([]Season, error) {
-	rows, err := q.db.Query(ctx, listRegistrationSeasons)
+	rows, err := q.db.QueryContext(ctx, listRegistrationSeasons)
 	if err != nil {
 		return nil, err
 	}
@@ -352,6 +385,9 @@ func (q *Queries) ListRegistrationSeasons(ctx context.Context) ([]Season, error)
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -359,13 +395,14 @@ func (q *Queries) ListRegistrationSeasons(ctx context.Context) ([]Season, error)
 }
 
 const lockRegistrationApplication = `-- name: LockRegistrationApplication :one
-SELECT id, submission_id, request_key, season_id, membership_type_id, status, membership_id, last_error_code, created_at, updated_at, finalized_at FROM registration_applications WHERE submission_id=$1 FOR UPDATE
+SELECT required_activity_id, id, submission_id, request_key, season_id, membership_type_id, status, membership_id, last_error_code, created_at, updated_at, finalized_at FROM registration_applications WHERE submission_id=?1
 `
 
 func (q *Queries) LockRegistrationApplication(ctx context.Context, submissionID int32) (RegistrationApplication, error) {
-	row := q.db.QueryRow(ctx, lockRegistrationApplication, submissionID)
+	row := q.db.QueryRowContext(ctx, lockRegistrationApplication, submissionID)
 	var i RegistrationApplication
 	err := row.Scan(
+		&i.RequiredActivityID,
 		&i.ID,
 		&i.SubmissionID,
 		&i.RequestKey,
@@ -382,29 +419,29 @@ func (q *Queries) LockRegistrationApplication(ctx context.Context, submissionID 
 }
 
 const markRegistrationApplicationCreated = `-- name: MarkRegistrationApplicationCreated :exec
-UPDATE registration_applications SET status='membership_created',membership_id=$2,finalized_at=clock_timestamp(),updated_at=clock_timestamp(),last_error_code=NULL WHERE id=$1
+UPDATE registration_applications SET status='membership_created',membership_id=?1,finalized_at=strftime('%Y-%m-%d %H:%M:%f','now'),updated_at=strftime('%Y-%m-%d %H:%M:%f','now'),last_error_code=NULL WHERE id=?2
 `
 
 type MarkRegistrationApplicationCreatedParams struct {
+	MembershipID sql.NullInt32
 	ID           int32
-	MembershipID pgtype.Int4
 }
 
 func (q *Queries) MarkRegistrationApplicationCreated(ctx context.Context, arg MarkRegistrationApplicationCreatedParams) error {
-	_, err := q.db.Exec(ctx, markRegistrationApplicationCreated, arg.ID, arg.MembershipID)
+	_, err := q.db.ExecContext(ctx, markRegistrationApplicationCreated, arg.MembershipID, arg.ID)
 	return err
 }
 
 const markRegistrationApplicationReview = `-- name: MarkRegistrationApplicationReview :exec
-UPDATE registration_applications SET status='needs_review',last_error_code=$2,updated_at=clock_timestamp() WHERE id=$1
+UPDATE registration_applications SET status='needs_review',last_error_code=?1,updated_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?2
 `
 
 type MarkRegistrationApplicationReviewParams struct {
+	LastErrorCode sql.NullString
 	ID            int32
-	LastErrorCode pgtype.Text
 }
 
 func (q *Queries) MarkRegistrationApplicationReview(ctx context.Context, arg MarkRegistrationApplicationReviewParams) error {
-	_, err := q.db.Exec(ctx, markRegistrationApplicationReview, arg.ID, arg.LastErrorCode)
+	_, err := q.db.ExecContext(ctx, markRegistrationApplicationReview, arg.LastErrorCode, arg.ID)
 	return err
 }

@@ -3,7 +3,7 @@ package application
 import (
 	"bytes"
 	"context"
-	"database/sql"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/grapinou/club-core/internal/config"
+	"github.com/grapinou/club-core/internal/database"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/identityresolution"
 	"github.com/grapinou/club-core/internal/mailer"
@@ -44,7 +45,7 @@ func (f *fixture) jobState(id int32) (string, int32) {
 	f.t.Helper()
 	var state string
 	var attempts int32
-	f.must(f.db.QueryRow(f.t.Context(), `SELECT status,attempt_count FROM registration_verification_outbox WHERE submission_id=$1`, id).Scan(&state, &attempts))
+	f.must(f.db.QueryRowContext(f.t.Context(), `SELECT status,attempt_count FROM registration_verification_outbox WHERE submission_id=?1`, id).Scan(&state, &attempts))
 	return state, attempts
 }
 func (f *fixture) drive() {
@@ -57,7 +58,7 @@ func (f *fixture) drive() {
 }
 func (f *fixture) retryNow(id int32) {
 	f.t.Helper()
-	f.exec(`UPDATE registration_verification_outbox SET available_at=clock_timestamp()-interval '1 second' WHERE submission_id=$1 AND status='pending'`, id)
+	f.exec(`UPDATE registration_verification_outbox SET available_at=strftime('%Y-%m-%d %H:%M:%f','now','-1 second') WHERE submission_id=?1 AND status='pending'`, id)
 }
 func waitResult(t *testing.T, done <-chan error) {
 	t.Helper()
@@ -100,7 +101,7 @@ func TestOutboxSubmissionNeverWaitsForSMTP(t *testing.T) {
 	if state != "pending" || attempt != 0 || f.emailState(id) != "awaiting_email_verification" {
 		t.Fatal("enqueue state")
 	}
-	if n := f.id(`SELECT count(*)::integer FROM registration_email_verifications`); n != 0 {
+	if n := f.id(`SELECT count(*) FROM registration_email_verifications`); n != 0 {
 		t.Fatal("challenge prepared in request")
 	}
 	count, err := f.app.Reviews.CountOpen(t.Context(), f.approver)
@@ -121,15 +122,13 @@ func TestOutboxSubmissionNeverWaitsForSMTP(t *testing.T) {
 	waitResult(t, result)
 	ref, _ := verificationFrom(t, message)
 	var usable bool
-	f.must(f.db.QueryRow(t.Context(), `SELECT invalidated_at IS NULL FROM registration_email_verifications WHERE public_reference=$1`, ref).Scan(&usable))
+	f.must(f.db.QueryRowContext(t.Context(), `SELECT invalidated_at IS NULL FROM registration_email_verifications WHERE public_reference=?1`, ref).Scan(&usable))
 	if !usable {
 		t.Fatal("SMTP before challenge commit")
 	}
-	var transactions int
-	f.must(f.db.QueryRow(t.Context(), `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND state='idle in transaction'`).Scan(&transactions))
-	if transactions != 0 {
-		t.Fatal("SQL transaction held during SMTP")
-	}
+	freeTx, err := f.db.BeginTx(t.Context(), nil)
+	f.must(err)
+	f.must(freeTx.Rollback())
 	sender.release <- struct{}{}
 	waitResult(t, done)
 	state, attempt = f.jobState(id)
@@ -141,33 +140,33 @@ func TestOutboxSubmissionNeverWaitsForSMTP(t *testing.T) {
 func TestOutboxEnqueueAtomicityAndPrivacy(t *testing.T) {
 	f := newFixture(t)
 	id := f.submit(emailInput())
-	if _, err := f.db.Exec(t.Context(), `INSERT INTO registration_verification_outbox(submission_id,recipient_hash) SELECT submission_id,recipient_hash FROM registration_verification_outbox WHERE submission_id=$1`, id); err == nil {
+	if _, err := f.db.ExecContext(t.Context(), `INSERT INTO registration_verification_outbox(submission_id,recipient_hash) SELECT submission_id,recipient_hash FROM registration_verification_outbox WHERE submission_id=?1`, id); err == nil {
 		t.Fatal("duplicate active job")
 	}
 	noMatch := emailInput()
 	noMatch.FirstName = "Unknown"
 	other := f.submit(noMatch)
-	if n := f.id(`SELECT count(*)::integer FROM registration_verification_outbox WHERE submission_id=$1`, other); n != 0 {
+	if n := f.id(`SELECT count(*) FROM registration_verification_outbox WHERE submission_id=?1`, other); n != 0 {
 		t.Fatal("ineligible enqueued")
 	}
 	if f.emailState(other) != "awaiting_identity_review" {
 		t.Fatal("ineligible not reviewed")
 	}
 	before := f.registrationSnapshot()
-	f.exec(`CREATE FUNCTION fail_outbox_insert_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'sensitive insertion failure'; END $$`)
-	f.exec(`CREATE TRIGGER fail_outbox_insert_test BEFORE INSERT ON registration_verification_outbox FOR EACH ROW EXECUTE FUNCTION fail_outbox_insert_test()`)
+
+	f.exec(`CREATE TRIGGER fail_outbox_insert_test BEFORE INSERT ON registration_verification_outbox BEGIN SELECT RAISE(ABORT, 'sensitive insertion failure'); END;`)
 	_, err := f.app.Submissions.CreateSubmission(t.Context(), emailInput())
 	if !errors.Is(err, identityresolution.ErrUnavailable) || before != f.registrationSnapshot() {
 		t.Fatal("partial creation")
 	}
-	if n := f.id(`SELECT count(*)::integer FROM registration_submission_candidates WHERE submission_id NOT IN (SELECT id FROM registration_submissions)`); n != 0 {
+	if n := f.id(`SELECT count(*) FROM registration_submission_candidates WHERE submission_id NOT IN (SELECT id FROM registration_submissions)`); n != 0 {
 		t.Fatal("orphan candidates")
 	}
-	f.exec(`DROP TRIGGER fail_outbox_insert_test ON registration_verification_outbox`)
+	f.exec(`DROP TRIGGER fail_outbox_insert_test`)
 	f.drive()
 	ref, code := verificationFrom(t, f.mail.messages[0])
 	var persisted string
-	f.must(f.db.QueryRow(t.Context(), `SELECT to_jsonb(o)::text FROM registration_verification_outbox o WHERE submission_id=$1`, id).Scan(&persisted))
+	f.must(f.db.QueryRowContext(t.Context(), `SELECT json_object('id',o.id,'submission_id',o.submission_id,'status',o.status,'attempt_count',o.attempt_count,'available_at',o.available_at,'lease_until',o.lease_until,'lease_version',o.lease_version,'created_at',o.created_at,'updated_at',o.updated_at,'sent_at',o.sent_at,'finished_at',o.finished_at,'last_error_code',o.last_error_code,'recipient_hash',hex(o.recipient_hash)) FROM registration_verification_outbox o WHERE submission_id=?1`, id).Scan(&persisted))
 	for _, secret := range []string{ref, code, "remi@example.test", "Rémi", "Plaintext", "code_hash", "public_reference", "Subject", "Text"} {
 		if strings.Contains(persisted, secret) {
 			t.Fatal("outbox contains delivery material")
@@ -175,7 +174,7 @@ func TestOutboxEnqueueAtomicityAndPrivacy(t *testing.T) {
 	}
 	// The table schema itself has no payload or address field.
 	var columns string
-	f.must(f.db.QueryRow(t.Context(), `SELECT string_agg(column_name,',') FROM information_schema.columns WHERE table_name='registration_verification_outbox'`).Scan(&columns))
+	f.must(f.db.QueryRowContext(t.Context(), `SELECT group_concat(name,',') FROM pragma_table_info('registration_verification_outbox')`).Scan(&columns))
 	for _, field := range []string{"plaintext", "body", "email", "code_hash"} {
 		if strings.Contains(columns, field) {
 			t.Fatal("unsafe schema")
@@ -207,7 +206,7 @@ func TestOutboxRetriesExhaustionAndLogs(t *testing.T) {
 		oldCodes = append(oldCodes, code)
 		oldReferences = append(oldReferences, ref)
 		var valid bool
-		f.must(f.db.QueryRow(t.Context(), `SELECT invalidated_at IS NULL FROM registration_email_verifications WHERE public_reference=$1`, ref).Scan(&valid))
+		f.must(f.db.QueryRowContext(t.Context(), `SELECT invalidated_at IS NULL FROM registration_email_verifications WHERE public_reference=?1`, ref).Scan(&valid))
 		if valid {
 			t.Fatal("failed attempt remains usable")
 		}
@@ -220,7 +219,7 @@ func TestOutboxRetriesExhaustionAndLogs(t *testing.T) {
 				t.Fatal("retry transition")
 			}
 			var delay float64
-			f.must(f.db.QueryRow(t.Context(), `SELECT extract(epoch FROM available_at-updated_at)::double precision FROM registration_verification_outbox WHERE submission_id=$1`, id).Scan(&delay))
+			f.must(f.db.QueryRowContext(t.Context(), `SELECT (julianday(available_at)-julianday(updated_at))*86400.0 FROM registration_verification_outbox WHERE submission_id=?1`, id).Scan(&delay))
 			if delay < outbox.RetryDelay(attempt).Seconds()-1 || delay > outbox.RetryDelay(attempt).Seconds()+1 {
 				t.Fatal("wrong backoff")
 			}
@@ -265,7 +264,7 @@ func TestOutboxRetriesExhaustionAndLogs(t *testing.T) {
 	if !strings.Contains(logs.String(), "smtp_failed") || !strings.Contains(logs.String(), "attempts_exhausted") {
 		t.Fatal("missing safe diagnostics")
 	}
-	if n := f.id(`SELECT count(*)::integer FROM registration_email_verifications WHERE submission_id=$1`, id); n != 3 {
+	if n := f.id(`SELECT count(*) FROM registration_email_verifications WHERE submission_id=?1`, id); n != 3 {
 		t.Fatal("history lost")
 	}
 	if ok, err := f.app.VerificationOutbox.ProcessOne(t.Context()); err != nil || ok {
@@ -300,11 +299,11 @@ func TestOutboxRetrySuccessAndDisabled(t *testing.T) {
 	if state, n := f.jobState(disabled); state != "dead" || n != 0 || f.emailState(disabled) != "awaiting_identity_review" {
 		t.Fatal("disabled retries")
 	}
-	if n := f.id(`SELECT count(*)::integer FROM registration_email_verifications WHERE submission_id=$1`, disabled); n != 0 {
+	if n := f.id(`SELECT count(*) FROM registration_email_verifications WHERE submission_id=?1`, disabled); n != 0 {
 		t.Fatal("disabled prepared challenge")
 	}
 	var reason string
-	f.must(f.db.QueryRow(t.Context(), `SELECT last_error_code FROM registration_verification_outbox WHERE submission_id=$1`, disabled).Scan(&reason))
+	f.must(f.db.QueryRowContext(t.Context(), `SELECT last_error_code FROM registration_verification_outbox WHERE submission_id=?1`, disabled).Scan(&reason))
 	if reason != "mailer_disabled" {
 		t.Fatal("disabled category")
 	}
@@ -313,12 +312,12 @@ func TestOutboxRetrySuccessAndDisabled(t *testing.T) {
 func TestOutboxRevalidatesEveryAttempt(t *testing.T) {
 	f := newFixture(t)
 	id := f.submit(emailInput())
-	f.exec(`UPDATE persons SET archived_at=clock_timestamp() WHERE id=$1`, f.person)
+	f.exec(`UPDATE persons SET archived_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?1`, f.person)
 	f.drive()
 	if state, _ := f.jobState(id); state != "dead" || f.emailState(id) != "awaiting_identity_review" || len(f.mail.messages) != 0 {
 		t.Fatal("stale eligibility sent")
 	}
-	f.exec(`UPDATE persons SET archived_at=NULL WHERE id=$1`, f.person)
+	f.exec(`UPDATE persons SET archived_at=NULL WHERE id=?1`, f.person)
 	id = f.submit(emailInput())
 	f.mail.err = errors.New("failure")
 	f.drive()
@@ -348,7 +347,7 @@ func TestOutboxClaimLeaseAndRecovery(t *testing.T) {
 	// or just after DATA was accepted: the database state is identical.
 	delivery, err := f.app.Verifications.PrepareEmailVerification(t.Context(), id)
 	f.must(err)
-	f.exec(`UPDATE registration_verification_outbox SET attempt_count=1,lease_until=clock_timestamp()-interval '1 second' WHERE id=$1`, job.ID)
+	f.exec(`UPDATE registration_verification_outbox SET attempt_count=1,lease_until=strftime('%Y-%m-%d %H:%M:%f','now','-1 second') WHERE id=?1`, job.ID)
 	f.drive()
 	ref, code := verificationFrom(t, f.mail.messages[0])
 	if ref == delivery.PublicReference || code == delivery.PlaintextCode {
@@ -360,7 +359,7 @@ func TestOutboxClaimLeaseAndRecovery(t *testing.T) {
 	if state, n := f.jobState(id); state != "sent" || n != 2 {
 		t.Fatal("reclaim finalization")
 	}
-	if n := f.id(`SELECT count(*)::integer FROM registration_email_verifications WHERE submission_id=$1`, id); n != 2 {
+	if n := f.id(`SELECT count(*) FROM registration_email_verifications WHERE submission_id=?1`, id); n != 2 {
 		t.Fatal("crash history")
 	}
 	f.must(f.app.Verifications.VerifyEmail(t.Context(), ref, code))
@@ -370,7 +369,7 @@ func TestOutboxClaimLeaseAndRecovery(t *testing.T) {
 	f.must(err)
 	delivery, err = f.app.Verifications.PrepareEmailVerification(t.Context(), id)
 	f.must(err)
-	f.exec(`UPDATE registration_verification_outbox SET attempt_count=3,lease_until=clock_timestamp()-interval '1 second' WHERE id=$1`, job.ID)
+	f.exec(`UPDATE registration_verification_outbox SET attempt_count=3,lease_until=strftime('%Y-%m-%d %H:%M:%f','now','-1 second') WHERE id=?1`, job.ID)
 	f.drive()
 	if state, _ := f.jobState(id); state != "dead" || len(f.mail.messages) != 1 {
 		t.Fatal("crash bypassed max attempts")
@@ -380,22 +379,32 @@ func TestOutboxClaimLeaseAndRecovery(t *testing.T) {
 	}
 }
 
-func TestOutboxSkipLockedAndTwoWorkers(t *testing.T) {
+func TestOutboxAtomicClaimAndTwoWorkers(t *testing.T) {
 	f := newFixture(t)
 	first := f.submit(emailInput())
 	second := f.submit(emailInput())
-	tx, err := f.db.Begin(t.Context())
+	// A claim waits for SQLite's writer and then atomically selects one job.
+	tx, err := f.db.BeginTx(t.Context(), nil)
 	f.must(err)
-	defer tx.Rollback(t.Context())
-	_, err = tx.Exec(t.Context(), `SELECT id FROM registration_verification_outbox WHERE submission_id=$1 FOR UPDATE`, first)
-	f.must(err)
-	job, err := dbsqlc.New(f.db).ClaimRegistrationVerificationJob(t.Context(), 60)
-	f.must(err)
-	if job.SubmissionID != second {
-		t.Fatal("did not skip locked")
+	claimed := make(chan dbsqlc.RegistrationVerificationOutbox, 1)
+	claimErr := make(chan error, 1)
+	go func() {
+		job, err := dbsqlc.New(f.db).ClaimRegistrationVerificationJob(t.Context(), 60)
+		claimed <- job
+		claimErr <- err
+	}()
+	select {
+	case <-claimed:
+		t.Fatal("claim bypassed writer")
+	case <-time.After(100 * time.Millisecond):
 	}
-	f.must(tx.Rollback(t.Context()))
-	f.exec(`UPDATE registration_verification_outbox SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1`, job.ID)
+	f.must(tx.Rollback())
+	job := <-claimed
+	f.must(<-claimErr)
+	if job.SubmissionID != first {
+		t.Fatal("claim order changed")
+	}
+	f.exec(`UPDATE registration_verification_outbox SET lease_until=strftime('%Y-%m-%d %H:%M:%f','now','-1 second') WHERE id=?1`, job.ID)
 	sender := &controlledMailer{make(chan mailer.Message, 2), make(chan struct{})}
 	worker := outbox.New(f.db, f.app.Verifications, sender, "club@example.test", "https://club.example.test")
 	done := make(chan error, 2)
@@ -462,23 +471,18 @@ func TestOutboxAdminAndVerifyWaitForStartedSend(t *testing.T) {
 		t.Fatal("no SMTP")
 	}
 	ref, code := verificationFrom(t, message)
-	// Both decision services must acquire the same advisory lock as the sender.
+	// Both decision services must acquire the same delivery file lock as the sender.
 	adminDone := make(chan error, 1)
 	verifyDone := make(chan error, 1)
 	go func() { adminDone <- f.app.Reviews.LinkPerson(t.Context(), f.approver, id, f.person) }()
 	go func() { verifyDone <- f.app.Verifications.VerifyEmail(t.Context(), ref, code) }()
-	// Inspect PostgreSQL lock waiters rather than sleeping to guess scheduling.
-	deadline, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-	for {
-		var waiting int
-		err := f.db.QueryRow(deadline, `SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND NOT granted AND classid=$1 AND objid=$2`, identityresolution.DeliveryLockNamespace, id).Scan(&waiting)
-		if err != nil {
+	// Both decisions must remain blocked while SMTP owns the submission lock.
+	for _, ch := range []<-chan error{adminDone, verifyDone} {
+		select {
+		case err := <-ch:
 			close(sender.release)
-			t.Fatal(err)
-		}
-		if waiting == 2 {
-			break
+			t.Fatal("decision passed sender lock", err)
+		case <-time.After(100 * time.Millisecond):
 		}
 	}
 	close(sender.release)
@@ -507,7 +511,7 @@ func TestOutboxRecipientQuotaConcurrentAndFamily(t *testing.T) {
 	inputs := make([]identityresolution.SubmissionInput, 6)
 	for i := range inputs {
 		name := fmt.Sprintf("Child%d", i)
-		f.id(`INSERT INTO persons(first_name,last_name,birth_date,email) VALUES ($1,'Family','1990-01-01','remi@example.test') RETURNING id`, name)
+		f.id(`INSERT INTO persons(first_name,last_name,birth_date,email) VALUES (?1,'Family','1990-01-01','remi@example.test') RETURNING id`, name)
 		inputs[i] = emailInput()
 		inputs[i].FirstName = name
 		inputs[i].LastName = "Family"
@@ -531,20 +535,20 @@ func TestOutboxRecipientQuotaConcurrentAndFamily(t *testing.T) {
 	for err := range results {
 		f.must(err)
 	}
-	if n := f.id(`SELECT count(*)::integer FROM registration_verification_outbox`); n != 3 {
+	if n := f.id(`SELECT count(*) FROM registration_verification_outbox`); n != 3 {
 		t.Fatal("recipient quota not serialized")
 	}
-	if n := f.id(`SELECT count(DISTINCT c.person_id)::integer FROM registration_verification_outbox o JOIN registration_submission_candidates c ON c.submission_id=o.submission_id`); n != 3 {
+	if n := f.id(`SELECT count(DISTINCT c.person_id) FROM registration_verification_outbox o JOIN registration_submission_candidates c ON c.submission_id=o.submission_id`); n != 3 {
 		t.Fatal("shared email treated as identity")
 	}
-	if n := f.id(`SELECT count(*)::integer FROM registration_submissions WHERE status='awaiting_identity_review'`); n != 3 {
+	if n := f.id(`SELECT count(*) FROM registration_submissions WHERE status='awaiting_identity_review'`); n != 3 {
 		t.Fatal("quota rejected submission")
 	}
 	for i := 0; i < 3; i++ {
 		f.drive()
 	}
 	f.submit(emailInput())
-	if n := f.id(`SELECT count(*)::integer FROM registration_verification_outbox`); n != 3 {
+	if n := f.id(`SELECT count(*) FROM registration_verification_outbox`); n != 3 {
 		t.Fatal("sent jobs not counted")
 	}
 }
@@ -557,9 +561,9 @@ func TestOutboxRecipientWindowAndBacklog(t *testing.T) {
 			for i := 0; i < 3; i++ {
 				id := f.stage(emailInput())
 				if status == "sent" {
-					f.exec(`INSERT INTO registration_verification_outbox(submission_id,recipient_hash,status,created_at,sent_at,finished_at) VALUES ($1,sha256('remi@example.test'::bytea),'sent',clock_timestamp()-interval '2 hours',clock_timestamp()-interval '2 hours',clock_timestamp()-interval '2 hours')`, id)
+					f.exec(`INSERT INTO registration_verification_outbox(submission_id,recipient_hash,status,created_at,sent_at,finished_at) VALUES (?1,?2,'sent',strftime('%Y-%m-%d %H:%M:%f','now','-2 hours'),strftime('%Y-%m-%d %H:%M:%f','now','-2 hours'),strftime('%Y-%m-%d %H:%M:%f','now','-2 hours'))`, id, recipientDigest())
 				} else {
-					f.exec(`INSERT INTO registration_verification_outbox(submission_id,recipient_hash,created_at) VALUES ($1,sha256('remi@example.test'::bytea),clock_timestamp()-interval '2 hours')`, id)
+					f.exec(`INSERT INTO registration_verification_outbox(submission_id,recipient_hash,created_at) VALUES (?1,?2,strftime('%Y-%m-%d %H:%M:%f','now','-2 hours'))`, id, recipientDigest())
 				}
 			}
 			id := f.submit(emailInput())
@@ -576,13 +580,15 @@ func TestOutboxRecipientWindowAndBacklog(t *testing.T) {
 
 func TestOutboxMigrationDown(t *testing.T) {
 	f := newFixture(t)
-	db, err := sql.Open("pgx", f.db.Config().ConnString())
+	db, err := openTestConnection(t, f.db)
 	f.must(err)
 	defer db.Close()
-	provider, err := goose.NewProvider(goose.DialectPostgres, db, os.DirFS("../../migrations"))
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db, os.DirFS("../../migrations"))
 	f.must(err)
-	_, err = provider.DownTo(t.Context(), 19)
-	f.must(err)
+	_, err = provider.Up(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, err = provider.Up(t.Context())
 	f.must(err)
 	id := f.submit(emailInput())
@@ -593,17 +599,17 @@ func TestOutboxMigrationDown(t *testing.T) {
 			f.must(err)
 		}
 		if state == "sent" {
-			f.exec(`UPDATE registration_verification_outbox SET lease_until=clock_timestamp()-interval '1 second' WHERE submission_id=$1`, id)
+			f.exec(`UPDATE registration_verification_outbox SET lease_until=strftime('%Y-%m-%d %H:%M:%f','now','-1 second') WHERE submission_id=?1`, id)
 			f.drive()
 		}
-		if _, err = provider.DownTo(t.Context(), 19); err == nil {
+		if _, err = provider.DownTo(t.Context(), 0); err == nil {
 			t.Fatal("rollback discarded " + state)
 		}
 		if actual, _ := f.jobState(id); actual != state {
 			t.Fatal("rollback changed history")
 		}
 	}
-	if _, err = f.db.Exec(t.Context(), `DELETE FROM registration_verification_outbox WHERE submission_id=$1`, id); err == nil {
+	if _, err = f.db.ExecContext(t.Context(), `DELETE FROM registration_verification_outbox WHERE submission_id=?1`, id); err == nil {
 		t.Fatal("history deleted")
 	}
 }
@@ -622,9 +628,9 @@ func TestOutboxLateWorkerIsFenced(t *testing.T) {
 		close(sender.release)
 		t.Fatal("no SMTP")
 	}
-	f.exec(`UPDATE registration_verification_outbox SET lease_until=clock_timestamp()-interval '1 second' WHERE submission_id=$1`, id)
+	f.exec(`UPDATE registration_verification_outbox SET lease_until=strftime('%Y-%m-%d %H:%M:%f','now','-1 second') WHERE submission_id=?1`, id)
 	// A new lease cannot create a second concurrent delivery while the old
-	// process still owns its session lock, even if its Send ignores the deadline.
+	// process still owns its delivery file lock, even if its Send ignores the deadline.
 	f.drive()
 	if len(f.mail.messages) != 0 {
 		close(sender.release)
@@ -635,7 +641,7 @@ func TestOutboxLateWorkerIsFenced(t *testing.T) {
 	if state, _ := f.jobState(id); state != "processing" {
 		t.Fatal("late owner finalized newer lease")
 	}
-	f.exec(`UPDATE registration_verification_outbox SET lease_until=clock_timestamp()-interval '1 second' WHERE submission_id=$1`, id)
+	f.exec(`UPDATE registration_verification_outbox SET lease_until=strftime('%Y-%m-%d %H:%M:%f','now','-1 second') WHERE submission_id=?1`, id)
 	f.drive()
 	oldRef, oldCode := verificationFrom(t, original)
 	if err := f.app.Verifications.VerifyEmail(t.Context(), oldRef, oldCode); !errors.Is(err, identityresolution.ErrVerification) {
@@ -665,33 +671,31 @@ func TestOutboxRunShutdownDuringSMTP(t *testing.T) {
 	if state, n := f.jobState(id); state != "pending" || n != 1 {
 		t.Fatal("shutdown did not compensate current attempt")
 	}
-	// No session advisory lock may leak into the connection pool.
-	tx, err := f.db.Begin(t.Context())
+	unlock, locked, err := database.LockDelivery(t.Context(), f.db, id, false)
 	f.must(err)
-	defer tx.Rollback(t.Context())
-	var locked bool
-	f.must(tx.QueryRow(t.Context(), `SELECT pg_try_advisory_xact_lock($1,$2)`, identityresolution.DeliveryLockNamespace, id).Scan(&locked))
 	if !locked {
-		t.Fatal("session lock leaked")
+		t.Fatal("delivery lock leaked")
 	}
+	unlock()
+
 }
 
 func TestOutboxPreparationRollbackAndSentExpiry(t *testing.T) {
 	f := newFixture(t)
 	id := f.submit(emailInput())
-	f.exec(`CREATE FUNCTION fail_outbox_preparation_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status='awaiting_email_verification' THEN RAISE EXCEPTION 'preparation unavailable'; END IF; RETURN NEW; END $$`)
-	f.exec(`CREATE TRIGGER fail_outbox_preparation_test BEFORE UPDATE ON registration_submissions FOR EACH ROW EXECUTE FUNCTION fail_outbox_preparation_test()`)
+
+	f.exec(`CREATE TRIGGER fail_outbox_preparation_test BEFORE UPDATE ON registration_submissions WHEN NEW.status='awaiting_email_verification' BEGIN SELECT RAISE(ABORT, 'preparation unavailable'); END;`)
 	if _, err := f.app.VerificationOutbox.ProcessOne(t.Context()); err == nil {
 		t.Fatal("preparation error missing")
 	}
-	if n := f.id(`SELECT count(*)::integer FROM registration_email_verifications WHERE submission_id=$1`, id); n != 0 || len(f.mail.messages) != 0 {
+	if n := f.id(`SELECT count(*) FROM registration_email_verifications WHERE submission_id=?1`, id); n != 0 || len(f.mail.messages) != 0 {
 		t.Fatal("partial preparation")
 	}
 	if state, n := f.jobState(id); state != "processing" || n != 0 {
 		t.Fatal("failed transaction counted as prepared attempt")
 	}
-	f.exec(`DROP TRIGGER fail_outbox_preparation_test ON registration_submissions`)
-	f.exec(`UPDATE registration_verification_outbox SET lease_until=clock_timestamp()-interval '1 second' WHERE submission_id=$1`, id)
+	f.exec(`DROP TRIGGER fail_outbox_preparation_test`)
+	f.exec(`UPDATE registration_verification_outbox SET lease_until=strftime('%Y-%m-%d %H:%M:%f','now','-1 second') WHERE submission_id=?1`, id)
 	service, err := identityresolution.NewEmailService(f.db, time.Second)
 	f.must(err)
 	worker := outbox.New(f.db, service, f.mail, "club@example.test", "https://club.example.test")
@@ -699,7 +703,7 @@ func TestOutboxPreparationRollbackAndSentExpiry(t *testing.T) {
 	f.must(err)
 	ref, _ := verificationFrom(t, f.mail.messages[0])
 	// Wait exactly until the persisted expiration, not an arbitrary scheduling sleep.
-	f.exec(`SELECT pg_sleep(GREATEST(0,extract(epoch FROM (expires_at-clock_timestamp())))+0.01) FROM registration_email_verifications WHERE public_reference=$1`, ref)
+	f.waitProofExpiry(ref)
 	count, err := f.app.Reviews.CountOpen(t.Context(), f.approver)
 	f.must(err)
 	if count != 1 || f.emailState(id) != "awaiting_identity_review" {
@@ -712,3 +716,5 @@ func TestOutboxPreparationRollbackAndSentExpiry(t *testing.T) {
 		t.Fatal("expiration resent email")
 	}
 }
+
+func recipientDigest() []byte { digest := sha256.Sum256([]byte("remi@example.test")); return digest[:] }

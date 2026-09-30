@@ -20,7 +20,7 @@ func (f *fixture) membershipAdminBrowser() *browser {
 	f.t.Helper()
 	hash, err := bcrypt.GenerateFromPassword([]byte("a secure password"), bcrypt.DefaultCost)
 	f.must(err)
-	f.exec("UPDATE users SET password_hash=$2 WHERE id=$1", f.approver, string(hash))
+	f.exec("UPDATE users SET password_hash=?2 WHERE id=?1", f.approver, string(hash))
 	return f.loginBrowser("admin")
 }
 func dossierPath(id int32) string { return fmt.Sprintf("/memberships/%d", id) }
@@ -44,7 +44,7 @@ func (f *fixture) assertNoDeliverySecrets(body string) {
 func TestMembershipUIReadsAndPermissions(t *testing.T) {
 	f := newFixture(t)
 	pending := f.request()
-	f.exec("UPDATE memberships SET requested_at='2020-01-01' WHERE id=$1", pending.ID)
+	f.exec("UPDATE memberships SET requested_at='2020-01-01' WHERE id=?1", pending.ID)
 	other := f.id("INSERT INTO persons(first_name,last_name,birth_date,email) VALUES ('Alice','Separate','1990-01-01','alice@example.test') RETURNING id")
 	season := f.id("INSERT INTO seasons(name,starts_at,ends_at) VALUES ('2030','2030-09-01','2031-08-31') RETURNING id")
 	kind := f.id("INSERT INTO membership_types(name) VALUES ('Distinct type') RETURNING id")
@@ -52,10 +52,10 @@ func TestMembershipUIReadsAndPermissions(t *testing.T) {
 	f.must(err)
 	active, err := f.app.Accounts.ApproveMembership(t.Context(), second.ID, f.approver, nil)
 	f.must(err)
-	f.exec("UPDATE memberships SET requested_at='2030-01-01' WHERE id=$1", second.ID)
+	f.exec("UPDATE memberships SET requested_at='2030-01-01' WHERE id=?1", second.ID)
 	for _, status := range []string{"ended", "cancelled"} {
-		p := f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES ($1,'History','1990-01-01') RETURNING id", status)
-		f.id("INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES ($1,$2,$3,$4) RETURNING id", p, f.season, f.kind, status)
+		p := f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES (?1,'History','1990-01-01') RETURNING id", status)
+		f.id("INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES (?1,?2,?3,?4) RETURNING id", p, f.season, f.kind, status)
 	}
 	// The batched read and detail use exactly the same evaluator.
 	rows, err := f.memberships.List(t.Context())
@@ -69,9 +69,9 @@ func TestMembershipUIReadsAndPermissions(t *testing.T) {
 	}
 	for _, role := range []string{"anonymous", "none", "treasurer", "coach", "secretary", "president"} {
 		t.Run(role, func(t *testing.T) {
-			f.exec("DELETE FROM user_roles WHERE user_id=$1", f.approver)
+			f.exec("DELETE FROM user_roles WHERE user_id=?1", f.approver)
 			if role != "anonymous" && role != "none" {
-				f.exec("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name=$2", f.approver, role)
+				f.exec("INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name=?2", f.approver, role)
 			}
 			b := newBrowser(f.app.Handler)
 			if role != "anonymous" {
@@ -150,14 +150,14 @@ func TestMembershipUIReadsAndPermissions(t *testing.T) {
 }
 func TestMembershipUIDetailSnapshotAndMinor(t *testing.T) {
 	f := newFixture(t)
-	f.exec("UPDATE persons SET birth_date='2020-01-01',phone_number='0600000000',address='Adresse enfant',notes='<script>person-note</script>' WHERE id=$1", f.person)
+	f.exec("UPDATE persons SET birth_date='2020-01-01',phone_number='0600000000',address='Adresse enfant',notes='<script>person-note</script>' WHERE id=?1", f.person)
 	guardian := f.id("INSERT INTO persons(first_name,last_name,email,phone_number) VALUES ('Parent','Guardian','parent@example.test','0611111111') RETURNING id")
-	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type,is_primary_contact) VALUES ($1,$2,'mother',true)", f.person, guardian)
+	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type,is_primary_contact) VALUES (?1,?2,'mother',true)", f.person, guardian)
 	emergency := f.id("INSERT INTO persons(first_name,last_name,email) VALUES ('First','Emergency','first@example.test') RETURNING id")
-	f.exec("INSERT INTO person_emergency_contacts(person_id,contact_person_id,relationship_label,priority) VALUES ($1,$2,'Voisin',2),($1,$3,'Famille',1)", f.person, guardian, emergency)
+	f.exec("INSERT INTO person_emergency_contacts(person_id,contact_person_id,relationship_label,priority) VALUES (?1,?2,'Voisin',2),(?1,?3,'Famille',1)", f.person, guardian, emergency)
 	defs := []int32{}
 	for _, code := range []string{"grant", "refuse", "withdraw"} {
-		defs = append(defs, f.id("INSERT INTO consent_definitions(code,version,title,description) VALUES ($1,1,$1,$2) RETURNING id", code, "Texte présenté "+code))
+		defs = append(defs, f.id("INSERT INTO consent_definitions(code,version,title,description) VALUES (?1,1,?1,?2) RETURNING id", code, "Texte présenté "+code))
 	}
 	req := memberships.Request{PersonID: f.person, SeasonID: f.season, MembershipTypeID: f.kind, ActivityIDs: []int32{f.activity}}
 	for i, id := range defs {
@@ -169,7 +169,7 @@ func TestMembershipUIDetailSnapshotAndMinor(t *testing.T) {
 	}
 	m, err := f.memberships.CreateRequest(t.Context(), req)
 	f.must(err)
-	f.exec("INSERT INTO membership_consents(membership_id,consent_definition_id,decision,given_by_person_id) VALUES ($1,$2,'withdrawn',$3)", m.ID, defs[2], guardian)
+	f.exec("INSERT INTO membership_consents(membership_id,consent_definition_id,decision,given_by_person_id) VALUES (?1,?2,'withdrawn',?3)", m.ID, defs[2], guardian)
 	f.exec("UPDATE consent_definitions SET is_active=false")
 	f.id("INSERT INTO consent_definitions(code,version,title,description) VALUES ('grant',2,'Later definition','Must never appear') RETURNING id")
 	b := f.membershipAdminBrowser()
@@ -191,10 +191,10 @@ func TestMembershipUIDetailSnapshotAndMinor(t *testing.T) {
 		t.Fatal("priority order")
 	}
 	// Remove the contacts and add an unanswered requirement to check recalculated blocking presentation.
-	f.exec("DELETE FROM person_guardians WHERE child_person_id=$1", f.person)
-	f.exec("DELETE FROM person_emergency_contacts WHERE person_id=$1", f.person)
+	f.exec("DELETE FROM person_guardians WHERE child_person_id=?1", f.person)
+	f.exec("DELETE FROM person_emergency_contacts WHERE person_id=?1", f.person)
 	missing := f.id("INSERT INTO consent_definitions(code,version,title,description,is_active) VALUES ('missing',1,'Missing answer','Snapshot missing answer',false) RETURNING id")
-	f.exec("INSERT INTO membership_consent_requirements VALUES ($1,$2,now())", m.ID, missing)
+	f.exec("INSERT INTO membership_consent_requirements VALUES (?1,?2,strftime('%Y-%m-%d %H:%M:%f','now'))", m.ID, missing)
 	response = b.call("GET", dossierPath(m.ID), nil)
 	body = html.UnescapeString(response.Body.String())
 	for _, value := range []string{"Validation impossible", "Responsable légal manquant pour un mineur", "Contact d'urgence manquant pour un mineur", "Une autorisation n'a pas reçu de réponse", "Non renseigné"} {
@@ -217,7 +217,7 @@ func TestMembershipUIApprovalAndResend(t *testing.T) {
 	f := newFixture(t)
 	m := f.request()
 	b := f.membershipAdminBrowser()
-	f.exec("UPDATE persons SET notes='Person note remains' WHERE id=$1", f.person)
+	f.exec("UPDATE persons SET notes='Person note remains' WHERE id=?1", f.person)
 	token := b.csrf(t, dossierPath(m.ID))
 	response := b.call("POST", approvePath(m.ID), url.Values{"admin_note": {"must not persist"}})
 	if response.Code != 403 {
@@ -266,18 +266,18 @@ func TestMembershipUIApprovalAndResend(t *testing.T) {
 		t.Fatal("resend")
 	}
 	var invalidated bool
-	f.must(f.db.QueryRow(t.Context(), "SELECT invalidated_at IS NOT NULL FROM user_activation_codes WHERE code_hash=$1", digest[:]).Scan(&invalidated))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT invalidated_at IS NOT NULL FROM user_activation_codes WHERE code_hash=?1", digest[:]).Scan(&invalidated))
 	if !invalidated {
 		t.Fatal("old code still valid")
 	}
 	page = b.call("GET", response.Header().Get("Location"), nil)
 	f.assertNoDeliverySecrets(page.Body.String())
-	f.exec("UPDATE persons SET email=NULL WHERE id=$1", f.person)
+	f.exec("UPDATE persons SET email=NULL WHERE id=?1", f.person)
 	response = b.call("POST", resendPath(user.ID), form)
 	if !strings.Contains(response.Header().Get("Location"), "resend_no_channel") || len(f.mail.messages) != 2 {
 		t.Fatal("no resend channel")
 	}
-	f.exec("UPDATE persons SET email='remi@example.test' WHERE id=$1", f.person)
+	f.exec("UPDATE persons SET email='remi@example.test' WHERE id=?1", f.person)
 	f.mail.err = errors.New("private SMTP diagnostic")
 	response = b.call("POST", resendPath(user.ID), form)
 	if !strings.Contains(response.Header().Get("Location"), "resend_send_failed") {
@@ -289,7 +289,7 @@ func TestMembershipUIApprovalAndResend(t *testing.T) {
 		t.Fatal("unsafe SMTP result")
 	}
 	f.assertNoDeliverySecrets(body)
-	f.exec("UPDATE users SET activated_at=now(),password_hash='private-hash-marker' WHERE id=$1", user.ID)
+	f.exec("UPDATE users SET activated_at=strftime('%Y-%m-%d %H:%M:%f','now'),password_hash='private-hash-marker' WHERE id=?1", user.ID)
 	page = b.call("GET", dossierPath(m.ID), nil)
 	if strings.Contains(page.Body.String(), "Renvoyer l") || strings.Contains(page.Body.String(), "private-hash-marker") || !strings.Contains(page.Body.String(), "Compte activé") {
 		t.Fatal("activated account view")
@@ -315,13 +315,13 @@ func TestMembershipUIApprovalDeliveryOutcomes(t *testing.T) {
 			var existing int32
 			switch outcome {
 			case "no_channel":
-				f.exec("UPDATE persons SET email=NULL WHERE id=$1", f.person)
+				f.exec("UPDATE persons SET email=NULL WHERE id=?1", f.person)
 				expected = "approved_no_channel"
 			case "send_failed":
 				f.mail.err = errors.New("private SMTP error")
 				expected = "approved_send_failed"
 			case "not_required":
-				existing = f.id("INSERT INTO users(person_id,username,password_hash,activated_at) VALUES ($1,'existing','preserved-private-hash',now()) RETURNING id", f.person)
+				existing = f.id("INSERT INTO users(person_id,username,password_hash,activated_at) VALUES (?1,'existing','preserved-private-hash',strftime('%Y-%m-%d %H:%M:%f','now')) RETURNING id", f.person)
 			}
 			response := b.call("POST", approvePath(m.ID), url.Values{"csrf_token": {token}})
 			if response.Code != 303 || response.Header().Get("Location") != dossierPath(m.ID)+"?notice="+expected {
@@ -352,8 +352,8 @@ func TestMembershipUIMissingBasicsAndInternalError(t *testing.T) {
 	f := newFixture(t)
 	m := f.request()
 	b := f.membershipAdminBrowser()
-	f.exec("UPDATE persons SET birth_date=NULL WHERE id=$1", f.person)
-	f.exec("DELETE FROM membership_activities WHERE membership_id=$1", m.ID)
+	f.exec("UPDATE persons SET birth_date=NULL WHERE id=?1", f.person)
+	f.exec("DELETE FROM membership_activities WHERE membership_id=?1", m.ID)
 	page := b.call("GET", dossierPath(m.ID), nil)
 	body := html.UnescapeString(page.Body.String())
 	for _, message := range []string{"Date de naissance manquante", "Aucune activité renseignée", "Validation impossible"} {
@@ -374,7 +374,7 @@ func TestMembershipUIMissingBasicsAndInternalError(t *testing.T) {
 	if saved.Status != "pending" {
 		t.Fatal("incomplete membership changed")
 	}
-	// Isolated PostgreSQL failure: real route must not expose its SQL diagnostic.
+	// Isolated SQLite failure: real route must not expose its SQL diagnostic.
 	f.exec("ALTER TABLE memberships RENAME TO unavailable_memberships")
 	defer f.exec("ALTER TABLE unavailable_memberships RENAME TO memberships")
 	for _, path := range []string{"/memberships", dossierPath(m.ID)} {

@@ -1,11 +1,50 @@
 version: "2"
-
 sql:
-  - engine: "postgresql"
+  - engine: "sqlite"
     schema: "migrations"
     queries: "internal/database/queries"
     gen:
       go:
         package: "dbsqlc"
         out: "internal/database/dbsqlc"
-        sql_package: "pgx/v5"
+        sql_package: "database/sql"
+        overrides:
+          - db_type: "INTEGER"
+            go_type: "int32"
+          - db_type: "INTEGER"
+            nullable: true
+            go_type: "database/sql.NullInt32"
+          - db_type: "smallint"
+            go_type: "int16"
+          - db_type: "smallint"
+            nullable: true
+            go_type: "database/sql.NullInt16"
+          - db_type: "date"
+            go_type: "github.com/grapinou/club-core/internal/database/dbtypes.Date"
+          - db_type: "date"
+            nullable: true
+            go_type: "github.com/grapinou/club-core/internal/database/dbtypes.Date"
+          - db_type: "TIME"
+            go_type: "github.com/grapinou/club-core/internal/database/dbtypes.Time"
+          - db_type: "TIME"
+            nullable: true
+            go_type: "github.com/grapinou/club-core/internal/database/dbtypes.Time"
+          - db_type: "DATETIME"
+            go_type: "github.com/grapinou/club-core/internal/database/dbtypes.Timestamp"
+          - db_type: "DATETIME"
+            nullable: true
+            go_type: "github.com/grapinou/club-core/internal/database/dbtypes.Timestamp"
+          - column: "organizations.trial_items_to_bring"
+            go_type: "github.com/grapinou/club-core/internal/database/dbtypes.Strings"
+          - db_type: "json_text_strings"
+            go_type: "github.com/grapinou/club-core/internal/database/dbtypes.Strings"
+          - db_type: "json_text_strings"
+            nullable: true
+            go_type: "github.com/grapinou/club-core/internal/database/dbtypes.Strings"
+          - db_type: "json_text_ids"
+            go_type: "github.com/grapinou/club-core/internal/database/dbtypes.IDs"
+          - db_type: "json_text_ids"
+            nullable: true
+            go_type: "github.com/grapinou/club-core/internal/database/dbtypes.IDs"
+          - db_type: "integer"
+            go_type: "int32"

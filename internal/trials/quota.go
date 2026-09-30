@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"slices"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 var ErrQuotaSeason = errors.New("trial quota season cannot be determined uniquely")
@@ -26,7 +27,7 @@ type QuotaUsage struct {
 	SeasonID                                                  int32
 	SeasonName                                                string
 	AttendedCount, RegisteredCount, UsedOrReserved, Remaining int64
-	Limit                                                     pgtype.Int4
+	Limit                                                     sql.NullInt32
 	Ambiguous                                                 bool
 }
 
@@ -35,20 +36,20 @@ func consumes(status string) bool { return status == "registered" || status == "
 // The order for every trial mutation is policy -> Person -> Trial -> calendar.
 // The Person lock serializes all seasons for that person. The shared policy lock
 // allows different people concurrently and excludes clubconfig changes until commit.
-func lockPolicy(ctx context.Context, tx pgx.Tx) (pgtype.Int4, error) {
+func lockPolicy(ctx context.Context, tx *sql.Tx) (sql.NullInt32, error) {
 	limit, err := dbsqlc.New(tx).LockTrialQuotaPolicy(ctx)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return pgtype.Int4{}, nil
+	if errors.Is(err, sql.ErrNoRows) {
+		return sql.NullInt32{}, nil
 	}
 	return limit, err
 }
-func (s *Service) LockForUpdate(ctx context.Context, tx pgx.Tx, id int32) (dbsqlc.TrialRegistration, error) {
+func (s *Service) LockForUpdate(ctx context.Context, tx *sql.Tx, id int32) (dbsqlc.TrialRegistration, error) {
 	var zero dbsqlc.TrialRegistration
 	if _, err := lockPolicy(ctx, tx); err != nil {
 		return zero, err
 	}
 	var person int32
-	if err := tx.QueryRow(ctx, "SELECT person_id FROM trial_registrations WHERE id=$1", id).Scan(&person); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT person_id FROM trial_registrations WHERE id=?1", id).Scan(&person); err != nil {
 		return zero, err
 	}
 	if _, err := dbsqlc.New(tx).LockAdministrativePerson(ctx, person); err != nil {
@@ -63,10 +64,10 @@ func (s *Service) LockForUpdate(ctx context.Context, tx pgx.Tx, id int32) (dbsql
 
 // old is excluded from counting. Operations that keep the same reservation may
 // proceed even if the configured limit was subsequently lowered below usage.
-func checkQuota(ctx context.Context, tx pgx.Tx, person int32, slot pgtype.Int4, date pgtype.Date, old *dbsqlc.TrialRegistration) error {
+func checkQuota(ctx context.Context, tx *sql.Tx, person int32, slot sql.NullInt32, date dbtypes.Date, old *dbsqlc.TrialRegistration) error {
 	q := dbsqlc.New(tx)
 	limit, err := q.GetTrialQuotaLimit(ctx)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && !limit.Valid {
+	if errors.Is(err, sql.ErrNoRows) || err == nil && !limit.Valid {
 		return nil
 	}
 	if err != nil {
@@ -118,14 +119,14 @@ func (s *Service) Quotas(ctx context.Context, person int32) ([]QuotaUsage, error
 }
 
 func (s *Service) quotaUsage(ctx context.Context, person, trialID int32) ([]QuotaUsage, error) {
-	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	q := dbsqlc.New(tx)
 	limit, err := q.GetTrialQuotaLimit(ctx)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
 	seasons, err := q.ListTrialQuotaSeasons(ctx)
@@ -181,7 +182,7 @@ func (s *Service) quotaUsage(ctx context.Context, person, trialID int32) ([]Quot
 		unknown.UsedOrReserved = unknown.AttendedCount + unknown.RegisteredCount
 		out = append(out, *unknown)
 	}
-	return out, tx.Commit(ctx)
+	return out, tx.Commit()
 }
 
 func (s *Service) QuotaForTrial(ctx context.Context, trial dbsqlc.TrialRegistration) ([]QuotaUsage, error) {

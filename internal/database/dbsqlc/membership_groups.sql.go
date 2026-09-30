@@ -8,22 +8,22 @@ package dbsqlc
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 const assignMembershipGroup = `-- name: AssignMembershipGroup :one
 INSERT INTO membership_groups (membership_id, group_id, joined_at)
-VALUES ($1, $2, $3) RETURNING id, membership_id, group_id, joined_at, left_at, created_at
+VALUES (?1, ?2, ?3) RETURNING id, membership_id, group_id, joined_at, left_at, created_at
 `
 
 type AssignMembershipGroupParams struct {
 	MembershipID int32
 	GroupID      int32
-	JoinedAt     pgtype.Date
+	JoinedAt     dbtypes.Date
 }
 
 func (q *Queries) AssignMembershipGroup(ctx context.Context, arg AssignMembershipGroupParams) (MembershipGroup, error) {
-	row := q.db.QueryRow(ctx, assignMembershipGroup, arg.MembershipID, arg.GroupID, arg.JoinedAt)
+	row := q.db.QueryRowContext(ctx, assignMembershipGroup, arg.MembershipID, arg.GroupID, arg.JoinedAt)
 	var i MembershipGroup
 	err := row.Scan(
 		&i.ID,
@@ -37,17 +37,17 @@ func (q *Queries) AssignMembershipGroup(ctx context.Context, arg AssignMembershi
 }
 
 const closeMembershipGroup = `-- name: CloseMembershipGroup :one
-UPDATE membership_groups SET left_at = $2::date
-WHERE id = $1 RETURNING id, membership_id, group_id, joined_at, left_at, created_at
+UPDATE membership_groups SET left_at = ?1
+WHERE id = ?2 RETURNING id, membership_id, group_id, joined_at, left_at, created_at
 `
 
 type CloseMembershipGroupParams struct {
+	LeftAt dbtypes.Date
 	ID     int32
-	LeftAt pgtype.Date
 }
 
 func (q *Queries) CloseMembershipGroup(ctx context.Context, arg CloseMembershipGroupParams) (MembershipGroup, error) {
-	row := q.db.QueryRow(ctx, closeMembershipGroup, arg.ID, arg.LeftAt)
+	row := q.db.QueryRowContext(ctx, closeMembershipGroup, arg.LeftAt, arg.ID)
 	var i MembershipGroup
 	err := row.Scan(
 		&i.ID,
@@ -66,7 +66,7 @@ SELECT mg.id AS membership_group_id, m.id AS membership_id, m.season_id,
 FROM membership_groups mg
 JOIN memberships m ON m.id = mg.membership_id
 JOIN persons p ON p.id = m.person_id
-WHERE mg.group_id = $1 AND m.season_id = $2
+WHERE mg.group_id = ?1 AND m.season_id = ?2
   AND m.status IN ('pending', 'active')
   AND mg.joined_at <= CURRENT_DATE
   AND (mg.left_at IS NULL OR mg.left_at > CURRENT_DATE)
@@ -85,12 +85,12 @@ type ListCurrentGroupMembersRow struct {
 	PersonID          int32
 	FirstName         string
 	LastName          string
-	BirthDate         pgtype.Date
-	JoinedAt          pgtype.Date
+	BirthDate         dbtypes.Date
+	JoinedAt          dbtypes.Date
 }
 
 func (q *Queries) ListCurrentGroupMembers(ctx context.Context, arg ListCurrentGroupMembersParams) ([]ListCurrentGroupMembersRow, error) {
-	rows, err := q.db.Query(ctx, listCurrentGroupMembers, arg.GroupID, arg.SeasonID)
+	rows, err := q.db.QueryContext(ctx, listCurrentGroupMembers, arg.GroupID, arg.SeasonID)
 	if err != nil {
 		return nil, err
 	}
@@ -112,6 +112,9 @@ func (q *Queries) ListCurrentGroupMembers(ctx context.Context, arg ListCurrentGr
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -124,7 +127,7 @@ SELECT mg.id, mg.membership_id, mg.group_id, mg.joined_at, mg.left_at, mg.create
 FROM membership_groups mg
 JOIN groups g ON g.id = mg.group_id
 JOIN activities a ON a.id = g.activity_id
-WHERE mg.membership_id = $1
+WHERE mg.membership_id = ?1
   AND mg.joined_at <= CURRENT_DATE
   AND (mg.left_at IS NULL OR mg.left_at > CURRENT_DATE)
 ORDER BY g.name, mg.id
@@ -134,9 +137,9 @@ type ListCurrentMembershipGroupsRow struct {
 	ID            int32
 	MembershipID  int32
 	GroupID       int32
-	JoinedAt      pgtype.Date
-	LeftAt        pgtype.Date
-	CreatedAt     pgtype.Timestamptz
+	JoinedAt      dbtypes.Date
+	LeftAt        dbtypes.Date
+	CreatedAt     dbtypes.Timestamp
 	GroupName     string
 	GroupIsActive bool
 	ActivityID    int32
@@ -144,7 +147,7 @@ type ListCurrentMembershipGroupsRow struct {
 }
 
 func (q *Queries) ListCurrentMembershipGroups(ctx context.Context, membershipID int32) ([]ListCurrentMembershipGroupsRow, error) {
-	rows, err := q.db.Query(ctx, listCurrentMembershipGroups, membershipID)
+	rows, err := q.db.QueryContext(ctx, listCurrentMembershipGroups, membershipID)
 	if err != nil {
 		return nil, err
 	}
@@ -168,6 +171,9 @@ func (q *Queries) ListCurrentMembershipGroups(ctx context.Context, membershipID 
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -180,7 +186,7 @@ SELECT mg.id, mg.membership_id, mg.group_id, mg.joined_at, mg.left_at, mg.create
 FROM membership_groups mg
 JOIN groups g ON g.id = mg.group_id
 JOIN activities a ON a.id = g.activity_id
-WHERE mg.membership_id = $1
+WHERE mg.membership_id = ?1
 ORDER BY mg.joined_at, mg.id
 `
 
@@ -188,9 +194,9 @@ type ListMembershipGroupHistoryRow struct {
 	ID            int32
 	MembershipID  int32
 	GroupID       int32
-	JoinedAt      pgtype.Date
-	LeftAt        pgtype.Date
-	CreatedAt     pgtype.Timestamptz
+	JoinedAt      dbtypes.Date
+	LeftAt        dbtypes.Date
+	CreatedAt     dbtypes.Timestamp
 	GroupName     string
 	GroupIsActive bool
 	ActivityID    int32
@@ -198,7 +204,7 @@ type ListMembershipGroupHistoryRow struct {
 }
 
 func (q *Queries) ListMembershipGroupHistory(ctx context.Context, membershipID int32) ([]ListMembershipGroupHistoryRow, error) {
-	rows, err := q.db.Query(ctx, listMembershipGroupHistory, membershipID)
+	rows, err := q.db.QueryContext(ctx, listMembershipGroupHistory, membershipID)
 	if err != nil {
 		return nil, err
 	}
@@ -222,6 +228,9 @@ func (q *Queries) ListMembershipGroupHistory(ctx context.Context, membershipID i
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -229,7 +238,7 @@ func (q *Queries) ListMembershipGroupHistory(ctx context.Context, membershipID i
 }
 
 const lockMembershipGroupAssignment = `-- name: LockMembershipGroupAssignment :one
-SELECT id, membership_id, group_id, joined_at, left_at, created_at FROM membership_groups WHERE id=$1 AND membership_id=$2 FOR UPDATE
+SELECT id, membership_id, group_id, joined_at, left_at, created_at FROM membership_groups WHERE id=?1 AND membership_id=?2
 `
 
 type LockMembershipGroupAssignmentParams struct {
@@ -238,7 +247,7 @@ type LockMembershipGroupAssignmentParams struct {
 }
 
 func (q *Queries) LockMembershipGroupAssignment(ctx context.Context, arg LockMembershipGroupAssignmentParams) (MembershipGroup, error) {
-	row := q.db.QueryRow(ctx, lockMembershipGroupAssignment, arg.ID, arg.MembershipID)
+	row := q.db.QueryRowContext(ctx, lockMembershipGroupAssignment, arg.ID, arg.MembershipID)
 	var i MembershipGroup
 	err := row.Scan(
 		&i.ID,
@@ -252,41 +261,41 @@ func (q *Queries) LockMembershipGroupAssignment(ctx context.Context, arg LockMem
 }
 
 const lockMembershipGroupTarget = `-- name: LockMembershipGroupTarget :one
-SELECT m.status,s.starts_at,s.ends_at FROM memberships m JOIN seasons s ON s.id=m.season_id WHERE m.id=$1 FOR UPDATE OF m
+SELECT m.status,s.starts_at,s.ends_at FROM memberships m JOIN seasons s ON s.id=m.season_id WHERE m.id=?1
 `
 
 type LockMembershipGroupTargetRow struct {
 	Status   string
-	StartsAt pgtype.Date
-	EndsAt   pgtype.Date
+	StartsAt dbtypes.Date
+	EndsAt   dbtypes.Date
 }
 
 func (q *Queries) LockMembershipGroupTarget(ctx context.Context, id int32) (LockMembershipGroupTargetRow, error) {
-	row := q.db.QueryRow(ctx, lockMembershipGroupTarget, id)
+	row := q.db.QueryRowContext(ctx, lockMembershipGroupTarget, id)
 	var i LockMembershipGroupTargetRow
 	err := row.Scan(&i.Status, &i.StartsAt, &i.EndsAt)
 	return i, err
 }
 
 const membershipGroupOverlaps = `-- name: MembershipGroupOverlaps :one
-SELECT EXISTS(SELECT 1 FROM membership_groups WHERE membership_id=$1 AND group_id=$2 AND (left_at IS NULL OR left_at>$3::date))::boolean
+SELECT EXISTS(SELECT 1 FROM membership_groups WHERE membership_id=?1 AND group_id=?2 AND (left_at IS NULL OR left_at>?3))
 `
 
 type MembershipGroupOverlapsParams struct {
 	MembershipID int32
 	GroupID      int32
-	JoinedAt     pgtype.Date
+	JoinedAt     dbtypes.Date
 }
 
 func (q *Queries) MembershipGroupOverlaps(ctx context.Context, arg MembershipGroupOverlapsParams) (bool, error) {
-	row := q.db.QueryRow(ctx, membershipGroupOverlaps, arg.MembershipID, arg.GroupID, arg.JoinedAt)
-	var column_1 bool
-	err := row.Scan(&column_1)
-	return column_1, err
+	row := q.db.QueryRowContext(ctx, membershipGroupOverlaps, arg.MembershipID, arg.GroupID, arg.JoinedAt)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const membershipHasGroupActivity = `-- name: MembershipHasGroupActivity :one
-SELECT EXISTS(SELECT 1 FROM membership_activities WHERE membership_id=$1 AND activity_id=$2)::boolean
+SELECT EXISTS(SELECT 1 FROM membership_activities WHERE membership_id=?1 AND activity_id=?2)
 `
 
 type MembershipHasGroupActivityParams struct {
@@ -295,8 +304,8 @@ type MembershipHasGroupActivityParams struct {
 }
 
 func (q *Queries) MembershipHasGroupActivity(ctx context.Context, arg MembershipHasGroupActivityParams) (bool, error) {
-	row := q.db.QueryRow(ctx, membershipHasGroupActivity, arg.MembershipID, arg.ActivityID)
-	var column_1 bool
-	err := row.Scan(&column_1)
-	return column_1, err
+	row := q.db.QueryRowContext(ctx, membershipHasGroupActivity, arg.MembershipID, arg.ActivityID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }

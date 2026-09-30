@@ -30,11 +30,11 @@ func TestP41FamilyVisibilityFollowsEffectiveAccess(t *testing.T) {
 	visible(false) // Adult with no family relationship.
 	children := []int32{}
 	for i := 0; i < 2; i++ {
-		child := f.id(`INSERT INTO persons(first_name,last_name,birth_date) VALUES($1,'Famille',CURRENT_DATE-interval '10 years') RETURNING id`, fmt.Sprintf("Enfant %d", i))
-		f.exec(`INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES($1,$2,'guardian')`, child, f.person)
+		child := f.id(`INSERT INTO persons(first_name,last_name,birth_date) VALUES(?1,'Famille',date('now','-10 years','floor')) RETURNING id`, fmt.Sprintf("Enfant %d", i))
+		f.exec(`INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES(?1,?2,'guardian')`, child, f.person)
 		children = append(children, child)
 	}
-	m := f.id(`INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES($1,$2,$3,'pending') RETURNING id`, children[0], f.season, f.kind)
+	m := f.id(`INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES(?1,?2,?3,'pending') RETURNING id`, children[0], f.season, f.kind)
 	visible(false) // Relationship alone is never enough.
 	f.personalDenied(b, personalChild(children[0]))
 	f.personalDenied(b, familyMembership(children[0], m))
@@ -72,10 +72,10 @@ func TestP41OfficeAttentionAndNextActions(t *testing.T) {
 	_, err = f.app.Accounts.ApproveMembership(t.Context(), active.ID, f.approver, nil)
 	f.must(err)
 	prospect := f.id(`INSERT INTO persons(first_name,last_name,birth_date) VALUES('Essai','À traiter','1990-01-01') RETURNING id`)
-	past := f.id(`INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES($1,$2,CURRENT_DATE-1,'registered') RETURNING id`, prospect, f.activity)
-	future := f.id(`INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES($1,$2,CURRENT_DATE+1,'registered') RETURNING id`, prospect, f.activity)
-	f.exec(`DELETE FROM user_roles WHERE user_id=$1`, f.approver)
-	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='secretary'`, f.approver)
+	past := f.id(`INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES(?1,?2,date('now','-1 days'),'registered') RETURNING id`, prospect, f.activity)
+	future := f.id(`INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES(?1,?2,date('now','+1 days'),'registered') RETURNING id`, prospect, f.activity)
+	f.exec(`DELETE FROM user_roles WHERE user_id=?1`, f.approver)
+	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='secretary'`, f.approver)
 	b := f.membershipAdminBrowser()
 	body := officeOK(t, b, "/admin", "Prête à valider", "Compléter le dossier", dossierPath(ready.ID), dossierPath(incomplete.ID), dossierPath(active.ID)+"#compte", officeTrial(past))
 	for _, path := range []string{`href="/admin/users"`, `href="/admin/config"`} {
@@ -101,22 +101,22 @@ func TestP41OfficeAttentionAndNextActions(t *testing.T) {
 		t.Fatal("past trial result action buried")
 	}
 	officeOK(t, b, officeTrial(future), "Modifier ou reprogrammer", "Renseigner le résultat")
-	f.exec(`UPDATE trial_registrations SET status='attended' WHERE id=$1`, past)
+	f.exec(`UPDATE trial_registrations SET status='attended' WHERE id=?1`, past)
 	officeOK(t, b, officeTrial(past), "Préparer une demande d’adhésion", "Corriger le résultat")
-	f.exec(`INSERT INTO person_emergency_contacts(person_id,contact_person_id,priority) VALUES($1,$2,1)`, child, parent)
+	f.exec(`INSERT INTO person_emergency_contacts(person_id,contact_person_id,priority) VALUES(?1,?2,1)`, child, parent)
 	officeOK(t, b, dossierPath(incomplete.ID), "Dossier prêt à être validé")
 	// Dashboard reevaluates completeness and activation on every request.
 	body = officeOK(t, b, "/admin")
 	if strings.Contains(body, "Compléter le dossier") {
 		t.Fatal("stale completeness")
 	}
-	f.exec(`UPDATE users SET activated_at=now(),password_hash='test-hash' WHERE person_id=$1`, activePerson)
+	f.exec(`UPDATE users SET activated_at=strftime('%Y-%m-%d %H:%M:%f','now'),password_hash='test-hash' WHERE person_id=?1`, activePerson)
 	body = officeOK(t, b, "/admin")
 	if strings.Contains(body, dossierPath(active.ID)+"#compte") {
 		t.Fatal("stale activation reminder")
 	}
-	f.exec(`UPDATE memberships SET status='ended' WHERE id=$1`, active.ID)
-	f.exec(`UPDATE users SET activated_at=NULL,password_hash=NULL WHERE person_id=$1`, activePerson)
+	f.exec(`UPDATE memberships SET status='ended' WHERE id=?1`, active.ID)
+	f.exec(`UPDATE users SET activated_at=NULL,password_hash=NULL WHERE person_id=?1`, activePerson)
 	if strings.Contains(officeOK(t, b, "/admin"), dossierPath(active.ID)+"#compte") {
 		t.Fatal("historical membership shown as immediate activation task")
 	}

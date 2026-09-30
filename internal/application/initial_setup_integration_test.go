@@ -10,15 +10,15 @@ import (
 	"testing"
 	"time"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/config"
 	"github.com/grapinou/club-core/internal/initialsetup"
 	"github.com/grapinou/club-core/internal/mailer"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
 
-func newSetupApplication(t *testing.T) (*pgxpool.Pool, *Application, *initialsetup.Service) {
+func newSetupApplication(t *testing.T) (*sql.DB, *Application, *initialsetup.Service) {
 	t.Helper()
 	db := newApplicationDatabase(t, "club_setup_test")
 	runtime := config.Runtime{RegistrationVerificationTTL: config.DefaultRegistrationVerificationTTL, BaseURL: "https://club.example.test", SecureCookies: true, ActivationValidity: time.Hour, Location: time.UTC, SMTP: mailer.SMTPConfig{From: "club@example.test"}}
@@ -33,10 +33,10 @@ func setupForm(token, secret, username string) url.Values {
 	return url.Values{"csrf_token": {token}, "setup_secret": {secret}, "first_name": {"Camille"}, "last_name": {"Martin"}, "username": {username}, "email": {username + "@example.test"}, "password": {"a secure password"}, "confirmation": {"a secure password"}}
 }
 
-func setupCounts(t *testing.T, db *pgxpool.Pool) (int, int, int) {
+func setupCounts(t *testing.T, db *sql.DB) (int, int, int) {
 	t.Helper()
 	var persons, users, assignments int
-	err := db.QueryRow(t.Context(), `SELECT (SELECT count(*) FROM persons),(SELECT count(*) FROM users),(SELECT count(*) FROM user_roles)`).Scan(&persons, &users, &assignments)
+	err := db.QueryRowContext(t.Context(), `SELECT (SELECT count(*) FROM persons),(SELECT count(*) FROM users),(SELECT count(*) FROM user_roles)`).Scan(&persons, &users, &assignments)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestInitialSetupLifecycle(t *testing.T) {
 	}
 	var stored []byte
 	var generation int
-	if err := db.QueryRow(t.Context(), `SELECT secret_hash,secret_generation FROM installation_setup`).Scan(&stored, &generation); err != nil {
+	if err := db.QueryRowContext(t.Context(), `SELECT secret_hash,secret_generation FROM installation_setup`).Scan(&stored, &generation); err != nil {
 		t.Fatal(err)
 	}
 	digest := sha256.Sum256([]byte(secret))
@@ -125,12 +125,12 @@ func TestInitialSetupLifecycle(t *testing.T) {
 	var username, passwordHash string
 	var firstUser, person int32
 	var consumed []byte
-	err = db.QueryRow(t.Context(), `SELECT u.id,u.person_id,u.username,u.password_hash,u.is_active,u.activated_at IS NOT NULL,s.secret_hash FROM users u CROSS JOIN installation_setup s`).Scan(&firstUser, &person, &username, &passwordHash, &active, &activated, &consumed)
+	err = db.QueryRowContext(t.Context(), `SELECT u.id,u.person_id,u.username,u.password_hash,u.is_active,u.activated_at IS NOT NULL,s.secret_hash FROM users u CROSS JOIN installation_setup s`).Scan(&firstUser, &person, &username, &passwordHash, &active, &activated, &consumed)
 	if err != nil || username != "camille" || !active || !activated || consumed != nil || passwordHash == "a secure password" || bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte("a secure password")) != nil {
 		t.Fatal("first account invalid", err)
 	}
 	var role string
-	if err := db.QueryRow(t.Context(), `SELECT r.name FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=$1`, firstUser).Scan(&role); err != nil || role != "president" {
+	if err := db.QueryRowContext(t.Context(), `SELECT r.name FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=?1`, firstUser).Scan(&role); err != nil || role != "president" {
 		t.Fatal("missing management role", err)
 	}
 	if page := b.call("GET", "/setup", nil); page.Code != 303 || page.Header().Get("Location") != "/login" {
@@ -156,7 +156,7 @@ func TestInitialSetupLifecycle(t *testing.T) {
 		t.Fatal("last manager guard after setup")
 	}
 	otherPerson := int32(0)
-	if err := db.QueryRow(t.Context(), `INSERT INTO persons(first_name,last_name) VALUES ('Second','Member') RETURNING id`).Scan(&otherPerson); err != nil {
+	if err := db.QueryRowContext(t.Context(), `INSERT INTO persons(first_name,last_name) VALUES ('Second','Member') RETURNING id`).Scan(&otherPerson); err != nil {
 		t.Fatal(err)
 	}
 	otherHash, err := bcrypt.GenerateFromPassword([]byte("a secure password"), bcrypt.DefaultCost)
@@ -164,7 +164,7 @@ func TestInitialSetupLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	var otherUser int32
-	if err := db.QueryRow(t.Context(), `INSERT INTO users(person_id,username,password_hash,activated_at) VALUES ($1,'second',$2,clock_timestamp()) RETURNING id`, otherPerson, string(otherHash)).Scan(&otherUser); err != nil {
+	if err := db.QueryRowContext(t.Context(), `INSERT INTO users(person_id,username,password_hash,activated_at) VALUES (?1,'second',?2,strftime('%Y-%m-%d %H:%M:%f','now')) RETURNING id`, otherPerson, string(otherHash)).Scan(&otherUser); err != nil {
 		t.Fatal(err)
 	}
 	grant := b.call("POST", fmt.Sprintf("/admin/users/%d/roles", otherUser), url.Values{"csrf_token": {roleToken}, "role": {"secretary"}, "action": {"add"}})
@@ -220,10 +220,10 @@ func TestInitialSetupDuplicateAndRateLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	var person int32
-	if err := db.QueryRow(t.Context(), `INSERT INTO persons(first_name,last_name) VALUES ('Existing','Person') RETURNING id`).Scan(&person); err != nil {
+	if err := db.QueryRowContext(t.Context(), `INSERT INTO persons(first_name,last_name) VALUES ('Existing','Person') RETURNING id`).Scan(&person); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(t.Context(), `INSERT INTO users(person_id,username) VALUES ($1,'camille')`, person); err != nil {
+	if _, err := db.ExecContext(t.Context(), `INSERT INTO users(person_id,username) VALUES (?1,'camille')`, person); err != nil {
 		t.Fatal(err)
 	}
 	b := newBrowser(app.Handler)
@@ -255,19 +255,19 @@ func TestLocalRoleBootstrapClosesSetup(t *testing.T) {
 		t.Fatal(err)
 	}
 	var person, user int32
-	if err := db.QueryRow(t.Context(), `INSERT INTO persons(first_name,last_name) VALUES ('Local','Admin') RETURNING id`).Scan(&person); err != nil {
+	if err := db.QueryRowContext(t.Context(), `INSERT INTO persons(first_name,last_name) VALUES ('Local','Admin') RETURNING id`).Scan(&person); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(t.Context(), `INSERT INTO users(person_id,username) VALUES ($1,'localadmin') RETURNING id`, person).Scan(&user); err != nil {
+	if err := db.QueryRowContext(t.Context(), `INSERT INTO users(person_id,username) VALUES (?1,'localadmin') RETURNING id`, person).Scan(&user); err != nil {
 		t.Fatal(err)
 	}
-	if err := setup.WithLocalRoleGrant(t.Context(), func(tx pgx.Tx) error {
-		_, err := tx.Exec(t.Context(), `INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='president'`, user)
+	if err := setup.WithLocalRoleGrant(t.Context(), func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(t.Context(), `INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='president'`, user)
 		return err
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(t.Context(), `DELETE FROM user_roles WHERE user_id=$1`, user); err != nil {
+	if _, err := db.ExecContext(t.Context(), `DELETE FROM user_roles WHERE user_id=?1`, user); err != nil {
 		t.Fatal(err)
 	}
 	state, err := setup.Status(t.Context())

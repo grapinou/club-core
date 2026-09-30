@@ -1,12 +1,13 @@
 package database
 
 import (
+	"database/sql"
 	"testing"
 	"time"
 
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 	"github.com/grapinou/club-core/internal/trials"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func TestTrialsIntegration(t *testing.T) {
@@ -23,25 +24,25 @@ func TestTrialsIntegration(t *testing.T) {
 	id := func(sql string, args ...any) int32 {
 		t.Helper()
 		var n int32
-		must(db.QueryRow(ctx, sql, args...).Scan(&n))
+		must(db.QueryRowContext(ctx, sql, args...).Scan(&n))
 		return n
 	}
-	exec := func(sql string, args ...any) { t.Helper(); _, err := db.Exec(ctx, sql, args...); must(err) }
-	date := func(s string) pgtype.Date {
+	exec := func(sql string, args ...any) { t.Helper(); _, err := db.ExecContext(ctx, sql, args...); must(err) }
+	date := func(s string) dbtypes.Date {
 		d, err := time.Parse("2006-01-02", s)
 		must(err)
-		return pgtype.Date{Time: d, Valid: true}
+		return dbtypes.Date{Time: d, Valid: true}
 	}
-	nullable := func(n int32) pgtype.Int4 { return pgtype.Int4{Int32: n, Valid: true} }
-	note := pgtype.Text{String: "Essai précis", Valid: true}
+	nullable := func(n int32) sql.NullInt32 { return sql.NullInt32{Int32: n, Valid: true} }
+	note := sql.NullString{String: "Essai précis", Valid: true}
 	person := id("INSERT INTO persons(first_name,last_name,birth_date,phone_number,notes) VALUES ('Arthur','Dupont','2016-01-02','0612345678','Durable') RETURNING id")
 	a := id("INSERT INTO activities(name) VALUES ('JJB') RETURNING id")
 	a2 := id("INSERT INTO activities(name) VALUES ('Judo') RETURNING id")
-	g := id("INSERT INTO groups(activity_id,name) VALUES ($1,'Enfants') RETURNING id", a)
-	g2 := id("INSERT INTO groups(activity_id,name) VALUES ($1,'Autre') RETURNING id", a2)
+	g := id("INSERT INTO groups(activity_id,name) VALUES (?1,'Enfants') RETURNING id", a)
+	g2 := id("INSERT INTO groups(activity_id,name) VALUES (?1,'Autre') RETURNING id", a2)
 	season := id("INSERT INTO seasons(name,starts_at,ends_at) VALUES ('2026','2026-09-01','2027-06-30') RETURNING id")
-	slot := id("INSERT INTO group_slots(group_id,season_id,weekday,start_time,end_time,location,valid_from,valid_until) VALUES ($1,$2,2,'18:00','19:00','Dojo municipal','2026-09-08','2027-06-22') RETURNING id", g, season)
-	slot2 := id("INSERT INTO group_slots(group_id,season_id,weekday,start_time,end_time,valid_from) VALUES ($1,$2,2,'18:00','19:00','2026-09-01') RETURNING id", g2, season)
+	slot := id("INSERT INTO group_slots(group_id,season_id,weekday,start_time,end_time,location,valid_from,valid_until) VALUES (?1,?2,2,'18:00','19:00','Dojo municipal','2026-09-08','2027-06-22') RETURNING id", g, season)
+	slot2 := id("INSERT INTO group_slots(group_id,season_id,weekday,start_time,end_time,valid_from) VALUES (?1,?2,2,'18:00','19:00','2026-09-01') RETURNING id", g2, season)
 	base := dbsqlc.CreateTrialParams{PersonID: person, ActivityID: a, TrialDate: date("2026-09-15"), Notes: note}
 	full := base
 	full.GroupID = nullable(g)
@@ -96,34 +97,34 @@ func TestTrialsIntegration(t *testing.T) {
 	t.Run("structure enforced even for direct writes", func(t *testing.T) {
 		for _, tc := range []struct {
 			name        string
-			group, slot pgtype.Int4
+			group, slot sql.NullInt32
 			code        string
 		}{
-			{"wrong activity", nullable(g2), pgtype.Int4{}, "23503"},
-			{"wrong group", nullable(g), nullable(slot2), "23503"},
-			{"missing group", pgtype.Int4{}, nullable(slot), "23514"},
+			{"wrong activity", nullable(g2), sql.NullInt32{}, "787"},
+			{"wrong group", nullable(g), nullable(slot2), "787"},
+			{"missing group", sql.NullInt32{}, nullable(slot), "275"},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				p := base
 				p.GroupID = tc.group
 				p.GroupSlotID = tc.slot
 				_, err := q.CreateTrial(ctx, p)
-				requirePostgresCode(t, err, tc.code)
+				requireSQLiteConstraint(t, err, tc.code)
 				if _, err = svc.Schedule(ctx, p); err == nil {
 					t.Fatal("service accepted invalid target")
 				}
 			})
 		}
-		for _, statement := range []string{"DELETE FROM group_slots WHERE id=$1", "DELETE FROM groups WHERE id=$1", "DELETE FROM activities WHERE id=$1"} {
+		for _, statement := range []string{"DELETE FROM group_slots WHERE id=?1", "DELETE FROM groups WHERE id=?1", "DELETE FROM activities WHERE id=?1"} {
 			n := slot
-			if statement == "DELETE FROM groups WHERE id=$1" {
+			if statement == "DELETE FROM groups WHERE id=?1" {
 				n = g
 			}
-			if statement == "DELETE FROM activities WHERE id=$1" {
+			if statement == "DELETE FROM activities WHERE id=?1" {
 				n = a
 			}
-			_, err := db.Exec(ctx, statement, n)
-			requirePostgresCode(t, err, "23503")
+			_, err := db.ExecContext(ctx, statement, n)
+			requireSQLiteConstraint(t, err, "787")
 		}
 	})
 	t.Run("calendar creation and rescheduling", func(t *testing.T) {
@@ -137,7 +138,7 @@ func TestTrialsIntegration(t *testing.T) {
 				t.Fatalf("rescheduled %s", d)
 			}
 		}
-		exec("UPDATE group_slots SET valid_from='2026-08-01',valid_until=NULL WHERE id=$1", slot)
+		exec("UPDATE group_slots SET valid_from='2026-08-01',valid_until=NULL WHERE id=?1", slot)
 		for _, d := range []string{"2026-08-25", "2027-07-06"} {
 			p := full
 			p.TrialDate = date(d)
@@ -145,19 +146,19 @@ func TestTrialsIntegration(t *testing.T) {
 				t.Fatalf("outside season: %s", d)
 			}
 		}
-		exec("UPDATE group_slots SET valid_from='2026-09-08',valid_until='2027-06-22' WHERE id=$1", slot)
+		exec("UPDATE group_slots SET valid_from='2026-09-08',valid_until='2027-06-22' WHERE id=?1", slot)
 		for _, d := range []string{"2026-09-08", "2027-06-22"} {
 			p := full
 			p.TrialDate = date(d)
 			_, err := svc.Schedule(ctx, p)
 			must(err)
 		}
-		exec("UPDATE seasons SET starts_at='2026-09-15',ends_at='2026-09-15' WHERE id=$1", season)
+		exec("UPDATE seasons SET starts_at='2026-09-15',ends_at='2026-09-15' WHERE id=?1", season)
 		_, err := svc.Schedule(ctx, full)
 		must(err)
-		exec("UPDATE seasons SET starts_at='2026-09-01',ends_at='2027-06-30' WHERE id=$1", season)
+		exec("UPDATE seasons SET starts_at='2026-09-01',ends_at='2027-06-30' WHERE id=?1", season)
 		p := full
-		p.TrialDate = pgtype.Date{}
+		p.TrialDate = dbtypes.Date{}
 		if _, err := svc.Schedule(ctx, p); err == nil {
 			t.Fatal("missing date accepted")
 		}
@@ -178,15 +179,15 @@ func TestTrialsIntegration(t *testing.T) {
 			}
 		}
 		_, err := q.UpdateTrialStatus(ctx, dbsqlc.UpdateTrialStatusParams{ID: historical, Status: "invalid"})
-		requirePostgresCode(t, err, "23514")
-		changed := pgtype.Text{String: "Corrigée", Valid: true}
+		requireSQLiteConstraint(t, err, "275")
+		changed := sql.NullString{String: "Corrigée", Valid: true}
 		got, err := q.UpdateTrialNotes(ctx, dbsqlc.UpdateTrialNotesParams{ID: historical, Notes: changed})
 		must(err)
 		if got.Notes != changed {
 			t.Fatal(got)
 		}
 		var durable string
-		must(db.QueryRow(ctx, "SELECT notes FROM persons WHERE id=$1", person).Scan(&durable))
+		must(db.QueryRowContext(ctx, "SELECT notes FROM persons WHERE id=?1", person).Scan(&durable))
 		if durable != "Durable" {
 			t.Fatal(durable)
 		}
@@ -208,7 +209,7 @@ func TestTrialsIntegration(t *testing.T) {
 			table string
 			id    int32
 		}{{"activities", a}, {"groups", g}, {"group_slots", slot}} {
-			exec("UPDATE "+tc.table+" SET is_active=false WHERE id=$1", tc.id)
+			exec("UPDATE "+tc.table+" SET is_active=false WHERE id=?1", tc.id)
 			if _, err := svc.Schedule(ctx, full); err == nil {
 				t.Fatal("inactive accepted", tc.table)
 			}
@@ -220,11 +221,11 @@ func TestTrialsIntegration(t *testing.T) {
 			if got.Location.String != "Dojo municipal" || got.GroupName.String != "Enfants" || got.ActivityName != "JJB" {
 				t.Fatal(got)
 			}
-			exec("UPDATE "+tc.table+" SET is_active=true WHERE id=$1", tc.id)
+			exec("UPDATE "+tc.table+" SET is_active=true WHERE id=?1", tc.id)
 		}
-		exec("UPDATE activities SET is_active=false WHERE id=$1", a)
-		exec("UPDATE groups SET is_active=false WHERE id=$1", g)
-		exec("UPDATE group_slots SET is_active=false,valid_until='2026-09-08' WHERE id=$1", slot)
+		exec("UPDATE activities SET is_active=false WHERE id=?1", a)
+		exec("UPDATE groups SET is_active=false WHERE id=?1", g)
+		exec("UPDATE group_slots SET is_active=false,valid_until='2026-09-08' WHERE id=?1", slot)
 		got, err := q.GetTrial(ctx, historical)
 		must(err)
 		if got.TrialDate != full.TrialDate || got.GroupSlotID != full.GroupSlotID {

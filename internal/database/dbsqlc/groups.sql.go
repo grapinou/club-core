@@ -7,24 +7,25 @@ package dbsqlc
 
 import (
 	"context"
+	"database/sql"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 const createGroup = `-- name: CreateGroup :one
 INSERT INTO groups (activity_id, name, description, is_active)
-VALUES ($1, $2, $3, $4) RETURNING id, activity_id, name, description, is_active, created_at, updated_at, show_name_publicly
+VALUES (?1, ?2, ?3, ?4) RETURNING id, activity_id, name, description, is_active, created_at, updated_at, show_name_publicly
 `
 
 type CreateGroupParams struct {
 	ActivityID  int32
 	Name        string
-	Description pgtype.Text
+	Description sql.NullString
 	IsActive    bool
 }
 
 func (q *Queries) CreateGroup(ctx context.Context, arg CreateGroupParams) (Group, error) {
-	row := q.db.QueryRow(ctx, createGroup,
+	row := q.db.QueryRowContext(ctx, createGroup,
 		arg.ActivityID,
 		arg.Name,
 		arg.Description,
@@ -47,23 +48,23 @@ func (q *Queries) CreateGroup(ctx context.Context, arg CreateGroupParams) (Group
 const getGroup = `-- name: GetGroup :one
 SELECT g.id, g.activity_id, g.name, g.description, g.is_active, g.created_at, g.updated_at, g.show_name_publicly, a.name AS activity_name
 FROM groups g JOIN activities a ON a.id = g.activity_id
-WHERE g.id = $1
+WHERE g.id = ?1
 `
 
 type GetGroupRow struct {
 	ID               int32
 	ActivityID       int32
 	Name             string
-	Description      pgtype.Text
+	Description      sql.NullString
 	IsActive         bool
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
+	CreatedAt        dbtypes.Timestamp
+	UpdatedAt        dbtypes.Timestamp
 	ShowNamePublicly bool
 	ActivityName     string
 }
 
 func (q *Queries) GetGroup(ctx context.Context, id int32) (GetGroupRow, error) {
-	row := q.db.QueryRow(ctx, getGroup, id)
+	row := q.db.QueryRowContext(ctx, getGroup, id)
 	var i GetGroupRow
 	err := row.Scan(
 		&i.ID,
@@ -90,16 +91,16 @@ type ListActiveGroupsRow struct {
 	ID               int32
 	ActivityID       int32
 	Name             string
-	Description      pgtype.Text
+	Description      sql.NullString
 	IsActive         bool
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
+	CreatedAt        dbtypes.Timestamp
+	UpdatedAt        dbtypes.Timestamp
 	ShowNamePublicly bool
 	ActivityName     string
 }
 
 func (q *Queries) ListActiveGroups(ctx context.Context) ([]ListActiveGroupsRow, error) {
-	rows, err := q.db.Query(ctx, listActiveGroups)
+	rows, err := q.db.QueryContext(ctx, listActiveGroups)
 	if err != nil {
 		return nil, err
 	}
@@ -122,6 +123,9 @@ func (q *Queries) ListActiveGroups(ctx context.Context) ([]ListActiveGroupsRow, 
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -138,16 +142,16 @@ type ListGroupsRow struct {
 	ID               int32
 	ActivityID       int32
 	Name             string
-	Description      pgtype.Text
+	Description      sql.NullString
 	IsActive         bool
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
+	CreatedAt        dbtypes.Timestamp
+	UpdatedAt        dbtypes.Timestamp
 	ShowNamePublicly bool
 	ActivityName     string
 }
 
 func (q *Queries) ListGroups(ctx context.Context) ([]ListGroupsRow, error) {
-	rows, err := q.db.Query(ctx, listGroups)
+	rows, err := q.db.QueryContext(ctx, listGroups)
 	if err != nil {
 		return nil, err
 	}
@@ -170,6 +174,9 @@ func (q *Queries) ListGroups(ctx context.Context) ([]ListGroupsRow, error) {
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -177,23 +184,23 @@ func (q *Queries) ListGroups(ctx context.Context) ([]ListGroupsRow, error) {
 }
 
 const updateGroup = `-- name: UpdateGroup :one
-UPDATE groups SET name = $2, description = $3, is_active = $4, updated_at = NOW()
-WHERE id = $1 RETURNING id, activity_id, name, description, is_active, created_at, updated_at, show_name_publicly
+UPDATE groups SET name = ?1, description = ?2, is_active = ?3, updated_at = strftime('%Y-%m-%d %H:%M:%f','now')
+WHERE id = ?4 RETURNING id, activity_id, name, description, is_active, created_at, updated_at, show_name_publicly
 `
 
 type UpdateGroupParams struct {
-	ID          int32
 	Name        string
-	Description pgtype.Text
+	Description sql.NullString
 	IsActive    bool
+	ID          int32
 }
 
 func (q *Queries) UpdateGroup(ctx context.Context, arg UpdateGroupParams) (Group, error) {
-	row := q.db.QueryRow(ctx, updateGroup,
-		arg.ID,
+	row := q.db.QueryRowContext(ctx, updateGroup,
 		arg.Name,
 		arg.Description,
 		arg.IsActive,
+		arg.ID,
 	)
 	var i Group
 	err := row.Scan(

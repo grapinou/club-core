@@ -5,24 +5,24 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/pressly/goose/v3"
 	"os"
 	"slices"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/pressly/goose/v3"
+
 	"github.com/grapinou/club-core/internal/activation"
 	"github.com/grapinou/club-core/internal/consents"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/memberships"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type membershipFixture struct {
 	t                                            *testing.T
-	db                                           *pgxpool.Pool
+	db                                           *sql.DB
 	svc                                          *memberships.Service
 	activation                                   *activation.Service
 	season, kind, activity, definition, approver int32
@@ -42,7 +42,7 @@ func newMembershipFixture(t *testing.T) *membershipFixture {
 	f.activity = f.id("INSERT INTO activities(name) VALUES ('Judo') RETURNING id")
 	f.definition = f.id("INSERT INTO consent_definitions(code,version,title,description) VALUES ('photo',1,'Photo','Version 1') RETURNING id")
 	admin := f.person("Admin", "1980-01-01")
-	f.approver = f.id("INSERT INTO users(person_id,username,password_hash,activated_at) VALUES ($1,'admin','preserved',now()) RETURNING id", admin)
+	f.approver = f.id("INSERT INTO users(person_id,username,password_hash,activated_at) VALUES (?1,'admin','preserved',strftime('%Y-%m-%d %H:%M:%f','now')) RETURNING id", admin)
 	return f
 }
 func (f *membershipFixture) must(err error) {
@@ -54,16 +54,16 @@ func (f *membershipFixture) must(err error) {
 func (f *membershipFixture) id(query string, args ...any) int32 {
 	f.t.Helper()
 	var id int32
-	f.must(f.db.QueryRow(f.t.Context(), query, args...).Scan(&id))
+	f.must(f.db.QueryRowContext(f.t.Context(), query, args...).Scan(&id))
 	return id
 }
 func (f *membershipFixture) exec(query string, args ...any) {
 	f.t.Helper()
-	_, err := f.db.Exec(f.t.Context(), query, args...)
+	_, err := f.db.ExecContext(f.t.Context(), query, args...)
 	f.must(err)
 }
 func (f *membershipFixture) person(first string, birth any) int32 {
-	return f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES ($1,'Dupont',$2::date) RETURNING id", first, birth)
+	return f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES (?1,'Dupont',?2) RETURNING id", first, birth)
 }
 func (f *membershipFixture) request(person int32) memberships.Request {
 	return memberships.Request{PersonID: person, SeasonID: f.season, MembershipTypeID: f.kind, ActivityIDs: []int32{f.activity}, Consents: []memberships.Decision{{ConsentDefinitionID: f.definition, Decision: "refused", GivenByPersonID: person}}}
@@ -82,16 +82,16 @@ func (f *membershipFixture) approve(id int32) memberships.Approval {
 }
 func (f *membershipFixture) nextSeason() int32 {
 	f.serial++
-	return f.id("INSERT INTO seasons(name,starts_at,ends_at) VALUES ($1,'2028-09-01','2029-08-31') RETURNING id", fmt.Sprint("renewal", f.serial))
+	return f.id("INSERT INTO seasons(name,starts_at,ends_at) VALUES (?1,'2028-09-01','2029-08-31') RETURNING id", fmt.Sprint("renewal", f.serial))
 }
 func (f *membershipFixture) guardian(child int32, email any, primary bool) int32 {
 	p := f.person("Guardian", "1980-01-01")
-	f.exec("UPDATE persons SET email=$2 WHERE id=$1", p, email)
-	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type,is_primary_contact) VALUES ($1,$2,'guardian',$3)", child, p, primary)
+	f.exec("UPDATE persons SET email=?2 WHERE id=?1", p, email)
+	f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type,is_primary_contact) VALUES (?1,?2,'guardian',?3)", child, p, primary)
 	return p
 }
 func (f *membershipFixture) emergency(child, contact int32) {
-	f.exec("INSERT INTO person_emergency_contacts(person_id,contact_person_id,priority) VALUES ($1,$2,1)", child, contact)
+	f.exec("INSERT INTO person_emergency_contacts(person_id,contact_person_id,priority) VALUES (?1,?2,1)", child, contact)
 }
 func TestCreateMembershipRequest(t *testing.T) {
 	f := newMembershipFixture(t)
@@ -100,7 +100,7 @@ func TestCreateMembershipRequest(t *testing.T) {
 		mutate func(*memberships.Request)
 	}{
 		{"missing person", func(r *memberships.Request) { r.PersonID = -1 }},
-		{"missing birth", func(r *memberships.Request) { f.exec("UPDATE persons SET birth_date=NULL WHERE id=$1", r.PersonID) }},
+		{"missing birth", func(r *memberships.Request) { f.exec("UPDATE persons SET birth_date=NULL WHERE id=?1", r.PersonID) }},
 		{"missing season", func(r *memberships.Request) { r.SeasonID = -1 }},
 		{"inactive season", func(r *memberships.Request) {
 			r.SeasonID = f.id("INSERT INTO seasons(name,starts_at,ends_at,is_active) VALUES ('inactive','2026-01-01','2026-12-31',false) RETURNING id")
@@ -128,7 +128,7 @@ func TestCreateMembershipRequest(t *testing.T) {
 				t.Fatal("accepted invalid request")
 			}
 			var count int
-			f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM memberships WHERE person_id=$1", r.PersonID).Scan(&count))
+			f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM memberships WHERE person_id=?1", r.PersonID).Scan(&count))
 			if count != 0 {
 				t.Fatal("partial request committed")
 			}
@@ -147,7 +147,7 @@ func TestCreateMembershipRequest(t *testing.T) {
 		t.Fatal("duplicate accepted")
 	}
 	var count int
-	f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM users WHERE person_id=$1", p).Scan(&count))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM users WHERE person_id=?1", p).Scan(&count))
 	if count != 0 {
 		t.Fatal("premature user")
 	}
@@ -166,7 +166,7 @@ func TestCreateMembershipRequest(t *testing.T) {
 	if !slices.Contains(got, "granted") || !slices.Contains(got, "refused") {
 		t.Fatal(got)
 	}
-	f.exec("UPDATE consent_definitions SET is_active=false WHERE id=$1", grant)
+	f.exec("UPDATE consent_definitions SET is_active=false WHERE id=?1", grant)
 	f.id("INSERT INTO consent_definitions(code,version,title,description) VALUES ('rules',2,'Rules','New wording') RETURNING id")
 	_, err = consents.New(f.db).WithdrawConsent(t.Context(), m.ID, grant, p)
 	f.must(err)
@@ -218,7 +218,7 @@ func TestApproveMembershipCompleteness(t *testing.T) {
 					t.Fatalf("%v", err)
 				}
 				var n int
-				f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM users WHERE person_id=$1", p).Scan(&n))
+				f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM users WHERE person_id=?1", p).Scan(&n))
 				if n != 0 {
 					t.Fatal("user on refusal")
 				}
@@ -243,14 +243,14 @@ func TestApproveMembershipCompleteness(t *testing.T) {
 			approver := f.approver
 			switch issue {
 			case "missing_birth_date":
-				f.exec("UPDATE persons SET birth_date=NULL WHERE id=$1", p)
+				f.exec("UPDATE persons SET birth_date=NULL WHERE id=?1", p)
 			case "missing_activity":
-				f.exec("DELETE FROM membership_activities WHERE membership_id=$1", m.ID)
+				f.exec("DELETE FROM membership_activities WHERE membership_id=?1", m.ID)
 			case "unanswered_consent":
 				extra := f.id("INSERT INTO consent_definitions(code,version,title,description,is_active) VALUES ('unanswered',1,'Missing','Missing',false) RETURNING id")
-				f.exec("INSERT INTO membership_consent_requirements VALUES ($1,$2,now())", m.ID, extra)
+				f.exec("INSERT INTO membership_consent_requirements VALUES (?1,?2,strftime('%Y-%m-%d %H:%M:%f','now'))", m.ID, extra)
 				// A withdrawal without initial response is insufficient, even for direct SQL.
-				f.exec("INSERT INTO membership_consents(membership_id,consent_definition_id,decision,given_by_person_id) VALUES ($1,$2,'withdrawn',$3)", m.ID, extra, p)
+				f.exec("INSERT INTO membership_consents(membership_id,consent_definition_id,decision,given_by_person_id) VALUES (?1,?2,'withdrawn',?3)", m.ID, extra, p)
 			case "missing approver":
 				approver = -1
 			}
@@ -265,9 +265,9 @@ func TestApproveMembershipCompleteness(t *testing.T) {
 	now := time.Now().In(loc)
 	p := f.person("Birthday", now.AddDate(-18, 0, 0).Format("2006-01-02"))
 	m := f.create(f.request(p))
-	group := f.id("INSERT INTO groups(activity_id,name) VALUES ($1,'Children') RETURNING id", f.activity)
-	f.exec("INSERT INTO membership_groups(membership_id,group_id,joined_at) VALUES ($1,$2,current_date)", m.ID, group)
-	f.exec("UPDATE memberships SET joined_at='2020-01-01' WHERE id=$1", m.ID)
+	group := f.id("INSERT INTO groups(activity_id,name) VALUES (?1,'Children') RETURNING id", f.activity)
+	f.exec("INSERT INTO membership_groups(membership_id,group_id,joined_at) VALUES (?1,?2,current_date)", m.ID, group)
+	f.exec("UPDATE memberships SET joined_at='2020-01-01' WHERE id=?1", m.ID)
 	note := "Validated manually"
 	a, err := f.svc.ApproveMembership(t.Context(), m.ID, f.approver, &note)
 	f.must(err)
@@ -290,7 +290,7 @@ func TestMembershipUserRenewalAndEmail(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := f.person("Rémi", "1990-01-01")
-			f.exec("UPDATE persons SET email=$2 WHERE id=$1", p, tc.own)
+			f.exec("UPDATE persons SET email=?2 WHERE id=?1", p, tc.own)
 			other := f.guardian(p, tc.other, false)
 			primary := f.guardian(p, tc.primary, true)
 			f.guardian(p, "", false)
@@ -315,13 +315,13 @@ func TestMembershipUserRenewalAndEmail(t *testing.T) {
 				}
 			}
 			var email *string
-			f.must(f.db.QueryRow(t.Context(), "SELECT email FROM persons WHERE id=$1", p).Scan(&email))
+			f.must(f.db.QueryRowContext(t.Context(), "SELECT email FROM persons WHERE id=?1", p).Scan(&email))
 			if tc.own == nil && email != nil {
 				t.Fatal("copied guardian email")
 			}
 			r := f.request(p)
 			r.SeasonID = f.nextSeason()
-			f.exec("UPDATE users SET is_active=false WHERE id=$1", a.User.ID)
+			f.exec("UPDATE users SET is_active=false WHERE id=?1", a.User.ID)
 			renewed := f.approve(f.create(r).ID)
 			if renewed.User.ID != a.User.ID || renewed.User.Username != a.User.Username || !renewed.User.IsActive || renewed.ActivationDelivery == nil {
 				t.Fatal("renewal user mismatch")
@@ -333,7 +333,7 @@ func TestMembershipUserRenewalAndEmail(t *testing.T) {
 			activated, err := f.activation.Activate(t.Context(), d.Username, renewed.ActivationDelivery.PlaintextCode, "a secure password")
 			f.must(err)
 			for _, disabled := range []bool{false, true} {
-				f.exec("UPDATE users SET is_active=$2 WHERE id=$1", a.User.ID, !disabled)
+				f.exec("UPDATE users SET is_active=?2 WHERE id=?1", a.User.ID, !disabled)
 				r.SeasonID = f.nextSeason()
 				next := f.approve(f.create(r).ID)
 				if next.User.ID != a.User.ID || next.User.Username != a.User.Username || next.User.PasswordHash != activated.PasswordHash || next.User.ActivatedAt != activated.ActivatedAt || !next.User.IsActive || next.ActivationDelivery != nil {
@@ -343,7 +343,7 @@ func TestMembershipUserRenewalAndEmail(t *testing.T) {
 		})
 	}
 	var names []string
-	rows, err := f.db.Query(t.Context(), "SELECT username FROM users WHERE username LIKE 'remi.dupont%' ORDER BY username")
+	rows, err := f.db.QueryContext(t.Context(), "SELECT username FROM users WHERE username LIKE 'remi.dupont%' ORDER BY username")
 	f.must(err)
 	for rows.Next() {
 		var name string
@@ -364,7 +364,7 @@ func TestActivationCodes(t *testing.T) {
 			a := f.approve(f.create(f.request(p)).ID)
 			d := a.ActivationDelivery
 			var stored []byte
-			f.must(f.db.QueryRow(t.Context(), "SELECT code_hash FROM user_activation_codes WHERE user_id=$1", a.User.ID).Scan(&stored))
+			f.must(f.db.QueryRowContext(t.Context(), "SELECT code_hash FROM user_activation_codes WHERE user_id=?1", a.User.ID).Scan(&stored))
 			digest := sha256.Sum256([]byte(d.PlaintextCode))
 			if string(stored) == d.PlaintextCode || string(stored) != string(digest[:]) || len(d.PlaintextCode) != 20 {
 				t.Fatal("unsafe code storage")
@@ -374,11 +374,11 @@ func TestActivationCodes(t *testing.T) {
 			case "wrong":
 				code = "wrong"
 			case "expired":
-				f.exec("UPDATE user_activation_codes SET created_at=now()-interval '2 hours',expires_at=now()-interval '1 hour' WHERE user_id=$1", a.User.ID)
+				f.exec("UPDATE user_activation_codes SET created_at=strftime('%Y-%m-%d %H:%M:%f','now','-2 hours'),expires_at=strftime('%Y-%m-%d %H:%M:%f','now','-1 hour') WHERE user_id=?1", a.User.ID)
 			case "invalidated":
-				f.exec("UPDATE user_activation_codes SET invalidated_at=now() WHERE user_id=$1", a.User.ID)
+				f.exec("UPDATE user_activation_codes SET invalidated_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE user_id=?1", a.User.ID)
 			case "used":
-				f.exec("UPDATE user_activation_codes SET used_at=now() WHERE user_id=$1", a.User.ID)
+				f.exec("UPDATE user_activation_codes SET used_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE user_id=?1", a.User.ID)
 			}
 			user, err := f.activation.Activate(t.Context(), d.Username, code, "a secure password")
 			if state == "correct" {
@@ -388,7 +388,7 @@ func TestActivationCodes(t *testing.T) {
 				}
 				f.must(bcrypt.CompareHashAndPassword([]byte(user.PasswordHash.String), []byte("a secure password")))
 				var used bool
-				f.must(f.db.QueryRow(t.Context(), "SELECT used_at IS NOT NULL FROM user_activation_codes WHERE user_id=$1", user.ID).Scan(&used))
+				f.must(f.db.QueryRowContext(t.Context(), "SELECT used_at IS NOT NULL FROM user_activation_codes WHERE user_id=?1", user.ID).Scan(&used))
 				if !used {
 					t.Fatal("not consumed")
 				}
@@ -465,7 +465,7 @@ func TestConcurrentApprovalsAndActivation(t *testing.T) {
 		t.Fatal("duplicate user")
 	}
 	var current int
-	f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM user_activation_codes WHERE user_id=$1 AND invalidated_at IS NULL AND used_at IS NULL", renewals[0].User.ID).Scan(&current))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM user_activation_codes WHERE user_id=?1 AND invalidated_at IS NULL AND used_at IS NULL", renewals[0].User.ID).Scan(&current))
 	if current != 1 {
 		t.Fatal(current)
 	}
@@ -493,65 +493,36 @@ func TestConcurrentApprovalsAndActivation(t *testing.T) {
 }
 
 func TestMembershipActivationMigration(t *testing.T) {
-	pool := newTestDatabase(t)
-	ctx := t.Context()
-	db, err := sql.Open("pgx", pool.Config().ConnString())
+	db := newTestDatabase(t)
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db, os.DirFS("../../migrations"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-	provider, err := goose.NewProvider(goose.DialectPostgres, db, os.DirFS("../../migrations"))
-	if err != nil {
+	if _, err = provider.DownTo(t.Context(), 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = provider.DownTo(ctx, 15); err != nil {
+	if _, err = provider.Up(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	exec := func(query string) {
-		t.Helper()
-		if _, e := db.ExecContext(ctx, query); e != nil {
-			t.Fatal(e)
-		}
-	}
-	exec("INSERT INTO persons(first_name,last_name) VALUES ('Legacy','One'),('Legacy','Two')")
-	exec("INSERT INTO users(person_id,login_email,password_hash,is_active,created_at) SELECT id,'legacy'||id||'@example.test','preserved',id=1,'2020-01-01' FROM persons")
-	exec("INSERT INTO seasons(name,starts_at,ends_at) VALUES ('2020','2020-01-01','2020-12-31')")
-	exec("INSERT INTO membership_types(name) VALUES ('Old')")
-	exec("INSERT INTO memberships(person_id,season_id,membership_type_id,status,created_at) VALUES (1,1,1,'pending','2020-02-01')")
-	exec("INSERT INTO consent_definitions(code,version,title,description,is_active) VALUES ('old',1,'Old','Evidence',false),('new',1,'New','Not presented',true)")
-	exec("INSERT INTO membership_consents(membership_id,consent_definition_id,decision,given_by_person_id) VALUES (1,1,'refused',1)")
-	if _, err = provider.Up(ctx); err != nil {
+	if _, err = provider.Up(t.Context()); err != nil {
 		t.Fatal(err)
-	}
-	var ok bool
-	err = db.QueryRowContext(ctx, `SELECT bool_and(username='legacy.'||id AND password_hash='preserved'
- AND activated_at=created_at AND is_active=(id=1) AND login_email='legacy'||id||'@example.test') FROM users`).Scan(&ok)
-	if err != nil || !ok {
-		t.Fatal("backfill", ok, err)
-	}
-	err = db.QueryRowContext(ctx, "SELECT requested_at=created_at AND approved_at IS NULL FROM memberships WHERE id=1").Scan(&ok)
-	if err != nil || !ok {
-		t.Fatal("membership backfill", ok, err)
 	}
 	var count int
-	if err = db.QueryRowContext(ctx, "SELECT count(*) FROM membership_consent_requirements WHERE consent_definition_id=1").Scan(&count); err != nil || count != 1 {
+	if err = db.QueryRowContext(t.Context(), "SELECT count(*) FROM roles").Scan(&count); err != nil || count != 4 {
 		t.Fatal(count, err)
 	}
-	if err = db.QueryRowContext(ctx, "SELECT count(*) FROM membership_consent_requirements WHERE consent_definition_id=2").Scan(&count); err != nil || count != 0 {
-		t.Fatal(count, err)
-	}
-	if _, err = provider.DownTo(ctx, 15); err != nil {
+	var person int32
+	if err = db.QueryRowContext(t.Context(), "INSERT INTO persons(first_name,last_name) VALUES ('New','User') RETURNING id").Scan(&person); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = provider.Up(ctx); err != nil {
+	if _, err = db.ExecContext(t.Context(), "INSERT INTO users(person_id,username) VALUES(?1,'new.user')", person); err != nil {
 		t.Fatal(err)
 	}
-	exec("INSERT INTO persons(first_name,last_name) VALUES ('New','User')")
-	exec("INSERT INTO users(person_id,username) VALUES (3,'new.user')")
-	if _, err = provider.DownTo(ctx, 15); err == nil {
+	if _, err = provider.DownTo(t.Context(), 0); err == nil {
 		t.Fatal("lossy rollback accepted")
 	}
-	if err = db.QueryRowContext(ctx, "SELECT to_regclass('user_activation_codes') IS NOT NULL").Scan(&ok); err != nil || !ok {
+	var exists bool
+	if err = db.QueryRowContext(t.Context(), "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='user_activation_codes')").Scan(&exists); err != nil || !exists {
 		t.Fatal("rollback not atomic", err)
 	}
 }
@@ -559,11 +530,11 @@ func TestMembershipActivationMigration(t *testing.T) {
 func TestUnactivatedRenewalAndSharedFamilyEmail(t *testing.T) {
 	f := newMembershipFixture(t)
 	parent := f.person("Parent", "1980-01-01")
-	f.exec("UPDATE persons SET email='family@example.test' WHERE id=$1", parent)
+	f.exec("UPDATE persons SET email='family@example.test' WHERE id=?1", parent)
 	for range 2 {
 		// Adult accounts retain the historical shared-family email fallback.
 		p := f.person("Adult", "1990-01-01")
-		f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES ($1,$2,'guardian')", p, parent)
+		f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES (?1,?2,'guardian')", p, parent)
 		// A later guardian with a valid email must not replace the first fallback.
 		f.guardian(p, "later@example.test", false)
 		f.emergency(p, parent)
@@ -576,7 +547,7 @@ func TestUnactivatedRenewalAndSharedFamilyEmail(t *testing.T) {
 			t.Fatal("family channel or account reuse")
 		}
 		var invalidated, current int
-		f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FILTER (WHERE invalidated_at IS NOT NULL),count(*) FILTER (WHERE invalidated_at IS NULL) FROM user_activation_codes WHERE user_id=$1", first.User.ID).Scan(&invalidated, &current))
+		f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FILTER (WHERE invalidated_at IS NOT NULL),count(*) FILTER (WHERE invalidated_at IS NULL) FROM user_activation_codes WHERE user_id=?1", first.User.ID).Scan(&invalidated, &current))
 		if invalidated != 1 || current != 1 {
 			t.Fatal("code history", invalidated, current)
 		}
@@ -588,24 +559,23 @@ func TestApprovalRollbackAndDuplicateRace(t *testing.T) {
 	p := f.person("Atomic", "1990-01-01")
 	m := f.create(f.request(p))
 	// Force failure after account/code preparation, at the final membership update.
-	f.exec(`CREATE FUNCTION reject_approval_test() RETURNS trigger LANGUAGE plpgsql AS $$
- BEGIN RAISE EXCEPTION 'forced approval failure'; END; $$`)
-	f.exec("CREATE TRIGGER reject_approval_test BEFORE UPDATE ON memberships FOR EACH ROW EXECUTE FUNCTION reject_approval_test()")
+
+	f.exec("CREATE TRIGGER reject_approval_test BEFORE UPDATE ON memberships BEGIN SELECT RAISE(ABORT, 'forced approval failure'); END;")
 	result, err := f.svc.ApproveMembership(t.Context(), m.ID, f.approver, nil)
 	if err == nil || result.ActivationDelivery != nil {
 		t.Fatal("failed approval returned delivery")
 	}
 	var count int
-	f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM users WHERE person_id=$1", p).Scan(&count))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM users WHERE person_id=?1", p).Scan(&count))
 	if count != 0 {
 		t.Fatal("partial account")
 	}
 	var status string
-	f.must(f.db.QueryRow(t.Context(), "SELECT status FROM memberships WHERE id=$1", m.ID).Scan(&status))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT status FROM memberships WHERE id=?1", m.ID).Scan(&status))
 	if status != "pending" {
 		t.Fatal(status)
 	}
-	f.exec("DROP TRIGGER reject_approval_test ON memberships")
+	f.exec("DROP TRIGGER reject_approval_test")
 	var wg sync.WaitGroup
 	errs := make([]error, 2)
 	for i := range errs {
@@ -629,10 +599,10 @@ func TestApprovalRollbackAndDuplicateRace(t *testing.T) {
 		t.Fatal(d.Account)
 	}
 	for _, query := range []string{
-		"DELETE FROM membership_consent_requirements WHERE membership_id=$1",
-		"UPDATE membership_consent_requirements SET presented_at=now() WHERE membership_id=$1",
+		"DELETE FROM membership_consent_requirements WHERE membership_id=?1",
+		"UPDATE membership_consent_requirements SET presented_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE membership_id=?1",
 	} {
-		_, err = f.db.Exec(t.Context(), query, m.ID)
-		requirePostgresCode(t, err, "23514")
+		_, err = f.db.ExecContext(t.Context(), query, m.ID)
+		requireSQLiteConstraint(t, err, "275")
 	}
 }

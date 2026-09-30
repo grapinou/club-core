@@ -7,13 +7,14 @@ import (
 	"errors"
 	"strconv"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5"
 )
 
 // EnsureUserForPersonTx serializes on Person, reuses existing users unchanged,
 // and preserves username collision handling. It does not activate or reactivate.
-func EnsureUserForPersonTx(ctx context.Context, tx pgx.Tx, person int32) (dbsqlc.User, error) {
+func EnsureUserForPersonTx(ctx context.Context, tx *sql.Tx, person int32) (dbsqlc.User, error) {
 	var zero dbsqlc.User
 	q := dbsqlc.New(tx)
 	names, err := q.LockAccountPerson(ctx, person)
@@ -21,7 +22,7 @@ func EnsureUserForPersonTx(ctx context.Context, tx pgx.Tx, person int32) (dbsqlc
 		return zero, err
 	}
 	user, err := q.GetUserByPerson(ctx, person)
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if !errors.Is(err, sql.ErrNoRows) {
 		return user, err
 	}
 	base := UsernameBase(names.FirstName, names.LastName)
@@ -31,7 +32,7 @@ func EnsureUserForPersonTx(ctx context.Context, tx pgx.Tx, person int32) (dbsqlc
 			username += strconv.Itoa(suffix)
 		}
 		_, err = q.CreateUserForPersonUsername(ctx, dbsqlc.CreateUserForPersonUsernameParams{PersonID: person, Username: username})
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
 			continue
 		}
 		if err != nil {

@@ -1,17 +1,18 @@
 package minorsafety
 
 import (
-	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5/pgtype"
 	"testing"
 	"time"
+
+	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 func TestClubCoreSafety(t *testing.T) {
 	at := time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC)
 	person := func(id int32, birth string) dbsqlc.ListInteractionParticipantsRow {
 		date, _ := time.Parse("2006-01-02", birth)
-		return dbsqlc.ListInteractionParticipantsRow{PersonID: id, BirthDate: pgtype.Date{Time: date, Valid: true}}
+		return dbsqlc.ListInteractionParticipantsRow{PersonID: id, BirthDate: dbtypes.Date{Time: date, Valid: true}}
 	}
 	adult := person(1, "1980-01-01")
 	child := person(2, "2011-09-12")

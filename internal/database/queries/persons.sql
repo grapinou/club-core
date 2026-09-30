@@ -8,20 +8,20 @@ INSERT INTO persons (
     address,
     notes
 ) VALUES (
-    $1,
-    $2,
-    $3,
-    $4,
-    $5,
-    $6,
-    $7
+    sqlc.arg(first_name),
+    sqlc.arg(last_name),
+    sqlc.arg(birth_date),
+    sqlc.arg(phone_number),
+    sqlc.arg(email),
+    sqlc.arg(address),
+    sqlc.arg(notes)
 )
 RETURNING *;
 
 -- name: GetPersonByID :one
 SELECT *
 FROM persons
-WHERE id = $1;
+WHERE id = sqlc.arg(id);
 
 -- name: ListPersons :many
 SELECT *
@@ -32,26 +32,26 @@ ORDER BY last_name, first_name;
 -- name: UpdatePerson :one
 UPDATE persons
 SET 
-    first_name = $2,
-    last_name = $3,
-    birth_date = $4,
-    phone_number = $5,
-    email = $6,
-    address = $7,
+    first_name = sqlc.arg(first_name),
+    last_name = sqlc.arg(last_name),
+    birth_date = sqlc.arg(birth_date),
+    phone_number = sqlc.arg(phone_number),
+    email = sqlc.arg(email),
+    address = sqlc.arg(address),
     -- Existing callers preserve notes unless explicitly requested (NULL clears them).
-    notes = CASE WHEN sqlc.arg(update_notes)::boolean THEN sqlc.narg(notes)::text ELSE notes END
-WHERE id = $1
+    notes = CASE WHEN CAST(sqlc.arg(update_notes) AS BOOLEAN) THEN sqlc.narg(notes) ELSE notes END
+WHERE id = sqlc.arg(id)
 RETURNING *;
 
 -- name: ArchivePerson :exec
 UPDATE persons
-SET archived_at = NOW()
-WHERE id = $1;
+SET archived_at = strftime('%Y-%m-%d %H:%M:%f','now')
+WHERE id = sqlc.arg(id);
 
 -- name: RestorePerson :exec
 UPDATE persons
 SET archived_at = NULL
-WHERE id = $1;
+WHERE id = sqlc.arg(id);
 
 -- name: ListArchivedPersons :many
 SELECT *

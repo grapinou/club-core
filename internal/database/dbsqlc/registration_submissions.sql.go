@@ -7,24 +7,25 @@ package dbsqlc
 
 import (
 	"context"
+	"database/sql"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 const countOpenRegistrationReviews = `-- name: CountOpenRegistrationReviews :one
-SELECT count(*) FROM registration_submissions s WHERE status IN ('received','awaiting_identity_review') OR EXISTS(SELECT 1 FROM registration_applications a WHERE a.submission_id=s.id AND a.status='needs_review')
+SELECT CAST(count(*) AS BIGINT) FROM registration_submissions s WHERE status IN ('received','awaiting_identity_review') OR EXISTS(SELECT 1 FROM registration_applications a WHERE a.submission_id=s.id AND a.status='needs_review')
 `
 
 func (q *Queries) CountOpenRegistrationReviews(ctx context.Context) (int64, error) {
-	row := q.db.QueryRow(ctx, countOpenRegistrationReviews)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
+	row := q.db.QueryRowContext(ctx, countOpenRegistrationReviews)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const createRegistrationCandidate = `-- name: CreateRegistrationCandidate :exec
 INSERT INTO registration_submission_candidates(submission_id,person_id,confidence,matched_name,matched_birth_date,matched_email,matched_phone)
-VALUES ($1,$2,$3,$4,$5,$6,$7)
+VALUES (?1,?2,?3,?4,?5,?6,?7)
 `
 
 type CreateRegistrationCandidateParams struct {
@@ -38,7 +39,7 @@ type CreateRegistrationCandidateParams struct {
 }
 
 func (q *Queries) CreateRegistrationCandidate(ctx context.Context, arg CreateRegistrationCandidateParams) error {
-	_, err := q.db.Exec(ctx, createRegistrationCandidate,
+	_, err := q.db.ExecContext(ctx, createRegistrationCandidate,
 		arg.SubmissionID,
 		arg.PersonID,
 		arg.Confidence,
@@ -52,20 +53,20 @@ func (q *Queries) CreateRegistrationCandidate(ctx context.Context, arg CreateReg
 
 const createRegistrationSubmission = `-- name: CreateRegistrationSubmission :one
 INSERT INTO registration_submissions(first_name,last_name,birth_date,email,phone_number,address)
-VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, status, first_name, last_name, birth_date, email, phone_number, address, created_at, updated_at, resolved_person_id, resolution_type, resolved_at, resolved_by_user_id
+VALUES (?1,?2,?3,?4,?5,?6) RETURNING id, status, first_name, last_name, birth_date, email, phone_number, address, created_at, updated_at, resolved_person_id, resolution_type, resolved_at, resolved_by_user_id
 `
 
 type CreateRegistrationSubmissionParams struct {
 	FirstName   string
 	LastName    string
-	BirthDate   pgtype.Date
-	Email       pgtype.Text
-	PhoneNumber pgtype.Text
-	Address     pgtype.Text
+	BirthDate   dbtypes.Date
+	Email       sql.NullString
+	PhoneNumber sql.NullString
+	Address     sql.NullString
 }
 
 func (q *Queries) CreateRegistrationSubmission(ctx context.Context, arg CreateRegistrationSubmissionParams) (RegistrationSubmission, error) {
-	row := q.db.QueryRow(ctx, createRegistrationSubmission,
+	row := q.db.QueryRowContext(ctx, createRegistrationSubmission,
 		arg.FirstName,
 		arg.LastName,
 		arg.BirthDate,
@@ -94,7 +95,7 @@ func (q *Queries) CreateRegistrationSubmission(ctx context.Context, arg CreateRe
 }
 
 const getRegistrationCandidate = `-- name: GetRegistrationCandidate :one
-SELECT submission_id, person_id, confidence, matched_name, matched_birth_date, matched_email, matched_phone, detected_at FROM registration_submission_candidates WHERE submission_id=$1 AND person_id=$2
+SELECT submission_id, person_id, confidence, matched_name, matched_birth_date, matched_email, matched_phone, detected_at FROM registration_submission_candidates WHERE submission_id=?1 AND person_id=?2
 `
 
 type GetRegistrationCandidateParams struct {
@@ -103,7 +104,7 @@ type GetRegistrationCandidateParams struct {
 }
 
 func (q *Queries) GetRegistrationCandidate(ctx context.Context, arg GetRegistrationCandidateParams) (RegistrationSubmissionCandidate, error) {
-	row := q.db.QueryRow(ctx, getRegistrationCandidate, arg.SubmissionID, arg.PersonID)
+	row := q.db.QueryRowContext(ctx, getRegistrationCandidate, arg.SubmissionID, arg.PersonID)
 	var i RegistrationSubmissionCandidate
 	err := row.Scan(
 		&i.SubmissionID,
@@ -122,7 +123,7 @@ const getRegistrationSubmission = `-- name: GetRegistrationSubmission :one
 SELECT s.id, s.status, s.first_name, s.last_name, s.birth_date, s.email, s.phone_number, s.address, s.created_at, s.updated_at, s.resolved_person_id, s.resolution_type, s.resolved_at, s.resolved_by_user_id, u.username AS resolver_username, p.first_name AS resolved_first_name, p.last_name AS resolved_last_name,
  EXISTS(SELECT 1 FROM registration_email_verifications v WHERE v.submission_id=s.id AND v.person_id=s.resolved_person_id AND v.used_at IS NOT NULL) AS email_verified
 FROM registration_submissions s LEFT JOIN users u ON u.id=s.resolved_by_user_id LEFT JOIN persons p ON p.id=s.resolved_person_id
-WHERE s.id=$1
+WHERE s.id=?1
 `
 
 type GetRegistrationSubmissionRow struct {
@@ -130,24 +131,24 @@ type GetRegistrationSubmissionRow struct {
 	Status            string
 	FirstName         string
 	LastName          string
-	BirthDate         pgtype.Date
-	Email             pgtype.Text
-	PhoneNumber       pgtype.Text
-	Address           pgtype.Text
-	CreatedAt         pgtype.Timestamptz
-	UpdatedAt         pgtype.Timestamptz
-	ResolvedPersonID  pgtype.Int4
-	ResolutionType    pgtype.Text
-	ResolvedAt        pgtype.Timestamptz
-	ResolvedByUserID  pgtype.Int4
-	ResolverUsername  pgtype.Text
-	ResolvedFirstName pgtype.Text
-	ResolvedLastName  pgtype.Text
+	BirthDate         dbtypes.Date
+	Email             sql.NullString
+	PhoneNumber       sql.NullString
+	Address           sql.NullString
+	CreatedAt         dbtypes.Timestamp
+	UpdatedAt         dbtypes.Timestamp
+	ResolvedPersonID  sql.NullInt32
+	ResolutionType    sql.NullString
+	ResolvedAt        dbtypes.Timestamp
+	ResolvedByUserID  sql.NullInt32
+	ResolverUsername  sql.NullString
+	ResolvedFirstName sql.NullString
+	ResolvedLastName  sql.NullString
 	EmailVerified     bool
 }
 
 func (q *Queries) GetRegistrationSubmission(ctx context.Context, id int32) (GetRegistrationSubmissionRow, error) {
-	row := q.db.QueryRow(ctx, getRegistrationSubmission, id)
+	row := q.db.QueryRowContext(ctx, getRegistrationSubmission, id)
 	var i GetRegistrationSubmissionRow
 	err := row.Scan(
 		&i.ID,
@@ -180,14 +181,14 @@ type ListIdentityMatchingPersonsRow struct {
 	ID          int32
 	FirstName   string
 	LastName    string
-	BirthDate   pgtype.Date
-	Email       pgtype.Text
-	PhoneNumber pgtype.Text
+	BirthDate   dbtypes.Date
+	Email       sql.NullString
+	PhoneNumber sql.NullString
 }
 
 // Matching includes archived Persons: archiving does not erase a durable identity.
 func (q *Queries) ListIdentityMatchingPersons(ctx context.Context) ([]ListIdentityMatchingPersonsRow, error) {
-	rows, err := q.db.Query(ctx, listIdentityMatchingPersons)
+	rows, err := q.db.QueryContext(ctx, listIdentityMatchingPersons)
 	if err != nil {
 		return nil, err
 	}
@@ -207,6 +208,9 @@ func (q *Queries) ListIdentityMatchingPersons(ctx context.Context) ([]ListIdenti
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -218,7 +222,7 @@ SELECT c.submission_id, c.person_id, c.confidence, c.matched_name, c.matched_bir
  u.id AS user_id,u.is_active AS user_is_active,u.activated_at
 FROM registration_submission_candidates c JOIN persons p ON p.id=c.person_id
 LEFT JOIN users u ON u.person_id=p.id
-WHERE c.submission_id=$1
+WHERE c.submission_id=?1
 ORDER BY CASE c.confidence WHEN 'strong' THEN 0 WHEN 'possible' THEN 1 ELSE 2 END,p.id
 `
 
@@ -230,22 +234,22 @@ type ListRegistrationCandidatesRow struct {
 	MatchedBirthDate bool
 	MatchedEmail     bool
 	MatchedPhone     bool
-	DetectedAt       pgtype.Timestamptz
+	DetectedAt       dbtypes.Timestamp
 	FirstName        string
 	LastName         string
-	BirthDate        pgtype.Date
-	Email            pgtype.Text
-	PhoneNumber      pgtype.Text
-	Address          pgtype.Text
-	ArchivedAt       pgtype.Timestamptz
-	UserID           pgtype.Int4
-	UserIsActive     pgtype.Bool
-	ActivatedAt      pgtype.Timestamptz
+	BirthDate        dbtypes.Date
+	Email            sql.NullString
+	PhoneNumber      sql.NullString
+	Address          sql.NullString
+	ArchivedAt       dbtypes.Timestamp
+	UserID           sql.NullInt32
+	UserIsActive     sql.NullBool
+	ActivatedAt      dbtypes.Timestamp
 }
 
 // Only fields needed by authorized reviewers; no credentials or activation secrets.
 func (q *Queries) ListRegistrationCandidates(ctx context.Context, submissionID int32) ([]ListRegistrationCandidatesRow, error) {
-	rows, err := q.db.Query(ctx, listRegistrationCandidates, submissionID)
+	rows, err := q.db.QueryContext(ctx, listRegistrationCandidates, submissionID)
 	if err != nil {
 		return nil, err
 	}
@@ -277,6 +281,9 @@ func (q *Queries) ListRegistrationCandidates(ctx context.Context, submissionID i
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -284,12 +291,10 @@ func (q *Queries) ListRegistrationCandidates(ctx context.Context, submissionID i
 }
 
 const listRegistrationReviews = `-- name: ListRegistrationReviews :many
-SELECT s.id,s.status,s.first_name,s.last_name,s.birth_date,s.created_at,
- COALESCE((SELECT a.last_error_code FROM registration_applications a WHERE a.submission_id=s.id),'')::text AS application_reason,
+SELECT s.id,s.status,s.first_name,s.last_name,s.birth_date,s.created_at, CAST(COALESCE((SELECT a.last_error_code FROM registration_applications a WHERE a.submission_id=s.id),'') AS TEXT) AS application_reason,
  EXISTS(SELECT 1 FROM registration_applications a WHERE a.submission_id=s.id AND a.status='needs_review') AS application_needs_review,
- count(c.person_id)::integer AS candidate_count,
- COALESCE(CASE max(CASE c.confidence WHEN 'strong' THEN 3 WHEN 'possible' THEN 2 WHEN 'weak' THEN 1 END)
- WHEN 3 THEN 'strong' WHEN 2 THEN 'possible' WHEN 1 THEN 'weak' END,'none')::text AS best_confidence
+ count(c.person_id) AS candidate_count, CAST(COALESCE(CASE max(CASE c.confidence WHEN 'strong' THEN 3 WHEN 'possible' THEN 2 WHEN 'weak' THEN 1 END)
+ WHEN 3 THEN 'strong' WHEN 2 THEN 'possible' WHEN 1 THEN 'weak' END,'none') AS TEXT) AS best_confidence
 FROM registration_submissions s LEFT JOIN registration_submission_candidates c ON c.submission_id=s.id
 GROUP BY s.id
 ORDER BY CASE WHEN EXISTS(SELECT 1 FROM registration_applications a WHERE a.submission_id=s.id AND a.status='needs_review') THEN 0 ELSE 1 END,
@@ -303,8 +308,8 @@ type ListRegistrationReviewsRow struct {
 	Status                 string
 	FirstName              string
 	LastName               string
-	BirthDate              pgtype.Date
-	CreatedAt              pgtype.Timestamptz
+	BirthDate              dbtypes.Date
+	CreatedAt              dbtypes.Timestamp
 	ApplicationReason      string
 	ApplicationNeedsReview bool
 	CandidateCount         int32
@@ -312,7 +317,7 @@ type ListRegistrationReviewsRow struct {
 }
 
 func (q *Queries) ListRegistrationReviews(ctx context.Context) ([]ListRegistrationReviewsRow, error) {
-	rows, err := q.db.Query(ctx, listRegistrationReviews)
+	rows, err := q.db.QueryContext(ctx, listRegistrationReviews)
 	if err != nil {
 		return nil, err
 	}
@@ -336,6 +341,9 @@ func (q *Queries) ListRegistrationReviews(ctx context.Context) ([]ListRegistrati
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -343,22 +351,22 @@ func (q *Queries) ListRegistrationReviews(ctx context.Context) ([]ListRegistrati
 }
 
 const lockRegistrationPerson = `-- name: LockRegistrationPerson :one
-SELECT id FROM persons WHERE id=$1 FOR KEY SHARE
+SELECT id FROM persons WHERE id=?1
 `
 
 func (q *Queries) LockRegistrationPerson(ctx context.Context, id int32) (int32, error) {
-	row := q.db.QueryRow(ctx, lockRegistrationPerson, id)
+	row := q.db.QueryRowContext(ctx, lockRegistrationPerson, id)
 	var id_2 int32
 	err := row.Scan(&id_2)
 	return id_2, err
 }
 
 const lockRegistrationSubmission = `-- name: LockRegistrationSubmission :one
-SELECT id, status, first_name, last_name, birth_date, email, phone_number, address, created_at, updated_at, resolved_person_id, resolution_type, resolved_at, resolved_by_user_id FROM registration_submissions WHERE id=$1 FOR UPDATE
+SELECT id, status, first_name, last_name, birth_date, email, phone_number, address, created_at, updated_at, resolved_person_id, resolution_type, resolved_at, resolved_by_user_id FROM registration_submissions WHERE id=?1
 `
 
 func (q *Queries) LockRegistrationSubmission(ctx context.Context, id int32) (RegistrationSubmission, error) {
-	row := q.db.QueryRow(ctx, lockRegistrationSubmission, id)
+	row := q.db.QueryRowContext(ctx, lockRegistrationSubmission, id)
 	var i RegistrationSubmission
 	err := row.Scan(
 		&i.ID,
@@ -380,36 +388,36 @@ func (q *Queries) LockRegistrationSubmission(ctx context.Context, id int32) (Reg
 }
 
 const markRegistrationForReview = `-- name: MarkRegistrationForReview :exec
-UPDATE registration_submissions SET status='awaiting_identity_review',updated_at=clock_timestamp()
-WHERE id=$1 AND status='received'
+UPDATE registration_submissions SET status='awaiting_identity_review',updated_at=strftime('%Y-%m-%d %H:%M:%f','now')
+WHERE id=?1 AND status='received'
 `
 
 func (q *Queries) MarkRegistrationForReview(ctx context.Context, id int32) error {
-	_, err := q.db.Exec(ctx, markRegistrationForReview, id)
+	_, err := q.db.ExecContext(ctx, markRegistrationForReview, id)
 	return err
 }
 
 const resolveRegistrationSubmission = `-- name: ResolveRegistrationSubmission :one
 UPDATE registration_submissions
-SET status='resolved',resolved_person_id=$2,resolution_type=$3,resolved_by_user_id=$4,
- resolved_at=clock_timestamp(),updated_at=clock_timestamp()
-WHERE id=$1 AND status IN ('received','awaiting_identity_review','awaiting_email_verification')
+SET status='resolved',resolved_person_id=?1,resolution_type=?2,resolved_by_user_id=?3,
+ resolved_at=strftime('%Y-%m-%d %H:%M:%f','now'),updated_at=strftime('%Y-%m-%d %H:%M:%f','now')
+WHERE id=?4 AND status IN ('received','awaiting_identity_review','awaiting_email_verification')
 RETURNING id, status, first_name, last_name, birth_date, email, phone_number, address, created_at, updated_at, resolved_person_id, resolution_type, resolved_at, resolved_by_user_id
 `
 
 type ResolveRegistrationSubmissionParams struct {
+	ResolvedPersonID sql.NullInt32
+	ResolutionType   sql.NullString
+	ResolvedByUserID sql.NullInt32
 	ID               int32
-	ResolvedPersonID pgtype.Int4
-	ResolutionType   pgtype.Text
-	ResolvedByUserID pgtype.Int4
 }
 
 func (q *Queries) ResolveRegistrationSubmission(ctx context.Context, arg ResolveRegistrationSubmissionParams) (RegistrationSubmission, error) {
-	row := q.db.QueryRow(ctx, resolveRegistrationSubmission,
-		arg.ID,
+	row := q.db.QueryRowContext(ctx, resolveRegistrationSubmission,
 		arg.ResolvedPersonID,
 		arg.ResolutionType,
 		arg.ResolvedByUserID,
+		arg.ID,
 	)
 	var i RegistrationSubmission
 	err := row.Scan(

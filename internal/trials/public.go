@@ -9,20 +9,20 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/civildate"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 type PublicService struct {
-	db     *pgxpool.Pool
+	db     *sql.DB
 	trials *Service
 	loc    *time.Location
 }
 
-func NewPublic(db *pgxpool.Pool, loc *time.Location) *PublicService {
+func NewPublic(db *sql.DB, loc *time.Location) *PublicService {
 	return &PublicService{db, New(db), loc}
 }
 
@@ -56,21 +56,21 @@ type PublicConfirmation struct {
 
 var ErrInvalidPublicBooking = errors.New("invalid public booking")
 
-const publicOfferingsSQL = `SELECT a.id,g.id,gs.id,a.name,g.name,coalesce(gs.practice_label,''),to_char(gs.start_time,'HH24:MI'),to_char(gs.end_time,'HH24:MI'),coalesce(l.name,gs.location,''),coalesce(l.address,''),gs.weekday,gs.valid_from,gs.valid_until,s.starts_at,s.ends_at
+const publicOfferingsSQL = `SELECT a.id,g.id,gs.id,a.name,g.name,coalesce(gs.practice_label,''),substr(gs.start_time,1,5),substr(gs.end_time,1,5),coalesce(l.name,gs.location,''),coalesce(l.address,''),gs.weekday,gs.valid_from,gs.valid_until,s.starts_at,s.ends_at
 FROM group_slots gs JOIN groups g ON g.id=gs.group_id JOIN activities a ON a.id=g.activity_id JOIN seasons s ON s.id=gs.season_id
 LEFT JOIN locations l ON l.id=gs.location_id
 WHERE a.is_active AND g.is_active AND g.show_name_publicly AND gs.is_active AND s.is_active
 AND (gs.location_id IS NULL OR (l.is_active AND EXISTS(SELECT 1 FROM organizations o WHERE o.id=l.organization_id AND o.is_active)))
 AND EXISTS(SELECT 1 FROM organizations WHERE is_active)
-AND s.starts_at<=$2::date AND s.ends_at>=$1::date
-AND gs.valid_from<=$2::date AND (gs.valid_until IS NULL OR gs.valid_until>=$1::date)
+AND s.starts_at<=?2 AND s.ends_at>=?1
+AND gs.valid_from<=?2 AND (gs.valid_until IS NULL OR gs.valid_until>=?1)
 ORDER BY a.name,g.name,gs.weekday,gs.start_time,gs.id`
 
 // Offerings are a short rolling list. The final write rechecks the selected
 // target in the same transaction as the people and trial.
 func (s *PublicService) Offerings(ctx context.Context, now time.Time) ([]PublicOffering, error) {
 	first, last := PublicWindow(now, s.loc)
-	rows, err := s.db.Query(ctx, publicOfferingsSQL, first, last)
+	rows, err := s.db.QueryContext(ctx, publicOfferingsSQL, dbtypes.Date{Time: first, Valid: true}, dbtypes.Date{Time: last, Valid: true})
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +79,7 @@ func (s *PublicService) Offerings(ctx context.Context, now time.Time) ([]PublicO
 	for rows.Next() {
 		var o PublicOffering
 		var from, start, end time.Time
-		var until pgtype.Date
+		var until dbtypes.Date
 		if err = rows.Scan(&o.ActivityID, &o.GroupID, &o.SlotID, &o.Activity, &o.Group, &o.Practice, &o.Start, &o.End, &o.Location, &o.Address, &o.Weekday, &from, &until, &start, &end); err != nil {
 			return nil, err
 		}
@@ -103,8 +103,8 @@ func validEmail(s string) bool {
 	a, e := mail.ParseAddress(s)
 	return e == nil && a.Address == s
 }
-func validPhone(s string) bool       { return s != "" && utf8.RuneCountInString(s) <= 40 }
-func textValue(s string) pgtype.Text { return pgtype.Text{String: s, Valid: s != ""} }
+func validPhone(s string) bool          { return s != "" && utf8.RuneCountInString(s) <= 40 }
+func textValue(s string) sql.NullString { return sql.NullString{String: s, Valid: s != ""} }
 func (s *PublicService) Book(ctx context.Context, b PublicBooking, now time.Time) (PublicConfirmation, error) {
 	var result PublicConfirmation
 	b.FirstName = strings.TrimSpace(b.FirstName)
@@ -141,11 +141,11 @@ func (s *PublicService) Book(ctx context.Context, b PublicBooking, now time.Time
 	} else if !validEmail(b.Email) || !validPhone(b.Phone) {
 		return result, ErrInvalidPublicBooking
 	}
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return result, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	// Acquire the policy before the calendar, matching office/configuration lock order.
 	if _, err = lockPolicy(ctx, tx); err != nil {
 		return result, err
@@ -154,25 +154,25 @@ func (s *PublicService) Book(ctx context.Context, b PublicBooking, now time.Time
 	var active bool
 	var group, activity int32
 	var location, addr, groupName, activityName, practice, start, end string
-	err = tx.QueryRow(ctx, `SELECT gs.is_active AND g.is_active AND g.show_name_publicly AND a.is_active AND s.is_active AND $4::date BETWEEN gs.valid_from AND coalesce(gs.valid_until,s.ends_at) AND $4::date BETWEEN s.starts_at AND s.ends_at AND extract(isodow from $4::date)=gs.weekday AND (gs.location_id IS NULL OR (l.is_active AND o.is_active)) AS valid,
- g.id,a.id,coalesce(l.name,gs.location,''),coalesce(l.address,''),g.name,a.name,coalesce(gs.practice_label,''),to_char(gs.start_time,'HH24:MI'),to_char(gs.end_time,'HH24:MI')
+	err = tx.QueryRowContext(ctx, `SELECT gs.is_active AND g.is_active AND g.show_name_publicly AND a.is_active AND s.is_active AND ?4 BETWEEN gs.valid_from AND coalesce(gs.valid_until,s.ends_at) AND ?4 BETWEEN s.starts_at AND s.ends_at AND ((CAST(strftime('%w',?4) AS INTEGER)+6)%7+1)=gs.weekday AND (gs.location_id IS NULL OR (l.is_active AND o.is_active)) AS valid,
+ g.id,a.id,coalesce(l.name,gs.location,''),coalesce(l.address,''),g.name,a.name,coalesce(gs.practice_label,''),substr(gs.start_time,1,5),substr(gs.end_time,1,5)
  FROM group_slots gs JOIN groups g ON g.id=gs.group_id JOIN activities a ON a.id=g.activity_id JOIN seasons s ON s.id=gs.season_id LEFT JOIN locations l ON l.id=gs.location_id LEFT JOIN organizations o ON o.id=l.organization_id
- WHERE gs.id=$1 AND g.id=$2 AND a.id=$3 AND EXISTS(SELECT 1 FROM organizations WHERE is_active) FOR SHARE OF gs,g,a,s`, b.Offering.SlotID, b.Offering.GroupID, b.Offering.ActivityID, date).Scan(&active, &group, &activity, &location, &addr, &groupName, &activityName, &practice, &start, &end)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && !active {
+ WHERE gs.id=?1 AND g.id=?2 AND a.id=?3 AND EXISTS(SELECT 1 FROM organizations WHERE is_active)`, b.Offering.SlotID, b.Offering.GroupID, b.Offering.ActivityID, dbtypes.Date{Time: date, Valid: true}).Scan(&active, &group, &activity, &location, &addr, &groupName, &activityName, &practice, &start, &end)
+	if errors.Is(err, sql.ErrNoRows) || err == nil && !active {
 		return result, ErrInvalidPublicBooking
 	}
 	if err != nil {
 		return result, err
 	}
-	var equipmentPrompt pgtype.Text
-	if err = tx.QueryRow(ctx, "SELECT trial_equipment_detail_prompt FROM organizations WHERE is_active FOR SHARE").Scan(&equipmentPrompt); err != nil {
+	var equipmentPrompt sql.NullString
+	if err = tx.QueryRowContext(ctx, "SELECT trial_equipment_detail_prompt FROM organizations WHERE is_active").Scan(&equipmentPrompt); err != nil {
 		return result, err
 	}
 	if b.EquipmentNeeded && equipmentPrompt.Valid && b.EquipmentDetails == "" {
 		return result, ErrInvalidPublicBooking
 	}
 	q := dbsqlc.New(tx)
-	person, err := q.CreatePerson(ctx, dbsqlc.CreatePersonParams{FirstName: b.FirstName, LastName: b.LastName, BirthDate: pgtype.Date{Time: birth, Valid: true}, Email: textValue(b.Email), PhoneNumber: textValue(b.Phone)})
+	person, err := q.CreatePerson(ctx, dbsqlc.CreatePersonParams{FirstName: b.FirstName, LastName: b.LastName, BirthDate: dbtypes.Date{Time: birth, Valid: true}, Email: textValue(b.Email), PhoneNumber: textValue(b.Phone)})
 	if err != nil {
 		return result, err
 	}
@@ -186,18 +186,18 @@ func (s *PublicService) Book(ctx context.Context, b PublicBooking, now time.Time
 			return result, err
 		}
 	}
-	var notes pgtype.Text
+	var notes sql.NullString
 	if b.EquipmentNeeded {
-		notes = pgtype.Text{String: "Matériel demandé pour l’essai : oui", Valid: true}
+		notes = sql.NullString{String: "Matériel demandé pour l’essai : oui", Valid: true}
 		if b.EquipmentDetails != "" {
 			notes.String += ". Précision : " + b.EquipmentDetails
 		}
 	}
-	trial, err := s.trials.ScheduleTx(ctx, tx, dbsqlc.CreateTrialParams{PersonID: person.ID, ActivityID: activity, GroupID: pgtype.Int4{Int32: group, Valid: true}, GroupSlotID: pgtype.Int4{Int32: b.Offering.SlotID, Valid: true}, TrialDate: pgtype.Date{Time: date, Valid: true}, Notes: notes})
+	trial, err := s.trials.ScheduleTx(ctx, tx, dbsqlc.CreateTrialParams{PersonID: person.ID, ActivityID: activity, GroupID: sql.NullInt32{Int32: group, Valid: true}, GroupSlotID: sql.NullInt32{Int32: b.Offering.SlotID, Valid: true}, TrialDate: dbtypes.Date{Time: date, Valid: true}, Notes: notes})
 	if err != nil {
 		return result, fmt.Errorf("schedule public trial: %w", err)
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return result, err
 	}
 	result = PublicConfirmation{TrialID: trial.ID, Date: b.Date, FirstName: b.FirstName, Registrant: PublicPerson{b.FirstName, b.LastName, b.BirthDate, b.Email, b.Phone}, EquipmentNeeded: b.EquipmentNeeded, EquipmentDetails: b.EquipmentDetails,

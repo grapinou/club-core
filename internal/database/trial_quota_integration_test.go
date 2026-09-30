@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 	"github.com/grapinou/club-core/internal/trials"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/pressly/goose/v3"
 )
 
@@ -26,9 +26,9 @@ func newQuotaFixture(t *testing.T) *quotaFixture {
 	f.id("INSERT INTO organizations(name,max_trials_per_person_per_season) VALUES('Association culturelle',3) RETURNING id")
 	return &quotaFixture{f, trials.New(f.db), f.person("Alice", "1990-01-01")}
 }
-func quotaDate(raw string) pgtype.Date {
+func quotaDate(raw string) dbtypes.Date {
 	d, _ := time.Parse("2006-01-02", raw)
-	return pgtype.Date{Time: d, Valid: true}
+	return dbtypes.Date{Time: d, Valid: true}
 }
 func (f *quotaFixture) schedule(person int32, date string) (dbsqlc.TrialRegistration, error) {
 	return f.trials.Schedule(f.t.Context(), dbsqlc.CreateTrialParams{PersonID: person, ActivityID: f.activity, TrialDate: quotaDate(date)})
@@ -40,16 +40,16 @@ func (f *quotaFixture) add(date string) dbsqlc.TrialRegistration {
 	return tr
 }
 func (f *quotaFixture) status(id int32, status string) error {
-	tx, err := f.db.Begin(f.t.Context())
+	tx, err := f.db.BeginTx(f.t.Context(), nil)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(f.t.Context())
+	defer tx.Rollback()
 	_, err = f.trials.UpdateStatusTx(f.t.Context(), tx, dbsqlc.UpdateTrialStatusParams{ID: id, Status: status})
 	if err != nil {
 		return err
 	}
-	return tx.Commit(f.t.Context())
+	return tx.Commit()
 }
 func (f *quotaFixture) move(id int32, date string) error {
 	_, err := f.trials.Reschedule(f.t.Context(), dbsqlc.RescheduleTrialParams{ID: id, ActivityID: f.activity, TrialDate: quotaDate(date)})
@@ -148,9 +148,9 @@ func TestP31TrialQuotaSeasonResolutionAndP3(t *testing.T) {
 	if !errors.Is(err, trials.ErrQuotaSeason) {
 		t.Fatal("ambiguous season", err)
 	}
-	group := f.id("INSERT INTO groups(activity_id,name) VALUES($1,'Découverte') RETURNING id", f.activity)
-	slot := f.id("INSERT INTO group_slots(group_id,season_id,weekday,start_time,end_time,valid_from) VALUES($1,$2,3,'14:00','16:00','2026-09-01') RETURNING id", group, f.season)
-	p := dbsqlc.CreateTrialParams{PersonID: f.person, ActivityID: f.activity, GroupID: pgtype.Int4{Int32: group, Valid: true}, GroupSlotID: pgtype.Int4{Int32: slot, Valid: true}, TrialDate: quotaDate("2026-09-16")}
+	group := f.id("INSERT INTO groups(activity_id,name) VALUES(?1,'Découverte') RETURNING id", f.activity)
+	slot := f.id("INSERT INTO group_slots(group_id,season_id,weekday,start_time,end_time,valid_from) VALUES(?1,?2,3,'14:00','16:00','2026-09-01') RETURNING id", group, f.season)
+	p := dbsqlc.CreateTrialParams{PersonID: f.person, ActivityID: f.activity, GroupID: sql.NullInt32{Int32: group, Valid: true}, GroupSlotID: sql.NullInt32{Int32: slot, Valid: true}, TrialDate: quotaDate("2026-09-16")}
 	tr, err := f.trials.Schedule(t.Context(), p)
 	f.must(err) // slot determines season despite overlap
 	f.must(f.status(tr.ID, "attended"))
@@ -178,8 +178,8 @@ func TestP31TrialQuotaSeasonResolutionAndP3(t *testing.T) {
 	f.must(f.status(unknown.ID, "cancelled")) // always possible to release ambiguous reservations
 	_, err = f.trials.Schedule(t.Context(), p)
 	f.must(err)
-	f.exec("DELETE FROM seasons WHERE id=$1", overlapping)
-	f.exec("UPDATE seasons SET is_active=false WHERE id=$1", f.season)
+	f.exec("DELETE FROM seasons WHERE id=?1", overlapping)
+	f.exec("UPDATE seasons SET is_active=false WHERE id=?1", f.season)
 	if f.usage(f.season).UsedOrReserved != 2 {
 		t.Fatal("inactive history vanished")
 	}
@@ -200,6 +200,9 @@ func TestP31TrialQuotaConcurrency(t *testing.T) {
 				f.id("INSERT INTO seasons(name,starts_at,ends_at) VALUES('Next','2027-09-01','2028-08-31') RETURNING id")
 				special = f.add("2027-09-14")
 			}
+			other, err := openTestConnection(t, f.db)
+			f.must(err)
+			t.Cleanup(func() { other.Close() })
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 			start := make(chan struct{})
@@ -208,15 +211,18 @@ func TestP31TrialQuotaConcurrency(t *testing.T) {
 			ready.Add(2)
 			for i := range 2 {
 				go func(i int) {
-					tx, err := f.db.Begin(ctx)
+					ready.Done()
+					<-start
+					pool := f.db
+					if i == 1 {
+						pool = other
+					}
+					tx, err := pool.BeginTx(ctx, nil)
 					if err != nil {
-						ready.Done()
 						done <- err
 						return
 					}
-					defer tx.Rollback(ctx)
-					ready.Done()
-					<-start
+					defer tx.Rollback()
 					if i == 1 && mode == "creation_and_status" {
 						_, err = f.trials.UpdateStatusTx(ctx, tx, dbsqlc.UpdateTrialStatusParams{ID: special.ID, Status: "attended"})
 					} else if i == 1 && mode == "creation_and_transfer" {
@@ -225,7 +231,7 @@ func TestP31TrialQuotaConcurrency(t *testing.T) {
 						_, err = f.trials.ScheduleTx(ctx, tx, dbsqlc.CreateTrialParams{PersonID: f.person, ActivityID: f.activity, TrialDate: quotaDate("2026-09-15")})
 					}
 					if err == nil {
-						err = tx.Commit(ctx)
+						err = tx.Commit()
 					}
 					done <- err
 				}(i)
@@ -253,13 +259,15 @@ func TestP31TrialQuotaConcurrency(t *testing.T) {
 
 func TestP31TrialQuotaMigration(t *testing.T) {
 	f := newMembershipFixture(t)
-	db, err := sql.Open("pgx", f.db.Config().ConnString())
+	db, err := openTestConnection(t, f.db)
 	f.must(err)
 	defer db.Close()
-	provider, err := goose.NewProvider(goose.DialectPostgres, db, os.DirFS("../../migrations"))
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db, os.DirFS("../../migrations"))
 	f.must(err)
-	_, err = provider.DownTo(t.Context(), 32)
-	f.must(err)
+	_, err = provider.Up(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	id := f.id("INSERT INTO organizations(name) VALUES('Association historique') RETURNING id")
 	_, err = provider.Up(t.Context())
 	f.must(err)
@@ -269,7 +277,7 @@ func TestP31TrialQuotaMigration(t *testing.T) {
 		t.Fatal("existing association must remain unlimited")
 	}
 	f.exec("UPDATE organizations SET max_trials_per_person_per_season=3")
-	if _, err = provider.DownTo(t.Context(), 32); err == nil {
+	if _, err = provider.DownTo(t.Context(), 0); err == nil {
 		t.Fatal("lossy quota rollback allowed")
 	}
 	org, err = dbsqlc.New(f.db).GetActiveOrganization(t.Context())

@@ -7,37 +7,37 @@ package dbsqlc
 
 import (
 	"context"
+	"database/sql"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 const getTrialQuotaLimit = `-- name: GetTrialQuotaLimit :one
 SELECT max_trials_per_person_per_season FROM organizations WHERE is_active
 `
 
-func (q *Queries) GetTrialQuotaLimit(ctx context.Context) (pgtype.Int4, error) {
-	row := q.db.QueryRow(ctx, getTrialQuotaLimit)
-	var max_trials_per_person_per_season pgtype.Int4
+func (q *Queries) GetTrialQuotaLimit(ctx context.Context) (sql.NullInt32, error) {
+	row := q.db.QueryRowContext(ctx, getTrialQuotaLimit)
+	var max_trials_per_person_per_season sql.NullInt32
 	err := row.Scan(&max_trials_per_person_per_season)
 	return max_trials_per_person_per_season, err
 }
 
 const listPersonTrialQuotaFacts = `-- name: ListPersonTrialQuotaFacts :many
 SELECT t.id,t.status,
- CASE WHEN t.group_slot_id IS NOT NULL THEN ARRAY[gs.season_id]::integer[]
- ELSE ARRAY(SELECT s.id FROM seasons s WHERE t.trial_date BETWEEN s.starts_at AND s.ends_at ORDER BY s.id)::integer[] END AS season_ids
+ CAST((SELECT json_group_array(s.id) FROM seasons s WHERE (t.group_slot_id IS NOT NULL AND s.id=gs.season_id) OR (t.group_slot_id IS NULL AND t.trial_date BETWEEN s.starts_at AND s.ends_at)) AS JSON_TEXT_IDS) AS season_ids
 FROM trial_registrations t LEFT JOIN group_slots gs ON gs.id=t.group_slot_id
-WHERE t.person_id=$1 ORDER BY t.id
+WHERE t.person_id=?1 ORDER BY t.id
 `
 
 type ListPersonTrialQuotaFactsRow struct {
 	ID        int32
 	Status    string
-	SeasonIds []int32
+	SeasonIds dbtypes.IDs
 }
 
 func (q *Queries) ListPersonTrialQuotaFacts(ctx context.Context, personID int32) ([]ListPersonTrialQuotaFactsRow, error) {
-	rows, err := q.db.Query(ctx, listPersonTrialQuotaFacts, personID)
+	rows, err := q.db.QueryContext(ctx, listPersonTrialQuotaFacts, personID)
 	if err != nil {
 		return nil, err
 	}
@@ -49,6 +49,9 @@ func (q *Queries) ListPersonTrialQuotaFacts(ctx context.Context, personID int32)
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -67,7 +70,7 @@ type ListTrialQuotaSeasonsRow struct {
 }
 
 func (q *Queries) ListTrialQuotaSeasons(ctx context.Context) ([]ListTrialQuotaSeasonsRow, error) {
-	rows, err := q.db.Query(ctx, listTrialQuotaSeasons)
+	rows, err := q.db.QueryContext(ctx, listTrialQuotaSeasons)
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +83,9 @@ func (q *Queries) ListTrialQuotaSeasons(ctx context.Context) ([]ListTrialQuotaSe
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -87,27 +93,27 @@ func (q *Queries) ListTrialQuotaSeasons(ctx context.Context) ([]ListTrialQuotaSe
 }
 
 const lockTrialQuotaPolicy = `-- name: LockTrialQuotaPolicy :one
-SELECT max_trials_per_person_per_season FROM organizations WHERE is_active FOR SHARE
+SELECT max_trials_per_person_per_season FROM organizations WHERE is_active
 `
 
-// Configuration also locks this row before changing seasons or slots.
-func (q *Queries) LockTrialQuotaPolicy(ctx context.Context) (pgtype.Int4, error) {
-	row := q.db.QueryRow(ctx, lockTrialQuotaPolicy)
-	var max_trials_per_person_per_season pgtype.Int4
+// BEGIN IMMEDIATE excludes concurrent policy, season and slot changes.
+func (q *Queries) LockTrialQuotaPolicy(ctx context.Context) (sql.NullInt32, error) {
+	row := q.db.QueryRowContext(ctx, lockTrialQuotaPolicy)
+	var max_trials_per_person_per_season sql.NullInt32
 	err := row.Scan(&max_trials_per_person_per_season)
 	return max_trials_per_person_per_season, err
 }
 
 const resolveTrialQuotaSeason = `-- name: ResolveTrialQuotaSeason :many
 SELECT s.id,s.name FROM seasons s
-WHERE ($1::integer IS NOT NULL AND s.id=(SELECT gs.season_id FROM group_slots gs WHERE gs.id=$1))
- OR ($1::integer IS NULL AND $2::date BETWEEN s.starts_at AND s.ends_at)
+WHERE (?1 IS NOT NULL AND s.id=(SELECT gs.season_id FROM group_slots gs WHERE gs.id=?1))
+ OR (?1 IS NULL AND (?2>=s.starts_at AND ?2<=s.ends_at))
 ORDER BY s.starts_at DESC,s.id
 `
 
 type ResolveTrialQuotaSeasonParams struct {
-	SlotID    pgtype.Int4
-	TrialDate pgtype.Date
+	SlotID    interface{}
+	TrialDate dbtypes.Date
 }
 
 type ResolveTrialQuotaSeasonRow struct {
@@ -117,7 +123,7 @@ type ResolveTrialQuotaSeasonRow struct {
 
 // Include inactive seasons: deactivation must not erase trial history.
 func (q *Queries) ResolveTrialQuotaSeason(ctx context.Context, arg ResolveTrialQuotaSeasonParams) ([]ResolveTrialQuotaSeasonRow, error) {
-	rows, err := q.db.Query(ctx, resolveTrialQuotaSeason, arg.SlotID, arg.TrialDate)
+	rows, err := q.db.QueryContext(ctx, resolveTrialQuotaSeason, arg.SlotID, arg.TrialDate)
 	if err != nil {
 		return nil, err
 	}
@@ -129,6 +135,9 @@ func (q *Queries) ResolveTrialQuotaSeason(ctx context.Context, arg ResolveTrialQ
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

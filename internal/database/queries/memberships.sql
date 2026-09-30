@@ -1,15 +1,15 @@
 -- name: GetMembership :one
-SELECT * FROM memberships WHERE id = $1;
+SELECT * FROM memberships WHERE id = sqlc.arg(id);
 
 -- name: GetMembershipSourceTrial :one
-SELECT t.id,t.trial_date,a.name AS activity_name,coalesce(g.name,'')::text AS group_name,
- coalesce(to_char(gs.start_time,'HH24:MI'),'')::text AS start_time,
- EXISTS(SELECT 1 FROM administrative_events e WHERE e.resource_type='membership' AND e.resource_id=m.id AND e.action='membership_trial_group_assigned')::boolean AS group_adopted,
- EXISTS(SELECT 1 FROM administrative_events e WHERE e.resource_type='membership' AND e.resource_id=m.id AND e.action='membership_trial_group_skipped')::boolean AS group_needs_review
+SELECT t.id,t.trial_date,a.name AS activity_name,coalesce(g.name,'') AS group_name,
+ CAST(coalesce(CAST(substr(gs.start_time,1,5) AS TEXT),'') AS TEXT) AS start_time,
+ EXISTS(SELECT 1 FROM administrative_events e WHERE e.resource_type='membership' AND e.resource_id=m.id AND e.action='membership_trial_group_assigned') AS group_adopted,
+ EXISTS(SELECT 1 FROM administrative_events e WHERE e.resource_type='membership' AND e.resource_id=m.id AND e.action='membership_trial_group_skipped') AS group_needs_review
 FROM memberships m JOIN trial_registrations t ON t.id=m.source_trial_id
 JOIN activities a ON a.id=t.activity_id
 LEFT JOIN groups g ON g.id=t.group_id LEFT JOIN group_slots gs ON gs.id=t.group_slot_id
-WHERE m.id=$1;
+WHERE m.id=sqlc.arg(id);
 
 -- name: GetMembershipDetails :one
 SELECT sqlc.embed(m), sqlc.embed(p), sqlc.embed(s), sqlc.embed(t),
@@ -21,11 +21,11 @@ JOIN seasons s ON s.id = m.season_id
 JOIN membership_types t ON t.id = m.membership_type_id
 LEFT JOIN users u ON u.person_id = p.id
 LEFT JOIN users approver ON approver.id = m.approved_by_user_id
-WHERE m.id = $1;
+WHERE m.id = sqlc.arg(id);
 
 -- name: ListMembershipActivities :many
 SELECT a.* FROM activities a JOIN membership_activities ma ON ma.activity_id = a.id
-WHERE ma.membership_id = $1 ORDER BY a.name, a.id;
+WHERE ma.membership_id = sqlc.arg(membership_id) ORDER BY a.name, a.id;
 
 -- name: ListMembershipConsentRequirements :many
 SELECT r.presented_at, d.*, c.decision, c.given_by_person_id, c.recorded_at,
@@ -38,19 +38,19 @@ LEFT JOIN membership_consents c ON c.id = (
  ORDER BY mc.recorded_at DESC, mc.id DESC LIMIT 1
 )
 LEFT JOIN persons giver ON giver.id=c.given_by_person_id
-WHERE r.membership_id = $1 ORDER BY d.code, d.version;
+WHERE r.membership_id = sqlc.arg(membership_id) ORDER BY d.code, d.version;
 
 -- name: GetUserByUsername :one
-SELECT * FROM users WHERE username = $1;
+SELECT * FROM users WHERE username = sqlc.arg(username);
 
 -- name: GetUserByPerson :one
-SELECT * FROM users WHERE person_id = $1;
+SELECT * FROM users WHERE person_id = sqlc.arg(person_id);
 
 -- name: GetUserByID :one
-SELECT * FROM users WHERE id = $1;
+SELECT * FROM users WHERE id = sqlc.arg(id);
 
 -- name: ListAdministrativeMemberships :many
-SELECT sqlc.embed(m), p.first_name, p.last_name, p.email, ARRAY(SELECT coalesce(gp.email,'') FROM person_guardians gr JOIN persons gp ON gp.id=gr.guardian_person_id WHERE gr.child_person_id=p.id)::text[] AS guardian_emails, s.name AS season_name,
+SELECT sqlc.embed(m), p.first_name, p.last_name, p.email, CAST((SELECT json_group_array(value) FROM (SELECT coalesce(gp.email,'') AS value FROM person_guardians gr JOIN persons gp ON gp.id=gr.guardian_person_id WHERE gr.child_person_id=p.id)) AS JSON_TEXT_STRINGS) AS guardian_emails, s.name AS season_name,
        -- Same effective-access predicates as ListActiveGuardiansForChild.
        EXISTS(SELECT 1 FROM guardian_access_grants ga
          JOIN person_guardians r USING(child_person_id,guardian_person_id)
@@ -75,8 +75,7 @@ SELECT m.id, p.birth_date,
  EXISTS(SELECT 1 FROM membership_activities ma WHERE ma.membership_id=m.id) AS has_activity,
  EXISTS(SELECT 1 FROM person_guardians g WHERE g.child_person_id=p.id) AS has_guardian,
  EXISTS(SELECT 1 FROM person_emergency_contacts e WHERE e.person_id=p.id) AS has_emergency,
- ARRAY(
-  SELECT r.consent_definition_id FROM membership_consent_requirements r
+ CAST((SELECT json_group_array(value) FROM (SELECT r.consent_definition_id AS value FROM membership_consent_requirements r
   WHERE r.membership_id=m.id AND NOT EXISTS (
    SELECT 1 FROM membership_consents c
    WHERE c.id=(
@@ -84,10 +83,9 @@ SELECT m.id, p.birth_date,
     WHERE initial.membership_id=r.membership_id AND initial.consent_definition_id=r.consent_definition_id
     ORDER BY initial.recorded_at,initial.id LIMIT 1
    ) AND c.decision IN ('granted','refused')
-  ) ORDER BY r.consent_definition_id
- )::integer[] AS missing_consent_ids
+  ) ORDER BY r.consent_definition_id)) AS JSON_TEXT_IDS) AS missing_consent_ids
 FROM memberships m JOIN persons p ON p.id=m.person_id
-WHERE m.id=ANY($1::integer[]);
+WHERE m.id IN (sqlc.slice(ids));
 
 -- name: GetMembershipIDForUser :one
 SELECT m.id FROM memberships m JOIN users u ON u.person_id=m.person_id

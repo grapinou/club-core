@@ -2,9 +2,10 @@ package views
 
 import (
 	"embed"
-	"github.com/grapinou/club-core/internal/clubconfig"
 	"html/template"
 	"io"
+
+	"github.com/grapinou/club-core/internal/clubconfig"
 )
 
 //go:embed templates/layouts/base.html templates/pages/club_config.html

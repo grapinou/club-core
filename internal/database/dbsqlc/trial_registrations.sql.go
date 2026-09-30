@@ -7,27 +7,28 @@ package dbsqlc
 
 import (
 	"context"
+	"database/sql"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 const createTrial = `-- name: CreateTrial :one
 INSERT INTO trial_registrations (person_id, activity_id, group_id, group_slot_id, trial_date, status, notes)
-VALUES ($1, $2, $3, $4, $5, 'registered', $6) RETURNING id, person_id, activity_id, trial_date, status, created_at, notes, group_id, group_slot_id, revision
+VALUES (?1, ?2, ?3, ?4, ?5, 'registered', ?6) RETURNING id, person_id, activity_id, trial_date, status, created_at, notes, group_id, group_slot_id, revision
 `
 
 type CreateTrialParams struct {
 	PersonID    int32
 	ActivityID  int32
-	GroupID     pgtype.Int4
-	GroupSlotID pgtype.Int4
-	TrialDate   pgtype.Date
-	Notes       pgtype.Text
+	GroupID     sql.NullInt32
+	GroupSlotID sql.NullInt32
+	TrialDate   dbtypes.Date
+	Notes       sql.NullString
 }
 
 // Scheduling writes are called through internal/trials.Service.
 func (q *Queries) CreateTrial(ctx context.Context, arg CreateTrialParams) (TrialRegistration, error) {
-	row := q.db.QueryRow(ctx, createTrial,
+	row := q.db.QueryRowContext(ctx, createTrial,
 		arg.PersonID,
 		arg.ActivityID,
 		arg.GroupID,
@@ -62,33 +63,33 @@ JOIN persons p ON p.id = t.person_id
 JOIN activities a ON a.id = t.activity_id
 LEFT JOIN groups g ON g.id = t.group_id
 LEFT JOIN group_slots gs ON gs.id = t.group_slot_id
-WHERE t.id = $1
+WHERE t.id = ?1
 ORDER BY t.trial_date, gs.start_time NULLS LAST, p.last_name, p.first_name, t.id
 `
 
 type GetTrialRow struct {
 	TrialID      int32
-	TrialDate    pgtype.Date
+	TrialDate    dbtypes.Date
 	Status       string
-	Notes        pgtype.Text
+	Notes        sql.NullString
 	PersonID     int32
 	FirstName    string
 	LastName     string
-	BirthDate    pgtype.Date
-	PhoneNumber  pgtype.Text
+	BirthDate    dbtypes.Date
+	PhoneNumber  sql.NullString
 	ActivityID   int32
 	ActivityName string
-	GroupID      pgtype.Int4
-	GroupName    pgtype.Text
-	GroupSlotID  pgtype.Int4
-	Weekday      pgtype.Int2
-	StartTime    pgtype.Time
-	EndTime      pgtype.Time
-	Location     pgtype.Text
+	GroupID      sql.NullInt32
+	GroupName    sql.NullString
+	GroupSlotID  sql.NullInt32
+	Weekday      sql.NullInt16
+	StartTime    dbtypes.Time
+	EndTime      dbtypes.Time
+	Location     sql.NullString
 }
 
 func (q *Queries) GetTrial(ctx context.Context, id int32) (GetTrialRow, error) {
-	row := q.db.QueryRow(ctx, getTrial, id)
+	row := q.db.QueryRowContext(ctx, getTrial, id)
 	var i GetTrialRow
 	err := row.Scan(
 		&i.TrialID,
@@ -124,33 +125,33 @@ JOIN persons p ON p.id = t.person_id
 JOIN activities a ON a.id = t.activity_id
 LEFT JOIN groups g ON g.id = t.group_id
 LEFT JOIN group_slots gs ON gs.id = t.group_slot_id
-WHERE t.person_id = $1
+WHERE t.person_id = ?1
 ORDER BY t.trial_date, gs.start_time NULLS LAST, p.last_name, p.first_name, t.id
 `
 
 type ListPersonTrialsRow struct {
 	TrialID      int32
-	TrialDate    pgtype.Date
+	TrialDate    dbtypes.Date
 	Status       string
-	Notes        pgtype.Text
+	Notes        sql.NullString
 	PersonID     int32
 	FirstName    string
 	LastName     string
-	BirthDate    pgtype.Date
-	PhoneNumber  pgtype.Text
+	BirthDate    dbtypes.Date
+	PhoneNumber  sql.NullString
 	ActivityID   int32
 	ActivityName string
-	GroupID      pgtype.Int4
-	GroupName    pgtype.Text
-	GroupSlotID  pgtype.Int4
-	Weekday      pgtype.Int2
-	StartTime    pgtype.Time
-	EndTime      pgtype.Time
-	Location     pgtype.Text
+	GroupID      sql.NullInt32
+	GroupName    sql.NullString
+	GroupSlotID  sql.NullInt32
+	Weekday      sql.NullInt16
+	StartTime    dbtypes.Time
+	EndTime      dbtypes.Time
+	Location     sql.NullString
 }
 
 func (q *Queries) ListPersonTrials(ctx context.Context, personID int32) ([]ListPersonTrialsRow, error) {
-	rows, err := q.db.Query(ctx, listPersonTrials, personID)
+	rows, err := q.db.QueryContext(ctx, listPersonTrials, personID)
 	if err != nil {
 		return nil, err
 	}
@@ -182,6 +183,9 @@ func (q *Queries) ListPersonTrials(ctx context.Context, personID int32) ([]ListP
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -199,33 +203,33 @@ JOIN persons p ON p.id = t.person_id
 JOIN activities a ON a.id = t.activity_id
 LEFT JOIN groups g ON g.id = t.group_id
 LEFT JOIN group_slots gs ON gs.id = t.group_slot_id
-WHERE t.trial_date = $1
+WHERE t.trial_date = ?1
 ORDER BY t.trial_date, gs.start_time NULLS LAST, p.last_name, p.first_name, t.id
 `
 
 type ListTrialsByDateRow struct {
 	TrialID      int32
-	TrialDate    pgtype.Date
+	TrialDate    dbtypes.Date
 	Status       string
-	Notes        pgtype.Text
+	Notes        sql.NullString
 	PersonID     int32
 	FirstName    string
 	LastName     string
-	BirthDate    pgtype.Date
-	PhoneNumber  pgtype.Text
+	BirthDate    dbtypes.Date
+	PhoneNumber  sql.NullString
 	ActivityID   int32
 	ActivityName string
-	GroupID      pgtype.Int4
-	GroupName    pgtype.Text
-	GroupSlotID  pgtype.Int4
-	Weekday      pgtype.Int2
-	StartTime    pgtype.Time
-	EndTime      pgtype.Time
-	Location     pgtype.Text
+	GroupID      sql.NullInt32
+	GroupName    sql.NullString
+	GroupSlotID  sql.NullInt32
+	Weekday      sql.NullInt16
+	StartTime    dbtypes.Time
+	EndTime      dbtypes.Time
+	Location     sql.NullString
 }
 
-func (q *Queries) ListTrialsByDate(ctx context.Context, trialDate pgtype.Date) ([]ListTrialsByDateRow, error) {
-	rows, err := q.db.Query(ctx, listTrialsByDate, trialDate)
+func (q *Queries) ListTrialsByDate(ctx context.Context, trialDate dbtypes.Date) ([]ListTrialsByDateRow, error) {
+	rows, err := q.db.QueryContext(ctx, listTrialsByDate, trialDate)
 	if err != nil {
 		return nil, err
 	}
@@ -257,6 +261,9 @@ func (q *Queries) ListTrialsByDate(ctx context.Context, trialDate pgtype.Date) (
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -274,33 +281,33 @@ JOIN persons p ON p.id = t.person_id
 JOIN activities a ON a.id = t.activity_id
 LEFT JOIN groups g ON g.id = t.group_id
 LEFT JOIN group_slots gs ON gs.id = t.group_slot_id
-WHERE t.trial_date >= $1::date
+WHERE t.trial_date >= ?1
 ORDER BY t.trial_date, gs.start_time NULLS LAST, p.last_name, p.first_name, t.id
 `
 
 type ListUpcomingTrialsRow struct {
 	TrialID      int32
-	TrialDate    pgtype.Date
+	TrialDate    dbtypes.Date
 	Status       string
-	Notes        pgtype.Text
+	Notes        sql.NullString
 	PersonID     int32
 	FirstName    string
 	LastName     string
-	BirthDate    pgtype.Date
-	PhoneNumber  pgtype.Text
+	BirthDate    dbtypes.Date
+	PhoneNumber  sql.NullString
 	ActivityID   int32
 	ActivityName string
-	GroupID      pgtype.Int4
-	GroupName    pgtype.Text
-	GroupSlotID  pgtype.Int4
-	Weekday      pgtype.Int2
-	StartTime    pgtype.Time
-	EndTime      pgtype.Time
-	Location     pgtype.Text
+	GroupID      sql.NullInt32
+	GroupName    sql.NullString
+	GroupSlotID  sql.NullInt32
+	Weekday      sql.NullInt16
+	StartTime    dbtypes.Time
+	EndTime      dbtypes.Time
+	Location     sql.NullString
 }
 
-func (q *Queries) ListUpcomingTrials(ctx context.Context, fromDate pgtype.Date) ([]ListUpcomingTrialsRow, error) {
-	rows, err := q.db.Query(ctx, listUpcomingTrials, fromDate)
+func (q *Queries) ListUpcomingTrials(ctx context.Context, fromDate dbtypes.Date) ([]ListUpcomingTrialsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUpcomingTrials, fromDate)
 	if err != nil {
 		return nil, err
 	}
@@ -332,6 +339,9 @@ func (q *Queries) ListUpcomingTrials(ctx context.Context, fromDate pgtype.Date) 
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -339,19 +349,19 @@ func (q *Queries) ListUpcomingTrials(ctx context.Context, fromDate pgtype.Date) 
 }
 
 const lockTrialActivity = `-- name: LockTrialActivity :one
-SELECT is_active FROM activities WHERE id=$1 FOR SHARE
+SELECT is_active FROM activities WHERE id=?1
 `
 
-// Locks prevent activation/calendar changes between validation and write.
+// Call inside BEGIN IMMEDIATE to keep activation/calendar valid until the write.
 func (q *Queries) LockTrialActivity(ctx context.Context, id int32) (bool, error) {
-	row := q.db.QueryRow(ctx, lockTrialActivity, id)
+	row := q.db.QueryRowContext(ctx, lockTrialActivity, id)
 	var is_active bool
 	err := row.Scan(&is_active)
 	return is_active, err
 }
 
 const lockTrialGroup = `-- name: LockTrialGroup :one
-SELECT activity_id, is_active FROM groups WHERE id=$1 FOR SHARE
+SELECT activity_id, is_active FROM groups WHERE id=?1
 `
 
 type LockTrialGroupRow struct {
@@ -360,26 +370,25 @@ type LockTrialGroupRow struct {
 }
 
 func (q *Queries) LockTrialGroup(ctx context.Context, id int32) (LockTrialGroupRow, error) {
-	row := q.db.QueryRow(ctx, lockTrialGroup, id)
+	row := q.db.QueryRowContext(ctx, lockTrialGroup, id)
 	var i LockTrialGroupRow
 	err := row.Scan(&i.ActivityID, &i.IsActive)
 	return i, err
 }
 
 const lockTrialSlot = `-- name: LockTrialSlot :one
-SELECT gs.group_id, gs.is_active,
-       (EXTRACT(ISODOW FROM $2::date) = gs.weekday
-        AND $2::date >= gs.valid_from
-        AND (gs.valid_until IS NULL OR $2::date <= gs.valid_until)
-        AND $2::date BETWEEN s.starts_at AND s.ends_at
-        AND s.is_active)::boolean AS calendar_valid
+SELECT gs.group_id, gs.is_active, CAST((((CAST(strftime('%w',?1) AS INTEGER)+6)%7+1) = gs.weekday
+        AND ?1 >= gs.valid_from
+        AND (gs.valid_until IS NULL OR ?1 <= gs.valid_until)
+        AND (?1>=s.starts_at AND ?1<=s.ends_at)
+        AND s.is_active) AS BOOLEAN) AS calendar_valid
 FROM group_slots gs JOIN seasons s ON s.id=gs.season_id
-WHERE gs.id=$1 FOR SHARE OF gs, s
+WHERE gs.id=?2
 `
 
 type LockTrialSlotParams struct {
+	TrialDate interface{}
 	ID        int32
-	TrialDate pgtype.Date
 }
 
 type LockTrialSlotRow struct {
@@ -389,32 +398,32 @@ type LockTrialSlotRow struct {
 }
 
 func (q *Queries) LockTrialSlot(ctx context.Context, arg LockTrialSlotParams) (LockTrialSlotRow, error) {
-	row := q.db.QueryRow(ctx, lockTrialSlot, arg.ID, arg.TrialDate)
+	row := q.db.QueryRowContext(ctx, lockTrialSlot, arg.TrialDate, arg.ID)
 	var i LockTrialSlotRow
 	err := row.Scan(&i.GroupID, &i.IsActive, &i.CalendarValid)
 	return i, err
 }
 
 const rescheduleTrial = `-- name: RescheduleTrial :one
-UPDATE trial_registrations SET activity_id=$2, group_id=$3, group_slot_id=$4, trial_date=$5,revision=revision+1
-WHERE id=$1 RETURNING id, person_id, activity_id, trial_date, status, created_at, notes, group_id, group_slot_id, revision
+UPDATE trial_registrations SET activity_id=?1, group_id=?2, group_slot_id=?3, trial_date=?4,revision=revision+1
+WHERE id=?5 RETURNING id, person_id, activity_id, trial_date, status, created_at, notes, group_id, group_slot_id, revision
 `
 
 type RescheduleTrialParams struct {
-	ID          int32
 	ActivityID  int32
-	GroupID     pgtype.Int4
-	GroupSlotID pgtype.Int4
-	TrialDate   pgtype.Date
+	GroupID     sql.NullInt32
+	GroupSlotID sql.NullInt32
+	TrialDate   dbtypes.Date
+	ID          int32
 }
 
 func (q *Queries) RescheduleTrial(ctx context.Context, arg RescheduleTrialParams) (TrialRegistration, error) {
-	row := q.db.QueryRow(ctx, rescheduleTrial,
-		arg.ID,
+	row := q.db.QueryRowContext(ctx, rescheduleTrial,
 		arg.ActivityID,
 		arg.GroupID,
 		arg.GroupSlotID,
 		arg.TrialDate,
+		arg.ID,
 	)
 	var i TrialRegistration
 	err := row.Scan(
@@ -433,16 +442,16 @@ func (q *Queries) RescheduleTrial(ctx context.Context, arg RescheduleTrialParams
 }
 
 const updateTrialNotes = `-- name: UpdateTrialNotes :one
-UPDATE trial_registrations SET notes=$2,revision=revision+1 WHERE id=$1 RETURNING id, person_id, activity_id, trial_date, status, created_at, notes, group_id, group_slot_id, revision
+UPDATE trial_registrations SET notes=?1,revision=revision+1 WHERE id=?2 RETURNING id, person_id, activity_id, trial_date, status, created_at, notes, group_id, group_slot_id, revision
 `
 
 type UpdateTrialNotesParams struct {
+	Notes sql.NullString
 	ID    int32
-	Notes pgtype.Text
 }
 
 func (q *Queries) UpdateTrialNotes(ctx context.Context, arg UpdateTrialNotesParams) (TrialRegistration, error) {
-	row := q.db.QueryRow(ctx, updateTrialNotes, arg.ID, arg.Notes)
+	row := q.db.QueryRowContext(ctx, updateTrialNotes, arg.Notes, arg.ID)
 	var i TrialRegistration
 	err := row.Scan(
 		&i.ID,
@@ -460,16 +469,16 @@ func (q *Queries) UpdateTrialNotes(ctx context.Context, arg UpdateTrialNotesPara
 }
 
 const updateTrialStatus = `-- name: UpdateTrialStatus :one
-UPDATE trial_registrations SET status=$2,revision=revision+1 WHERE id=$1 RETURNING id, person_id, activity_id, trial_date, status, created_at, notes, group_id, group_slot_id, revision
+UPDATE trial_registrations SET status=?1,revision=revision+1 WHERE id=?2 RETURNING id, person_id, activity_id, trial_date, status, created_at, notes, group_id, group_slot_id, revision
 `
 
 type UpdateTrialStatusParams struct {
-	ID     int32
 	Status string
+	ID     int32
 }
 
 func (q *Queries) UpdateTrialStatus(ctx context.Context, arg UpdateTrialStatusParams) (TrialRegistration, error) {
-	row := q.db.QueryRow(ctx, updateTrialStatus, arg.ID, arg.Status)
+	row := q.db.QueryRowContext(ctx, updateTrialStatus, arg.Status, arg.ID)
 	var i TrialRegistration
 	err := row.Scan(
 		&i.ID,

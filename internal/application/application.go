@@ -4,6 +4,8 @@ package application
 import (
 	"net/http"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/accounts"
 	"github.com/grapinou/club-core/internal/activation"
 	"github.com/grapinou/club-core/internal/administration"
@@ -28,7 +30,6 @@ import (
 	"github.com/grapinou/club-core/internal/trials"
 	"github.com/grapinou/club-core/internal/useraccess"
 	"github.com/grapinou/club-core/internal/websecurity"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Application struct {
@@ -47,7 +48,7 @@ type Application struct {
 	RegistrationApplications *registrationapplications.Service
 }
 
-func New(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool) (*Application, error) {
+func New(cfg config.Config, runtime config.Runtime, db *sql.DB) (*Application, error) {
 	var sender mailer.Mailer = mailer.Disabled{}
 	if runtime.EmailTransport == "smtp" {
 		smtp, err := mailer.NewSMTP(runtime.SMTP)
@@ -60,7 +61,7 @@ func New(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool) (*Applicat
 }
 
 // NewWithMailer allows a local fake in integration tests.
-func NewWithMailer(cfg config.Config, runtime config.Runtime, db *pgxpool.Pool, sender mailer.Mailer) (*Application, error) {
+func NewWithMailer(cfg config.Config, runtime config.Runtime, db *sql.DB, sender mailer.Mailer) (*Application, error) {
 	a, err := activation.New(db, runtime.ActivationValidity)
 	if err != nil {
 		return nil, err

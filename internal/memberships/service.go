@@ -8,14 +8,14 @@ import (
 	"fmt"
 	"time"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/accounts/provisioning"
 	"github.com/grapinou/club-core/internal/activation"
 	"github.com/grapinou/club-core/internal/civildate"
 	"github.com/grapinou/club-core/internal/consents"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 var ErrInvalidRequest = errors.New("invalid membership request")
@@ -28,12 +28,12 @@ func (e *IncompleteError) Error() string {
 }
 
 type Service struct {
-	db         *pgxpool.Pool
+	db         *sql.DB
 	activation *activation.Service
 	location   *time.Location
 }
 
-func New(db *pgxpool.Pool, validity time.Duration, location *time.Location) (*Service, error) {
+func New(db *sql.DB, validity time.Duration, location *time.Location) (*Service, error) {
 	if location == nil {
 		return nil, errors.New("administrative timezone is required")
 	}
@@ -89,24 +89,24 @@ type Approval struct {
 
 type PresentedConsent struct {
 	ConsentDefinitionID int32
-	PresentedAt         pgtype.Timestamptz
+	PresentedAt         dbtypes.Timestamp
 }
 
-func (s *Service) IsAdult(birth pgtype.Date) bool {
-	return birth.Valid && birth.InfinityModifier == pgtype.Finite && !IsMinor(birth.Time, time.Now().In(s.location))
+func (s *Service) IsAdult(birth dbtypes.Date) bool {
+	return birth.Valid && birth.IsFinite() && !IsMinor(birth.Time, time.Now().In(s.location))
 }
 
 func (s *Service) CreateRequest(ctx context.Context, r Request) (dbsqlc.Membership, error) {
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return dbsqlc.Membership{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	result, err := s.createRequestTx(ctx, tx, r, nil)
 	if err != nil {
 		return dbsqlc.Membership{}, err
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return dbsqlc.Membership{}, err
 	}
 	return result, nil
@@ -114,37 +114,37 @@ func (s *Service) CreateRequest(ctx context.Context, r Request) (dbsqlc.Membersh
 
 // CreateRequestWithPresentedConsentsTx reuses all membership rules. The caller
 // supplies the authenticated public presentation, including an empty snapshot.
-func (s *Service) CreateRequestWithPresentedConsentsTx(ctx context.Context, tx pgx.Tx, r Request, presented []PresentedConsent) (dbsqlc.Membership, error) {
+func (s *Service) CreateRequestWithPresentedConsentsTx(ctx context.Context, tx *sql.Tx, r Request, presented []PresentedConsent) (dbsqlc.Membership, error) {
 	if presented == nil {
 		presented = []PresentedConsent{}
 	}
 	return s.createRequestTx(ctx, tx, r, presented)
 }
 
-func (s *Service) createRequestTx(ctx context.Context, tx pgx.Tx, r Request, presented []PresentedConsent) (dbsqlc.Membership, error) {
+func (s *Service) createRequestTx(ctx context.Context, tx *sql.Tx, r Request, presented []PresentedConsent) (dbsqlc.Membership, error) {
 	var zero dbsqlc.Membership
 	invalid := func(reason string) error { return fmt.Errorf("%w: %s", ErrInvalidRequest, reason) }
 	if len(r.ActivityIDs) == 0 {
 		return zero, invalid("missing_activity")
 	}
 	var err error
-	var birth pgtype.Date
-	err = tx.QueryRow(ctx, "SELECT birth_date FROM persons WHERE id=$1 FOR NO KEY UPDATE", r.PersonID).Scan(&birth)
+	var birth dbtypes.Date
+	err = tx.QueryRowContext(ctx, "SELECT birth_date FROM persons WHERE id=?1", r.PersonID).Scan(&birth)
 	if err != nil {
 		return zero, err
 	}
-	if !birth.Valid || birth.InfinityModifier != pgtype.Finite {
+	if !birth.Valid || !birth.IsFinite() {
 		return zero, invalid("missing_birth_date")
 	}
 	for _, check := range []struct {
 		sql string
 		id  int32
 	}{
-		{"SELECT is_active FROM seasons WHERE id=$1 FOR SHARE", r.SeasonID},
-		{"SELECT is_active FROM membership_types WHERE id=$1 FOR SHARE", r.MembershipTypeID},
+		{"SELECT is_active FROM seasons WHERE id=?1", r.SeasonID},
+		{"SELECT is_active FROM membership_types WHERE id=?1", r.MembershipTypeID},
 	} {
 		var active bool
-		if err = tx.QueryRow(ctx, check.sql, check.id).Scan(&active); err != nil {
+		if err = tx.QueryRowContext(ctx, check.sql, check.id).Scan(&active); err != nil {
 			return zero, err
 		}
 		if !active {
@@ -158,7 +158,7 @@ func (s *Service) createRequestTx(ctx context.Context, tx pgx.Tx, r Request, pre
 		}
 		seen[id] = true
 		var active bool
-		if err = tx.QueryRow(ctx, "SELECT is_active FROM activities WHERE id=$1 FOR SHARE", id).Scan(&active); err != nil {
+		if err = tx.QueryRowContext(ctx, "SELECT is_active FROM activities WHERE id=?1", id).Scan(&active); err != nil {
 			return zero, err
 		}
 		if !active {
@@ -167,10 +167,10 @@ func (s *Service) createRequestTx(ctx context.Context, tx pgx.Tx, r Request, pre
 	}
 	// Lock the source before insertion so rescheduling and concurrent conversion
 	// cannot change the facts being validated. A renewal has no source trial.
-	var source pgtype.Int4
+	var source sql.NullInt32
 	if r.SourceTrialID != 0 {
 		t, e := dbsqlc.New(tx).LockAdministrativeTrial(ctx, r.SourceTrialID)
-		if errors.Is(e, pgx.ErrNoRows) {
+		if errors.Is(e, sql.ErrNoRows) {
 			return zero, invalid("source trial not found")
 		}
 		if e != nil {
@@ -179,14 +179,11 @@ func (s *Service) createRequestTx(ctx context.Context, tx pgx.Tx, r Request, pre
 		if t.PersonID != r.PersonID || !seen[t.ActivityID] || t.Status != "attended" {
 			return zero, invalid("source trial must be attended and match person and activities")
 		}
-		source = pgtype.Int4{Int32: r.SourceTrialID, Valid: true}
+		source = sql.NullInt32{Int32: r.SourceTrialID, Valid: true}
 	}
 	// nil means the existing workflow snapshots currently active definitions.
 	// A non-nil slice is an already authenticated, immutable public presentation.
 	if presented == nil {
-		if _, err = tx.Exec(ctx, "LOCK TABLE consent_definitions IN SHARE MODE"); err != nil {
-			return zero, err
-		}
 		defs, e := dbsqlc.New(tx).ListActiveConsentDefinitions(ctx)
 		if e != nil {
 			return zero, e
@@ -210,12 +207,12 @@ func (s *Service) createRequestTx(ctx context.Context, tx pgx.Tx, r Request, pre
 		return zero, invalid("unanswered or unexpected consent")
 	}
 	var id int32
-	err = tx.QueryRow(ctx, "INSERT INTO memberships(person_id,season_id,membership_type_id,source_trial_id,status,requested_at) VALUES ($1,$2,$3,$4,'pending',clock_timestamp()) RETURNING id", r.PersonID, r.SeasonID, r.MembershipTypeID, source).Scan(&id)
+	err = tx.QueryRowContext(ctx, "INSERT INTO memberships(person_id,season_id,membership_type_id,source_trial_id,status,requested_at) VALUES (?1,?2,?3,?4,'pending',strftime('%Y-%m-%d %H:%M:%f','now')) RETURNING id", r.PersonID, r.SeasonID, r.MembershipTypeID, source).Scan(&id)
 	if err != nil {
 		return zero, err
 	}
 	for _, activity := range r.ActivityIDs {
-		if _, err = tx.Exec(ctx, "INSERT INTO membership_activities VALUES ($1,$2)", id, activity); err != nil {
+		if _, err = tx.ExecContext(ctx, "INSERT INTO membership_activities VALUES (?1,?2)", id, activity); err != nil {
 			return zero, err
 		}
 	}
@@ -226,14 +223,14 @@ func (s *Service) createRequestTx(ctx context.Context, tx pgx.Tx, r Request, pre
 		}
 		if d.GivenByPersonID != r.PersonID {
 			_, err = dbsqlc.New(tx).LockConsentGuardian(ctx, dbsqlc.LockConsentGuardianParams{ChildPersonID: r.PersonID, GuardianPersonID: d.GivenByPersonID})
-			if errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err, sql.ErrNoRows) {
 				return zero, consents.ErrUnauthorizedGiver
 			}
 			if err != nil {
 				return zero, err
 			}
 		}
-		if _, err = tx.Exec(ctx, "INSERT INTO membership_consent_requirements SELECT id,$2,COALESCE($3,requested_at) FROM memberships WHERE id=$1", id, def.ConsentDefinitionID, def.PresentedAt); err != nil {
+		if _, err = tx.ExecContext(ctx, "INSERT INTO membership_consent_requirements SELECT id,?2,COALESCE(?3,requested_at) FROM memberships WHERE id=?1", id, def.ConsentDefinitionID, def.PresentedAt); err != nil {
 			return zero, err
 		}
 		_, err = dbsqlc.New(tx).CreateMembershipConsent(ctx, dbsqlc.CreateMembershipConsentParams{MembershipID: id, ConsentDefinitionID: def.ConsentDefinitionID, Decision: d.Decision, GivenByPersonID: d.GivenByPersonID})
@@ -254,14 +251,14 @@ func IsMinor(birth, at time.Time) bool {
 	return civildate.IsMinor(birth, at)
 }
 
-func completeness(ctx context.Context, tx pgx.Tx, id int32, at time.Time) (Completeness, error) {
+func completeness(ctx context.Context, tx *sql.Tx, id int32, at time.Time) (Completeness, error) {
 	c := Completeness{BlockingIssues: []string{}, Warnings: []string{}, MissingConsentDefinitionIDs: []int32{}}
 	facts, err := dbsqlc.New(tx).ListMembershipCompletenessFacts(ctx, []int32{id})
 	if err != nil {
 		return c, err
 	}
 	if len(facts) != 1 {
-		return c, pgx.ErrNoRows
+		return c, sql.ErrNoRows
 	}
 	return evaluateCompleteness(facts[0], at), nil
 }
@@ -277,7 +274,7 @@ func evaluateCompleteness(f dbsqlc.ListMembershipCompletenessFactsRow, at time.T
 	c := Completeness{BlockingIssues: []string{}, Warnings: []string{}, MissingConsentDefinitionIDs: f.MissingConsentIds}
 	birth, activity, guardian, emergency := f.BirthDate, f.HasActivity, f.HasGuardian, f.HasEmergency
 
-	if !birth.Valid || birth.InfinityModifier != pgtype.Finite {
+	if !birth.Valid || !birth.IsFinite() {
 		c.BlockingIssues = append(c.BlockingIssues, "missing_birth_date")
 	} else {
 		minor := IsMinor(birth.Time, at)
@@ -305,11 +302,11 @@ func evaluateCompleteness(f dbsqlc.ListMembershipCompletenessFactsRow, at time.T
 
 func (s *Service) GetDetails(ctx context.Context, id int32) (Details, error) {
 	var d Details
-	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return d, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	q := dbsqlc.New(tx)
 	d.Membership, err = q.GetMembershipDetails(ctx, id)
 	if err != nil {
@@ -358,28 +355,28 @@ func (s *Service) GetDetails(ctx context.Context, id int32) (Details, error) {
 			return d, err
 		}
 	}
-	return d, tx.Commit(ctx)
+	return d, tx.Commit()
 }
 
 func (s *Service) ApproveMembership(ctx context.Context, id, approver int32, adminNote *string) (Approval, error) {
 	var result Approval
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return result, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	var person int32
 	// Person lock serializes account reuse across memberships in different seasons.
-	if err = tx.QueryRow(ctx, "SELECT person_id FROM memberships WHERE id=$1", id).Scan(&person); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT person_id FROM memberships WHERE id=?1", id).Scan(&person); err != nil {
 		return result, err
 	}
 	var first, last string
-	if err = tx.QueryRow(ctx, "SELECT first_name,last_name FROM persons WHERE id=$1 FOR UPDATE", person).Scan(&first, &last); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT first_name,last_name FROM persons WHERE id=?1", person).Scan(&first, &last); err != nil {
 		return result, err
 	}
 	var status string
 	var lockedPerson int32
-	if err = tx.QueryRow(ctx, "SELECT status,person_id FROM memberships WHERE id=$1 FOR UPDATE", id).Scan(&status, &lockedPerson); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT status,person_id FROM memberships WHERE id=?1", id).Scan(&status, &lockedPerson); err != nil {
 		return result, err
 	}
 	if person != lockedPerson {
@@ -393,11 +390,11 @@ func (s *Service) ApproveMembership(ctx context.Context, id, approver int32, adm
 		query string
 		id    int32
 	}{
-		{"SELECT activity_id FROM membership_activities WHERE membership_id=$1 FOR SHARE", id},
-		{"SELECT id FROM person_guardians WHERE child_person_id=$1 FOR SHARE", person},
-		{"SELECT id FROM person_emergency_contacts WHERE person_id=$1 FOR SHARE", person},
+		{"SELECT activity_id FROM membership_activities WHERE membership_id=?1", id},
+		{"SELECT id FROM person_guardians WHERE child_person_id=?1", person},
+		{"SELECT id FROM person_emergency_contacts WHERE person_id=?1", person},
 	} {
-		rows, e := tx.Query(ctx, lock.query, lock.id)
+		rows, e := tx.QueryContext(ctx, lock.query, lock.id)
 		if e != nil {
 			return result, e
 		}
@@ -410,7 +407,7 @@ func (s *Service) ApproveMembership(ctx context.Context, id, approver int32, adm
 		}
 	}
 	var exists int32
-	if err = tx.QueryRow(ctx, "SELECT id FROM users WHERE id=$1 FOR KEY SHARE", approver).Scan(&exists); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT id FROM users WHERE id=?1", approver).Scan(&exists); err != nil {
 		return result, fmt.Errorf("approver: %w", err)
 	}
 	now := time.Now().In(s.location)
@@ -429,7 +426,7 @@ func (s *Service) ApproveMembership(ctx context.Context, id, approver int32, adm
 		if err != nil {
 			return result, err
 		}
-		_, err = tx.Exec(ctx, "UPDATE users SET is_active=true WHERE person_id=$1", person)
+		_, err = tx.ExecContext(ctx, "UPDATE users SET is_active=true WHERE person_id=?1", person)
 		if err != nil {
 			return result, err
 		}
@@ -444,11 +441,11 @@ func (s *Service) ApproveMembership(ctx context.Context, id, approver int32, adm
 		}
 	} else {
 		result.User, err = q.GetUserByPerson(ctx, person)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return Approval{}, err
 		}
 	}
-	_, err = tx.Exec(ctx, "UPDATE memberships SET status='active',approved_at=$2,approved_by_user_id=$3,admin_note=$4,joined_at=COALESCE(joined_at,$5::date),updated_at=$2 WHERE id=$1", id, now, approver, adminNote, now.Format("2006-01-02"))
+	_, err = tx.ExecContext(ctx, "UPDATE memberships SET status='active',approved_at=?2,approved_by_user_id=?3,admin_note=?4,joined_at=COALESCE(joined_at,?5),updated_at=?2 WHERE id=?1", id, now, approver, adminNote, now.Format("2006-01-02"))
 	if err != nil {
 		return Approval{}, err
 	}
@@ -456,19 +453,19 @@ func (s *Service) ApproveMembership(ctx context.Context, id, approver int32, adm
 	if err != nil {
 		return Approval{}, err
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return Approval{}, err
 	}
 	return result, nil
 }
 
 // IsEligibleMinor also rejects future dates using the club's civil timezone.
-func (s *Service) IsEligibleMinor(birth pgtype.Date) bool {
+func (s *Service) IsEligibleMinor(birth dbtypes.Date) bool {
 	today := time.Now().In(s.location)
-	return birth.Valid && birth.InfinityModifier == pgtype.Finite && birth.Time.Format("2006-01-02") <= today.Format("2006-01-02") && civildate.IsMinor(birth.Time, today)
+	return birth.Valid && birth.IsFinite() && birth.Time.Format("2006-01-02") <= today.Format("2006-01-02") && civildate.IsMinor(birth.Time, today)
 }
 
 // CreateRequestTx snapshots current definitions under the existing domain locks.
-func (s *Service) CreateRequestTx(ctx context.Context, tx pgx.Tx, r Request) (dbsqlc.Membership, error) {
+func (s *Service) CreateRequestTx(ctx context.Context, tx *sql.Tx, r Request) (dbsqlc.Membership, error) {
 	return s.createRequestTx(ctx, tx, r, nil)
 }

@@ -7,13 +7,15 @@ package dbsqlc
 
 import (
 	"context"
+	"database/sql"
+	"strings"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 const createGuardianAccessGrant = `-- name: CreateGuardianAccessGrant :one
 INSERT INTO guardian_access_grants(child_person_id,guardian_person_id,granted_by_user_id)
-VALUES ($1,$2,$3)
+VALUES (?1,?2,?3)
 ON CONFLICT (child_person_id,guardian_person_id) WHERE revoked_at IS NULL
 DO NOTHING RETURNING id, child_person_id, guardian_person_id, granted_at, granted_by_user_id, revoked_at, revoked_by_user_id, created_at
 `
@@ -21,11 +23,11 @@ DO NOTHING RETURNING id, child_person_id, guardian_person_id, granted_at, grante
 type CreateGuardianAccessGrantParams struct {
 	ChildPersonID    int32
 	GuardianPersonID int32
-	GrantedByUserID  pgtype.Int4
+	GrantedByUserID  sql.NullInt32
 }
 
 func (q *Queries) CreateGuardianAccessGrant(ctx context.Context, arg CreateGuardianAccessGrantParams) (GuardianAccessGrant, error) {
-	row := q.db.QueryRow(ctx, createGuardianAccessGrant, arg.ChildPersonID, arg.GuardianPersonID, arg.GrantedByUserID)
+	row := q.db.QueryRowContext(ctx, createGuardianAccessGrant, arg.ChildPersonID, arg.GuardianPersonID, arg.GrantedByUserID)
 	var i GuardianAccessGrant
 	err := row.Scan(
 		&i.ID,
@@ -41,7 +43,7 @@ func (q *Queries) CreateGuardianAccessGrant(ctx context.Context, arg CreateGuard
 }
 
 const getActiveGuardianAccess = `-- name: GetActiveGuardianAccess :one
-SELECT id, child_person_id, guardian_person_id, granted_at, granted_by_user_id, revoked_at, revoked_by_user_id, created_at FROM guardian_access_grants WHERE child_person_id=$1 AND guardian_person_id=$2 AND revoked_at IS NULL
+SELECT id, child_person_id, guardian_person_id, granted_at, granted_by_user_id, revoked_at, revoked_by_user_id, created_at FROM guardian_access_grants WHERE child_person_id=?1 AND guardian_person_id=?2 AND revoked_at IS NULL
 `
 
 type GetActiveGuardianAccessParams struct {
@@ -50,7 +52,7 @@ type GetActiveGuardianAccessParams struct {
 }
 
 func (q *Queries) GetActiveGuardianAccess(ctx context.Context, arg GetActiveGuardianAccessParams) (GuardianAccessGrant, error) {
-	row := q.db.QueryRow(ctx, getActiveGuardianAccess, arg.ChildPersonID, arg.GuardianPersonID)
+	row := q.db.QueryRowContext(ctx, getActiveGuardianAccess, arg.ChildPersonID, arg.GuardianPersonID)
 	var i GuardianAccessGrant
 	err := row.Scan(
 		&i.ID,
@@ -70,7 +72,7 @@ SELECT c.birth_date FROM guardian_access_grants g
 JOIN person_guardians r USING(child_person_id,guardian_person_id)
 JOIN persons p ON p.id=g.guardian_person_id AND p.archived_at IS NULL
 JOIN persons c ON c.id=g.child_person_id AND c.archived_at IS NULL
-WHERE g.child_person_id=$1 AND g.guardian_person_id=$2 AND g.revoked_at IS NULL
+WHERE g.child_person_id=?1 AND g.guardian_person_id=?2 AND g.revoked_at IS NULL
 `
 
 type GetGuardianAccessFactsParams struct {
@@ -78,9 +80,9 @@ type GetGuardianAccessFactsParams struct {
 	GuardianPersonID int32
 }
 
-func (q *Queries) GetGuardianAccessFacts(ctx context.Context, arg GetGuardianAccessFactsParams) (pgtype.Date, error) {
-	row := q.db.QueryRow(ctx, getGuardianAccessFacts, arg.ChildPersonID, arg.GuardianPersonID)
-	var birth_date pgtype.Date
+func (q *Queries) GetGuardianAccessFacts(ctx context.Context, arg GetGuardianAccessFactsParams) (dbtypes.Date, error) {
+	row := q.db.QueryRowContext(ctx, getGuardianAccessFacts, arg.ChildPersonID, arg.GuardianPersonID)
+	var birth_date dbtypes.Date
 	err := row.Scan(&birth_date)
 	return birth_date, err
 }
@@ -92,7 +94,7 @@ JOIN person_guardians r USING(child_person_id,guardian_person_id)
 JOIN persons p ON p.id=g.guardian_person_id AND p.archived_at IS NULL
 JOIN persons c ON c.id=g.child_person_id AND c.archived_at IS NULL
 JOIN users u ON u.person_id=p.id AND u.is_active AND u.activated_at IS NOT NULL AND u.password_hash IS NOT NULL
-WHERE g.child_person_id=$1 AND g.revoked_at IS NULL ORDER BY g.id
+WHERE g.child_person_id=?1 AND g.revoked_at IS NULL ORDER BY g.id
 `
 
 type ListActiveGuardiansForChildRow struct {
@@ -100,12 +102,12 @@ type ListActiveGuardiansForChildRow struct {
 	FirstName        string
 	LastName         string
 	RelationshipType string
-	GrantedAt        pgtype.Timestamptz
-	BirthDate        pgtype.Date
+	GrantedAt        dbtypes.Timestamp
+	BirthDate        dbtypes.Date
 }
 
 func (q *Queries) ListActiveGuardiansForChild(ctx context.Context, childPersonID int32) ([]ListActiveGuardiansForChildRow, error) {
-	rows, err := q.db.Query(ctx, listActiveGuardiansForChild, childPersonID)
+	rows, err := q.db.QueryContext(ctx, listActiveGuardiansForChild, childPersonID)
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +127,9 @@ func (q *Queries) ListActiveGuardiansForChild(ctx context.Context, childPersonID
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -134,17 +139,40 @@ func (q *Queries) ListActiveGuardiansForChild(ctx context.Context, childPersonID
 const listInteractionGuardianEdges = `-- name: ListInteractionGuardianEdges :many
 SELECT g.child_person_id,g.guardian_person_id FROM guardian_access_grants g
 JOIN person_guardians r USING(child_person_id,guardian_person_id)
-WHERE g.revoked_at IS NULL AND g.child_person_id=ANY($1::integer[])
-AND g.guardian_person_id=ANY($1::integer[])
+WHERE g.revoked_at IS NULL AND g.child_person_id IN (/*SLICE:ids*/?)
+AND g.guardian_person_id IN (/*SLICE:guardian_ids*/?)
 `
+
+type ListInteractionGuardianEdgesParams struct {
+	Ids         []int32
+	GuardianIds []int32
+}
 
 type ListInteractionGuardianEdgesRow struct {
 	ChildPersonID    int32
 	GuardianPersonID int32
 }
 
-func (q *Queries) ListInteractionGuardianEdges(ctx context.Context, dollar_1 []int32) ([]ListInteractionGuardianEdgesRow, error) {
-	rows, err := q.db.Query(ctx, listInteractionGuardianEdges, dollar_1)
+func (q *Queries) ListInteractionGuardianEdges(ctx context.Context, arg ListInteractionGuardianEdgesParams) ([]ListInteractionGuardianEdgesRow, error) {
+	query := listInteractionGuardianEdges
+	var queryParams []interface{}
+	if len(arg.Ids) > 0 {
+		for _, v := range arg.Ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(arg.Ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	if len(arg.GuardianIds) > 0 {
+		for _, v := range arg.GuardianIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:guardian_ids*/?", strings.Repeat(",?", len(arg.GuardianIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:guardian_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}
@@ -157,6 +185,9 @@ func (q *Queries) ListInteractionGuardianEdges(ctx context.Context, dollar_1 []i
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -166,18 +197,28 @@ func (q *Queries) ListInteractionGuardianEdges(ctx context.Context, dollar_1 []i
 const listInteractionParticipants = `-- name: ListInteractionParticipants :many
 SELECT u.id AS user_id,p.id AS person_id,p.birth_date
 FROM users u JOIN persons p ON p.id=u.person_id
-WHERE u.id=ANY($1::integer[]) AND u.is_active AND u.activated_at IS NOT NULL
+WHERE u.id IN (/*SLICE:ids*/?) AND u.is_active AND u.activated_at IS NOT NULL
 AND u.password_hash IS NOT NULL AND p.archived_at IS NULL
 `
 
 type ListInteractionParticipantsRow struct {
 	UserID    int32
 	PersonID  int32
-	BirthDate pgtype.Date
+	BirthDate dbtypes.Date
 }
 
-func (q *Queries) ListInteractionParticipants(ctx context.Context, dollar_1 []int32) ([]ListInteractionParticipantsRow, error) {
-	rows, err := q.db.Query(ctx, listInteractionParticipants, dollar_1)
+func (q *Queries) ListInteractionParticipants(ctx context.Context, ids []int32) ([]ListInteractionParticipantsRow, error) {
+	query := listInteractionParticipants
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}
@@ -189,6 +230,9 @@ func (q *Queries) ListInteractionParticipants(ctx context.Context, dollar_1 []in
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -203,20 +247,20 @@ JOIN person_guardians r USING(child_person_id,guardian_person_id)
 JOIN persons p ON p.id=g.guardian_person_id AND p.archived_at IS NULL
 JOIN persons c ON c.id=g.child_person_id AND c.archived_at IS NULL
 JOIN users u ON u.person_id=p.id AND u.is_active AND u.activated_at IS NOT NULL AND u.password_hash IS NOT NULL
-WHERE u.id=$1 AND g.revoked_at IS NULL ORDER BY g.id
+WHERE u.id=?1 AND g.revoked_at IS NULL ORDER BY g.id
 `
 
 type ListManagedChildrenForGuardianRow struct {
 	ID               int32
 	FirstName        string
 	LastName         string
-	BirthDate        pgtype.Date
+	BirthDate        dbtypes.Date
 	RelationshipType string
-	GrantedAt        pgtype.Timestamptz
+	GrantedAt        dbtypes.Timestamp
 }
 
 func (q *Queries) ListManagedChildrenForGuardian(ctx context.Context, id int32) ([]ListManagedChildrenForGuardianRow, error) {
-	rows, err := q.db.Query(ctx, listManagedChildrenForGuardian, id)
+	rows, err := q.db.QueryContext(ctx, listManagedChildrenForGuardian, id)
 	if err != nil {
 		return nil, err
 	}
@@ -236,6 +280,9 @@ func (q *Queries) ListManagedChildrenForGuardian(ctx context.Context, id int32) 
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -243,7 +290,7 @@ func (q *Queries) ListManagedChildrenForGuardian(ctx context.Context, id int32) 
 }
 
 const lockGuardianRelation = `-- name: LockGuardianRelation :one
-SELECT id, child_person_id, guardian_person_id, relationship_type, is_primary_contact, created_at FROM person_guardians WHERE child_person_id=$1 AND guardian_person_id=$2 FOR UPDATE
+SELECT id, child_person_id, guardian_person_id, relationship_type, is_primary_contact, created_at FROM person_guardians WHERE child_person_id=?1 AND guardian_person_id=?2
 `
 
 type LockGuardianRelationParams struct {
@@ -252,7 +299,7 @@ type LockGuardianRelationParams struct {
 }
 
 func (q *Queries) LockGuardianRelation(ctx context.Context, arg LockGuardianRelationParams) (PersonGuardian, error) {
-	row := q.db.QueryRow(ctx, lockGuardianRelation, arg.ChildPersonID, arg.GuardianPersonID)
+	row := q.db.QueryRowContext(ctx, lockGuardianRelation, arg.ChildPersonID, arg.GuardianPersonID)
 	var i PersonGuardian
 	err := row.Scan(
 		&i.ID,
@@ -266,17 +313,17 @@ func (q *Queries) LockGuardianRelation(ctx context.Context, arg LockGuardianRela
 }
 
 const revokeGuardianAccessGrant = `-- name: RevokeGuardianAccessGrant :exec
-UPDATE guardian_access_grants SET revoked_at=clock_timestamp(),revoked_by_user_id=$3
-WHERE child_person_id=$1 AND guardian_person_id=$2 AND revoked_at IS NULL
+UPDATE guardian_access_grants SET revoked_at=strftime('%Y-%m-%d %H:%M:%f','now'),revoked_by_user_id=?1
+WHERE child_person_id=?2 AND guardian_person_id=?3 AND revoked_at IS NULL
 `
 
 type RevokeGuardianAccessGrantParams struct {
+	RevokedByUserID  sql.NullInt32
 	ChildPersonID    int32
 	GuardianPersonID int32
-	RevokedByUserID  pgtype.Int4
 }
 
 func (q *Queries) RevokeGuardianAccessGrant(ctx context.Context, arg RevokeGuardianAccessGrantParams) error {
-	_, err := q.db.Exec(ctx, revokeGuardianAccessGrant, arg.ChildPersonID, arg.GuardianPersonID, arg.RevokedByUserID)
+	_, err := q.db.ExecContext(ctx, revokeGuardianAccessGrant, arg.RevokedByUserID, arg.ChildPersonID, arg.GuardianPersonID)
 	return err
 }

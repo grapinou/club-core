@@ -8,11 +8,11 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/authorization"
+	"github.com/grapinou/club-core/internal/database"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -30,18 +30,18 @@ type Acceptance struct {
 	Status string `json:"status"`
 }
 type Submitter struct {
-	db    *pgxpool.Pool
+	db    *sql.DB
 	email *EmailService
 }
 
 // NewEmailSubmitter atomically stages an identity and an optional delivery intent.
 // It has no mailer dependency and cannot perform SMTP I/O.
-func NewEmailSubmitter(db *pgxpool.Pool, email *EmailService) *Submitter {
+func NewEmailSubmitter(db *sql.DB, email *EmailService) *Submitter {
 	return &Submitter{db: db, email: email}
 }
 
 // NewSubmitter stages only for internal review workflows.
-func NewSubmitter(db *pgxpool.Pool) *Submitter { return &Submitter{db: db} }
+func NewSubmitter(db *sql.DB) *Submitter { return &Submitter{db: db} }
 
 // InvalidInputFields shares identity size/encoding rules with the public form.
 // Birth date and email remain optional for identity-only internal workflows.
@@ -49,19 +49,19 @@ func InvalidInputFields(in SubmissionInput) []string {
 	var invalid []string
 	for _, field := range []struct {
 		key      string
-		value    pgtype.Text
+		value    sql.NullString
 		max      int
 		required bool
 	}{
-		{"first_name", pgtype.Text{String: in.FirstName, Valid: true}, 200, true},
-		{"last_name", pgtype.Text{String: in.LastName, Valid: true}, 200, true},
+		{"first_name", sql.NullString{String: in.FirstName, Valid: true}, 200, true},
+		{"last_name", sql.NullString{String: in.LastName, Valid: true}, 200, true},
 		{"email", in.Email, 254, false}, {"phone_number", in.PhoneNumber, 80, false}, {"address", in.Address, 2000, false},
 	} {
 		if (field.required && strings.TrimSpace(field.value.String) == "") || (field.value.Valid && (!utf8.ValidString(field.value.String) || utf8.RuneCountInString(field.value.String) > field.max || strings.ContainsRune(field.value.String, 0))) {
 			invalid = append(invalid, field.key)
 		}
 	}
-	if in.BirthDate.Valid && in.BirthDate.InfinityModifier != pgtype.Finite {
+	if in.BirthDate.Valid && !in.BirthDate.IsFinite() {
 		invalid = append(invalid, "birth_date")
 	}
 	return invalid
@@ -78,22 +78,16 @@ func (s *Submitter) CreateSubmission(ctx context.Context, in SubmissionInput) (A
 	return Acceptance{Status: "submission accepted"}, nil
 }
 func (s *Submitter) create(ctx context.Context, in SubmissionInput) (int32, error) {
-	isolation := pgx.RepeatableRead
-	if s.email != nil {
-		// A fresh snapshot after the recipient advisory lock must see the previous
-		// enqueue's commit. Eligibility is re-read in this same transaction.
-		isolation = pgx.ReadCommitted
-	}
-	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: isolation})
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	sub, err := s.CreateInTransaction(ctx, tx, in)
 	if err != nil {
 		return 0, err
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return 0, err
 	}
 	return sub.ID, nil
@@ -101,7 +95,7 @@ func (s *Submitter) create(ctx context.Context, in SubmissionInput) (int32, erro
 
 // CreateInTransaction stages identity evidence and any email intent atomically
 // with a complete public application. Callers use READ COMMITTED for the quota.
-func (s *Submitter) CreateInTransaction(ctx context.Context, tx pgx.Tx, in SubmissionInput) (dbsqlc.RegistrationSubmission, error) {
+func (s *Submitter) CreateInTransaction(ctx context.Context, tx *sql.Tx, in SubmissionInput) (dbsqlc.RegistrationSubmission, error) {
 	if !ValidInput(in) {
 		return dbsqlc.RegistrationSubmission{}, ErrInvalidSubmission
 	}
@@ -141,13 +135,13 @@ func (s *Submitter) CreateInTransaction(ctx context.Context, tx pgx.Tx, in Submi
 func normalizedName(s string) string {
 	return norm.NFC.String(strings.ToLower(strings.Join(strings.Fields(s), " ")))
 }
-func normalizedEmail(s pgtype.Text) string {
+func normalizedEmail(s sql.NullString) string {
 	if !s.Valid {
 		return ""
 	}
 	return strings.ToLower(strings.TrimSpace(s.String))
 }
-func normalizedPhone(s pgtype.Text) string {
+func normalizedPhone(s sql.NullString) string {
 	if !s.Valid {
 		return ""
 	}
@@ -180,7 +174,7 @@ func match(in SubmissionInput, p dbsqlc.ListIdentityMatchingPersonsRow) (dbsqlc.
 	if !e.MatchedName {
 		return e, false
 	}
-	e.MatchedBirthDate = in.BirthDate.Valid && p.BirthDate.Valid && in.BirthDate.InfinityModifier == pgtype.Finite && p.BirthDate.InfinityModifier == pgtype.Finite && in.BirthDate.Time.Format("2006-01-02") == p.BirthDate.Time.Format("2006-01-02")
+	e.MatchedBirthDate = in.BirthDate.Valid && p.BirthDate.Valid && in.BirthDate.IsFinite() && p.BirthDate.IsFinite() && in.BirthDate.Time.Format("2006-01-02") == p.BirthDate.Time.Format("2006-01-02")
 	email, phone := normalizedEmail(in.Email), normalizedPhone(in.PhoneNumber)
 	e.MatchedEmail = email != "" && email == normalizedEmail(p.Email)
 	e.MatchedPhone = phone != "" && phone == normalizedPhone(p.PhoneNumber)
@@ -198,12 +192,12 @@ type PermissionChecker interface {
 	HasPermission(context.Context, int32, authorization.Permission) (bool, error)
 }
 type ReviewService struct {
-	db          *pgxpool.Pool
+	db          *sql.DB
 	permissions PermissionChecker
 	finalizer   ResolutionFinalizer
 }
 
-func NewReviewService(db *pgxpool.Pool, p PermissionChecker) *ReviewService {
+func NewReviewService(db *sql.DB, p PermissionChecker) *ReviewService {
 	return &ReviewService{db: db, permissions: p}
 }
 func (s *ReviewService) require(ctx context.Context, actor int32) error {
@@ -258,11 +252,11 @@ func (s *ReviewService) GetDetails(ctx context.Context, actor, id int32) (Detail
 	if err := ExpirePendingVerifications(ctx, s.db); err != nil {
 		return Details{}, err
 	}
-	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Details{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	q := dbsqlc.New(tx)
 	sub, err := q.GetRegistrationSubmission(ctx, id)
 	if err != nil {
@@ -285,8 +279,8 @@ func (s *ReviewService) GetDetails(ctx context.Context, actor, id int32) (Detail
 			if cd.Candidates, err = q.ListGuardianIdentityCandidates(ctx, child.GuardianClaimID); err != nil {
 				return Details{}, err
 			}
-			e = tx.QueryRow(ctx, `SELECT relationship_type FROM person_guardians WHERE child_person_id=$1 AND guardian_person_id=$2`, sub.ResolvedPersonID, cd.Guardian.ResolvedPersonID).Scan(&cd.ExistingRelationship)
-			if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+			e = tx.QueryRowContext(ctx, `SELECT relationship_type FROM person_guardians WHERE child_person_id=?1 AND guardian_person_id=?2`, sub.ResolvedPersonID, cd.Guardian.ResolvedPersonID).Scan(&cd.ExistingRelationship)
+			if e != nil && !errors.Is(e, sql.ErrNoRows) {
 				return Details{}, e
 			}
 			cd.RelationExists = e == nil
@@ -300,12 +294,12 @@ func (s *ReviewService) GetDetails(ctx context.Context, actor, id int32) (Detail
 				u, e := q.GetUserByPerson(ctx, cd.Guardian.ResolvedPersonID.Int32)
 				if e == nil {
 					cd.GuardianUser = &u
-				} else if !errors.Is(e, pgx.ErrNoRows) {
+				} else if !errors.Is(e, sql.ErrNoRows) {
 					return Details{}, e
 				}
 			}
 			detail.Child = cd
-		} else if !errors.Is(e, pgx.ErrNoRows) {
+		} else if !errors.Is(e, sql.ErrNoRows) {
 			return Details{}, e
 		}
 		if detail.Activities, err = q.ListRegistrationApplicationActivities(ctx, application.ID); err != nil {
@@ -314,10 +308,10 @@ func (s *ReviewService) GetDetails(ctx context.Context, actor, id int32) (Detail
 		if detail.Consents, err = q.ListRegistrationApplicationConsents(ctx, application.ID); err != nil {
 			return Details{}, err
 		}
-	} else if !errors.Is(appErr, pgx.ErrNoRows) {
+	} else if !errors.Is(appErr, sql.ErrNoRows) {
 		return Details{}, appErr
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return Details{}, err
 	}
 	return detail, nil
@@ -328,22 +322,24 @@ func (s *ReviewService) LinkPerson(ctx context.Context, actor, id, person int32)
 func (s *ReviewService) CreatePerson(ctx context.Context, actor, id int32) error {
 	return s.resolve(ctx, actor, id, nil)
 }
-func cleanText(t pgtype.Text) pgtype.Text {
+func cleanText(t sql.NullString) sql.NullString {
 	v := strings.TrimSpace(t.String)
-	return pgtype.Text{String: v, Valid: t.Valid && v != ""}
+	return sql.NullString{String: v, Valid: t.Valid && v != ""}
 }
 func (s *ReviewService) resolve(ctx context.Context, actor, id int32, person *int32) error {
 	if err := s.require(ctx, actor); err != nil {
 		return err
 	}
-	tx, err := s.db.Begin(ctx)
+	unlock, _, err := database.LockDelivery(ctx, s.db, id, true)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
-	if err = LockDeliveryDecision(ctx, tx, id); err != nil {
+	defer unlock()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 	q := dbsqlc.New(tx)
 	sub, err := q.LockRegistrationSubmission(ctx, id)
 	if err != nil {
@@ -373,7 +369,7 @@ func (s *ReviewService) resolve(ctx context.Context, actor, id int32, person *in
 	if err = invalidateProofs(ctx, tx, id); err != nil {
 		return err
 	}
-	_, err = q.ResolveRegistrationSubmission(ctx, dbsqlc.ResolveRegistrationSubmissionParams{ID: id, ResolvedPersonID: pgtype.Int4{Int32: target, Valid: true}, ResolutionType: pgtype.Text{String: kind, Valid: true}, ResolvedByUserID: pgtype.Int4{Int32: actor, Valid: true}})
+	_, err = q.ResolveRegistrationSubmission(ctx, dbsqlc.ResolveRegistrationSubmissionParams{ID: id, ResolvedPersonID: sql.NullInt32{Int32: target, Valid: true}, ResolutionType: sql.NullString{String: kind, Valid: true}, ResolvedByUserID: sql.NullInt32{Int32: actor, Valid: true}})
 	if err != nil {
 		return err
 	}
@@ -382,7 +378,7 @@ func (s *ReviewService) resolve(ctx context.Context, actor, id int32, person *in
 			return err
 		}
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return err
 	}
 	s.afterResolution(ctx, id)
@@ -395,14 +391,16 @@ func (s *ReviewService) RetryApplication(ctx context.Context, actor, id int32) e
 	if err := s.require(ctx, actor); err != nil {
 		return err
 	}
-	tx, err := s.db.Begin(ctx)
+	unlock, _, err := database.LockDelivery(ctx, s.db, id, true)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
-	if err = LockDeliveryDecision(ctx, tx, id); err != nil {
+	defer unlock()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 	sub, err := dbsqlc.New(tx).LockRegistrationSubmission(ctx, id)
 	if err != nil {
 		return err
@@ -413,7 +411,7 @@ func (s *ReviewService) RetryApplication(ctx context.Context, actor, id int32) e
 	if err = s.finalizer.FinalizeSubmission(ctx, tx, id); err != nil {
 		return err
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return err
 	}
 	s.afterResolution(ctx, id)
@@ -423,5 +421,5 @@ func (s *ReviewService) RetryApplication(ctx context.Context, actor, id int32) e
 // NormalizePhone shares the existing matching normalization with contact updates.
 // Empty means absent or invalid; callers distinguish these using their raw input.
 func NormalizePhone(value string) string {
-	return normalizedPhone(pgtype.Text{String: value, Valid: true})
+	return normalizedPhone(sql.NullString{String: value, Valid: true})
 }

@@ -10,20 +10,21 @@ import (
 	"strings"
 	"time"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/accounts"
 	"github.com/grapinou/club-core/internal/administration"
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/consents"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 	"github.com/grapinou/club-core/internal/guardianaccess"
 	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/grapinou/club-core/internal/trials"
 	"github.com/grapinou/club-core/internal/views"
 	"github.com/grapinou/club-core/internal/websecurity"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
+	"modernc.org/sqlite"
 )
 
 type AdministrativeHandler struct {
@@ -44,7 +45,7 @@ func (h *AdministrativeHandler) base(r *http.Request, mode string) views.Adminis
 func (h *AdministrativeHandler) render(w http.ResponseWriter, r *http.Request, v views.AdministrativeView, err error) {
 	status := 200
 	if err != nil {
-		var dbErr *pgconn.PgError
+		var dbErr *sqlite.Error
 		var quota *trials.QuotaExceededError
 		switch {
 		case errors.As(err, &quota):
@@ -56,7 +57,7 @@ func (h *AdministrativeHandler) render(w http.ResponseWriter, r *http.Request, v
 		case errors.Is(err, authorization.ErrForbidden):
 			http.Error(w, "Accès refusé", 403)
 			return
-		case errors.Is(err, pgx.ErrNoRows):
+		case errors.Is(err, sql.ErrNoRows):
 			http.NotFound(w, r)
 			return
 		case errors.Is(err, administration.ErrConflict):
@@ -90,7 +91,7 @@ func (h *AdministrativeHandler) render(w http.ResponseWriter, r *http.Request, v
 			case "membership-groups":
 				v.Error = "Le groupe doit être actif et correspondre à une activité de l’adhésion. Vérifiez les dates et l’absence de chevauchement avec l’historique."
 			}
-		case errors.As(err, &dbErr) && (dbErr.Code == "23505" || dbErr.Code == "23514" || dbErr.Code == "23503"):
+		case errors.As(err, &dbErr) && (dbErr.Code() == 2067 || dbErr.Code() == 275 || dbErr.Code() == 787):
 			status = 422
 			v.Error = "Cette opération est incompatible avec le dossier ou existe déjà. Consultez son historique."
 		default:
@@ -119,7 +120,7 @@ func (h *AdministrativeHandler) render(w http.ResponseWriter, r *http.Request, v
 func adminID(r *http.Request, key string) (int32, error) {
 	id, e := strconv.ParseInt(r.PathValue(key), 10, 32)
 	if e != nil || id <= 0 {
-		return 0, pgx.ErrNoRows
+		return 0, sql.ErrNoRows
 	}
 	return int32(id), nil
 }
@@ -133,15 +134,15 @@ func formID(f url.Values, key string, optional bool) (int32, error) {
 	}
 	return int32(n), nil
 }
-func formDate(value string, optional bool) (pgtype.Date, error) {
+func formDate(value string, optional bool) (dbtypes.Date, error) {
 	if value == "" && optional {
-		return pgtype.Date{}, nil
+		return dbtypes.Date{}, nil
 	}
 	t, e := time.Parse("2006-01-02", value)
 	if e != nil {
-		return pgtype.Date{}, administration.ErrInvalid
+		return dbtypes.Date{}, administration.ErrInvalid
 	}
-	return pgtype.Date{Time: t, Valid: true}, nil
+	return dbtypes.Date{Time: t, Valid: true}, nil
 }
 func scheduleForm(f url.Values) (dbsqlc.RescheduleTrialParams, error) {
 	var p dbsqlc.RescheduleTrialParams
@@ -158,8 +159,8 @@ func scheduleForm(f url.Values) (dbsqlc.RescheduleTrialParams, error) {
 	if e != nil {
 		return p, e
 	}
-	p.GroupID = pgtype.Int4{Int32: g, Valid: g != 0}
-	p.GroupSlotID = pgtype.Int4{Int32: slot, Valid: slot != 0}
+	p.GroupID = sql.NullInt32{Int32: g, Valid: g != 0}
+	p.GroupSlotID = sql.NullInt32{Int32: slot, Valid: slot != 0}
 	p.TrialDate, e = formDate(f.Get("trial_date"), false)
 	return p, e
 }
@@ -280,7 +281,7 @@ func (h *AdministrativeHandler) listTrials(w http.ResponseWriter, r *http.Reques
 	}
 	on, e := formDate(v.Form.Get("date"), true)
 	var weekStart time.Time
-	from := pgtype.Date{}
+	from := dbtypes.Date{}
 	if v.Form.Get("upcoming") == "1" {
 		from = h.s.Today()
 		from.Time = from.Time.AddDate(0, 0, 1)
@@ -393,7 +394,7 @@ func (h *AdministrativeHandler) schedule(w http.ResponseWriter, r *http.Request)
 		p, e = scheduleForm(v.Form)
 		if e == nil {
 			var trial int32
-			trial, e = h.s.Schedule(r.Context(), dbsqlc.CreateTrialParams{PersonID: id, ActivityID: p.ActivityID, GroupID: p.GroupID, GroupSlotID: p.GroupSlotID, TrialDate: p.TrialDate, Notes: pgtype.Text{String: v.Form.Get("notes"), Valid: true}})
+			trial, e = h.s.Schedule(r.Context(), dbsqlc.CreateTrialParams{PersonID: id, ActivityID: p.ActivityID, GroupID: p.GroupID, GroupSlotID: p.GroupSlotID, TrialDate: p.TrialDate, Notes: sql.NullString{String: v.Form.Get("notes"), Valid: true}})
 			if e == nil {
 				adminRedirect(w, r, fmt.Sprintf("/trials/%d", trial))
 				return
@@ -445,7 +446,7 @@ func (h *AdministrativeHandler) requestMembership(w http.ResponseWriter, r *http
 			t, err := h.s.Trial(r.Context(), source)
 			e = err
 			if e == nil && t.PersonID != id {
-				e = pgx.ErrNoRows
+				e = sql.ErrNoRows
 			}
 			if e == nil {
 				if t.MembershipID != 0 {
@@ -571,7 +572,7 @@ func (h *AdministrativeHandler) groups(w http.ResponseWriter, r *http.Request) {
 		if r.PathValue("assignment") != "" {
 			var assignment int32
 			assignment, e = adminID(r, "assignment")
-			var left pgtype.Date
+			var left dbtypes.Date
 			if e == nil {
 				left, e = formDate(v.Form.Get("left_at"), false)
 			}
@@ -581,7 +582,7 @@ func (h *AdministrativeHandler) groups(w http.ResponseWriter, r *http.Request) {
 		} else {
 			var g int32
 			g, e = formID(v.Form, "group_id", false)
-			var joined pgtype.Date
+			var joined dbtypes.Date
 			if e == nil {
 				joined, e = formDate(v.Form.Get("joined_at"), false)
 			}

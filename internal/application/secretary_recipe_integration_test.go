@@ -60,7 +60,7 @@ func TestP431TrialHTTPDiagnostic(t *testing.T) {
 	g, _ := f.officeGroup()
 	for _, fromTrial := range []bool{true, false} {
 		p := f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES('Parcours','Recette','1990-01-01') RETURNING id")
-		tr := f.id("INSERT INTO trial_registrations(person_id,activity_id,group_id,trial_date,status) VALUES($1,$2,$3,'2026-09-20','attended') RETURNING id", p, f.activity, g)
+		tr := f.id("INSERT INTO trial_registrations(person_id,activity_id,group_id,trial_date,status) VALUES(?1,?2,?3,'2026-09-20','attended') RETURNING id", p, f.activity, g)
 		path := officePerson(p) + "/memberships/new"
 		entry := path
 		if fromTrial {
@@ -86,12 +86,12 @@ func TestP431TrialHTTPDiagnostic(t *testing.T) {
 		if r.Code != 303 {
 			t.Fatal(r.Code, r.Body.String())
 		}
-		id := f.id("SELECT id FROM memberships WHERE person_id=$1", p)
+		id := f.id("SELECT id FROM memberships WHERE person_id=?1", p)
 		expected := 0
 		if fromTrial {
 			expected = 1
 		}
-		if f.count("SELECT count(*) FROM memberships WHERE id=$1 AND source_trial_id=$2", id, tr) != expected || f.count("SELECT count(*) FROM membership_groups WHERE membership_id=$1 AND group_id=$2", id, g) != 1 || f.count("SELECT count(*) FROM administrative_events WHERE resource_id=$1 AND action='membership_trial_group_assigned'", id) != expected {
+		if f.count("SELECT count(*) FROM memberships WHERE id=?1 AND source_trial_id=?2", id, tr) != expected || f.count("SELECT count(*) FROM membership_groups WHERE membership_id=?1 AND group_id=?2", id, g) != 1 || f.count("SELECT count(*) FROM administrative_events WHERE resource_id=?1 AND action='membership_trial_group_assigned'", id) != expected {
 			t.Fatal("HTTP conversion result", fromTrial)
 		}
 		t.Logf("fromTrial=%v: source/audit count=%d, group count=1 (visible unique default for direct request), redirect=%s", fromTrial, expected, r.Header().Get("Location"))
@@ -156,7 +156,7 @@ func TestP431NavigationAndCreation(t *testing.T) {
 	if r.Code != 303 {
 		t.Fatal(r.Code, r.Body.String())
 	}
-	m := f.id("SELECT id FROM memberships WHERE person_id=$1 AND status='pending' AND source_trial_id IS NULL", f.person)
+	m := f.id("SELECT id FROM memberships WHERE person_id=?1 AND status='pending' AND source_trial_id IS NULL", f.person)
 	if r.Header().Get("Location") != dossierPath(m)+"?notice=requested" || f.count("SELECT count(*) FROM membership_groups") != 0 {
 		t.Fatal("direct creation")
 	}
@@ -192,7 +192,7 @@ func TestP431NavigationAndCreation(t *testing.T) {
 	if b.call("POST", path, form).Code != 303 {
 		t.Fatal("new person membership")
 	}
-	if f.count("SELECT count(*) FROM memberships WHERE person_id=$1 AND status='pending' AND source_trial_id IS NULL", p) != 1 {
+	if f.count("SELECT count(*) FROM memberships WHERE person_id=?1 AND status='pending' AND source_trial_id IS NULL", p) != 1 {
 		t.Fatal("new membership")
 	}
 	personForm.Set("after", "https://outside.example/")
@@ -212,7 +212,7 @@ func TestP431NavigationAndCreation(t *testing.T) {
 			t.Fatal("POST RBAC", path)
 		}
 	}
-	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='president'", f.approver)
+	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='president'", f.approver)
 	nav = regexp.MustCompile(`(?s)<nav class="admin-nav".*?</nav>`).FindString(officeOK(t, b, "/memberships"))
 	if strings.Index(nav, `href="/admin/users"`) < strings.Index(nav, `href="/persons"`) || strings.Index(nav, `href="/admin/config"`) < strings.Index(nav, `href="/admin/users"`) {
 		t.Fatal("president ordering")
@@ -223,9 +223,9 @@ func TestP431EffectiveFamilySummary(t *testing.T) {
 	f := newFixture(t)
 	b := p43Secretary(f)
 	child, parent := f.guardianPair()
-	f.id("INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES($1,$2,$3,'pending') RETURNING id", child, f.season, f.kind)
-	user := f.id("INSERT INTO users(person_id,username) VALUES($1,'parent.recipe') RETURNING id", parent)
-	f.id("INSERT INTO guardian_access_grants(child_person_id,guardian_person_id,granted_by_user_id) VALUES($1,$2,$3) RETURNING id", child, parent, f.approver)
+	f.id("INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES(?1,?2,?3,'pending') RETURNING id", child, f.season, f.kind)
+	user := f.id("INSERT INTO users(person_id,username) VALUES(?1,'parent.recipe') RETURNING id", parent)
+	f.id("INSERT INTO guardian_access_grants(child_person_id,guardian_person_id,granted_by_user_id) VALUES(?1,?2,?3) RETURNING id", child, parent, f.approver)
 	assertAccess := func(want bool) {
 		t.Helper()
 		body := officeOK(t, b, "/memberships")
@@ -243,23 +243,23 @@ func TestP431EffectiveFamilySummary(t *testing.T) {
 		}
 	}
 	assertAccess(false)
-	f.exec("UPDATE users SET activated_at=now() WHERE id=$1", user)
+	f.exec("UPDATE users SET activated_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?1", user)
 	assertAccess(false)
-	f.exec("UPDATE users SET password_hash='test-secret-never-rendered' WHERE id=$1", user)
+	f.exec("UPDATE users SET password_hash='test-secret-never-rendered' WHERE id=?1", user)
 	assertAccess(true)
-	for _, q := range []string{"UPDATE users SET is_active=false WHERE id=$1", "UPDATE persons SET archived_at=now() WHERE id=$1", "UPDATE guardian_access_grants SET revoked_at=now(),revoked_by_user_id=$2 WHERE guardian_person_id=$1"} {
+	for _, q := range []string{"UPDATE users SET is_active=false WHERE id=?1", "UPDATE persons SET archived_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?1", "UPDATE guardian_access_grants SET revoked_at=strftime('%Y-%m-%d %H:%M:%f','now'),revoked_by_user_id=?2 WHERE guardian_person_id=?1"} {
 		target := parent
 		if strings.Contains(q, "UPDATE users") {
 			target = user
 		}
-		if strings.Contains(q, "$2") {
+		if strings.Contains(q, "?2") {
 			f.exec(q, target, f.approver)
 		} else {
 			f.exec(q, target)
 		}
 		assertAccess(false)
-		f.exec("UPDATE users SET is_active=true WHERE id=$1", user)
-		f.exec("UPDATE persons SET archived_at=NULL WHERE id=$1", parent)
+		f.exec("UPDATE users SET is_active=true WHERE id=?1", user)
+		f.exec("UPDATE persons SET archived_at=NULL WHERE id=?1", parent)
 	}
 }
 
@@ -267,9 +267,9 @@ func TestP431DiscoverAndChooseTrial(t *testing.T) {
 	f := newFixture(t)
 	b := p43Secretary(f)
 	g, _ := f.officeGroup()
-	trial := f.id("INSERT INTO trial_registrations(person_id,activity_id,group_id,trial_date,status) VALUES($1,$2,$3,'2026-09-20','attended') RETURNING id", f.person, f.activity, g)
-	another := f.id("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES($1,$2,'2026-09-21','attended') RETURNING id", f.person, f.activity)
-	f.id("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES($1,$2,'2026-09-22','registered') RETURNING id", f.person, f.activity)
+	trial := f.id("INSERT INTO trial_registrations(person_id,activity_id,group_id,trial_date,status) VALUES(?1,?2,?3,'2026-09-20','attended') RETURNING id", f.person, f.activity, g)
+	another := f.id("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES(?1,?2,'2026-09-21','attended') RETURNING id", f.person, f.activity)
+	f.id("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES(?1,?2,'2026-09-22','registered') RETURNING id", f.person, f.activity)
 	path := officePerson(f.person) + "/memberships/new"
 	body := officeOK(t, b, path, "Créer depuis un essai", "Groupe adultes", "Créer une adhésion directe", `href="/memberships" aria-current="page"`)
 	link := recipeLink(t, body, "Créer depuis cet essai du 20/09/2026 · Practice")
@@ -297,9 +297,9 @@ func TestP431DiscoverAndChooseTrial(t *testing.T) {
 	if r.Code != 303 {
 		t.Fatal(r.Code, r.Body.String())
 	}
-	m := f.id("SELECT id FROM memberships WHERE source_trial_id=$1", trial)
+	m := f.id("SELECT id FROM memberships WHERE source_trial_id=?1", trial)
 	officeOK(t, b, r.Header().Get("Location"), "Groupe repris de l’essai : Groupe adultes")
-	if f.count("SELECT count(*) FROM membership_groups WHERE membership_id=$1 AND group_id=$2", m, g) != 1 {
+	if f.count("SELECT count(*) FROM membership_groups WHERE membership_id=?1 AND group_id=?2", m, g) != 1 {
 		t.Fatal("discovery conversion")
 	}
 	eligible, err := f.app.Administration.EligibleSourceTrials(f.authenticatedContext(f.approver), f.person)

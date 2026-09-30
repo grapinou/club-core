@@ -7,12 +7,13 @@ package dbsqlc
 
 import (
 	"context"
+	"database/sql"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 const createLocation = `-- name: CreateLocation :one
-INSERT INTO locations (organization_id,name,address) VALUES ($1,$2,$3) RETURNING id, organization_id, name, address, is_active, created_at, updated_at
+INSERT INTO locations (organization_id,name,address) VALUES (?1,?2,?3) RETURNING id, organization_id, name, address, is_active, created_at, updated_at
 `
 
 type CreateLocationParams struct {
@@ -22,7 +23,7 @@ type CreateLocationParams struct {
 }
 
 func (q *Queries) CreateLocation(ctx context.Context, arg CreateLocationParams) (Location, error) {
-	row := q.db.QueryRow(ctx, createLocation, arg.OrganizationID, arg.Name, arg.Address)
+	row := q.db.QueryRowContext(ctx, createLocation, arg.OrganizationID, arg.Name, arg.Address)
 	var i Location
 	err := row.Scan(
 		&i.ID,
@@ -38,21 +39,21 @@ func (q *Queries) CreateLocation(ctx context.Context, arg CreateLocationParams) 
 
 const createOrganization = `-- name: CreateOrganization :one
 INSERT INTO organizations (name,short_name,description,public_email,public_phone,correspondence_address,website_url)
-VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, name, short_name, description, public_email, public_phone, correspondence_address, website_url, is_active, created_at, updated_at, public_phone_label, trial_session_description, trial_items_to_bring, trial_equipment_offer, trial_equipment_detail_prompt, public_rules_description, max_trials_per_person_per_season
+VALUES (?1,?2,?3,?4,?5,?6,?7) RETURNING id, name, short_name, description, public_email, public_phone, correspondence_address, website_url, is_active, created_at, updated_at, public_phone_label, trial_session_description, trial_items_to_bring, trial_equipment_offer, trial_equipment_detail_prompt, public_rules_description, max_trials_per_person_per_season
 `
 
 type CreateOrganizationParams struct {
 	Name                  string
-	ShortName             pgtype.Text
-	Description           pgtype.Text
-	PublicEmail           pgtype.Text
-	PublicPhone           pgtype.Text
-	CorrespondenceAddress pgtype.Text
-	WebsiteUrl            pgtype.Text
+	ShortName             sql.NullString
+	Description           sql.NullString
+	PublicEmail           sql.NullString
+	PublicPhone           sql.NullString
+	CorrespondenceAddress sql.NullString
+	WebsiteUrl            sql.NullString
 }
 
 func (q *Queries) CreateOrganization(ctx context.Context, arg CreateOrganizationParams) (Organization, error) {
-	row := q.db.QueryRow(ctx, createOrganization,
+	row := q.db.QueryRowContext(ctx, createOrganization,
 		arg.Name,
 		arg.ShortName,
 		arg.Description,
@@ -86,7 +87,7 @@ func (q *Queries) CreateOrganization(ctx context.Context, arg CreateOrganization
 }
 
 const createOrganizationLink = `-- name: CreateOrganizationLink :one
-INSERT INTO organization_links (organization_id,kind,label,url,position) VALUES ($1,$2,$3,$4,$5) RETURNING id, organization_id, kind, label, url, position, is_active, created_at, updated_at
+INSERT INTO organization_links (organization_id,kind,label,url,position) VALUES (?1,?2,?3,?4,?5) RETURNING id, organization_id, kind, label, url, position, is_active, created_at, updated_at
 `
 
 type CreateOrganizationLinkParams struct {
@@ -98,7 +99,7 @@ type CreateOrganizationLinkParams struct {
 }
 
 func (q *Queries) CreateOrganizationLink(ctx context.Context, arg CreateOrganizationLinkParams) (OrganizationLink, error) {
-	row := q.db.QueryRow(ctx, createOrganizationLink,
+	row := q.db.QueryRowContext(ctx, createOrganizationLink,
 		arg.OrganizationID,
 		arg.Kind,
 		arg.Label,
@@ -125,7 +126,7 @@ SELECT id, name, short_name, description, public_email, public_phone, correspond
 `
 
 func (q *Queries) GetActiveOrganization(ctx context.Context) (Organization, error) {
-	row := q.db.QueryRow(ctx, getActiveOrganization)
+	row := q.db.QueryRowContext(ctx, getActiveOrganization)
 	var i Organization
 	err := row.Scan(
 		&i.ID,
@@ -151,11 +152,11 @@ func (q *Queries) GetActiveOrganization(ctx context.Context) (Organization, erro
 }
 
 const getReferenceSeason = `-- name: GetReferenceSeason :one
-SELECT id, name, starts_at, ends_at, is_active, created_at FROM seasons WHERE name=$1
+SELECT id, name, starts_at, ends_at, is_active, created_at FROM seasons WHERE name=?1
 `
 
 func (q *Queries) GetReferenceSeason(ctx context.Context, name string) (Season, error) {
-	row := q.db.QueryRow(ctx, getReferenceSeason, name)
+	row := q.db.QueryRowContext(ctx, getReferenceSeason, name)
 	var i Season
 	err := row.Scan(
 		&i.ID,
@@ -169,11 +170,11 @@ func (q *Queries) GetReferenceSeason(ctx context.Context, name string) (Season, 
 }
 
 const listOrganizationLinks = `-- name: ListOrganizationLinks :many
-SELECT id, organization_id, kind, label, url, position, is_active, created_at, updated_at FROM organization_links WHERE organization_id=$1 ORDER BY position,id
+SELECT id, organization_id, kind, label, url, position, is_active, created_at, updated_at FROM organization_links WHERE organization_id=?1 ORDER BY position,id
 `
 
 func (q *Queries) ListOrganizationLinks(ctx context.Context, organizationID int32) ([]OrganizationLink, error) {
-	rows, err := q.db.Query(ctx, listOrganizationLinks, organizationID)
+	rows, err := q.db.QueryContext(ctx, listOrganizationLinks, organizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -196,6 +197,9 @@ func (q *Queries) ListOrganizationLinks(ctx context.Context, organizationID int3
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -203,11 +207,11 @@ func (q *Queries) ListOrganizationLinks(ctx context.Context, organizationID int3
 }
 
 const listOrganizationLocations = `-- name: ListOrganizationLocations :many
-SELECT id, organization_id, name, address, is_active, created_at, updated_at FROM locations WHERE organization_id=$1 ORDER BY name,id
+SELECT id, organization_id, name, address, is_active, created_at, updated_at FROM locations WHERE organization_id=?1 ORDER BY name,id
 `
 
 func (q *Queries) ListOrganizationLocations(ctx context.Context, organizationID int32) ([]Location, error) {
-	rows, err := q.db.Query(ctx, listOrganizationLocations, organizationID)
+	rows, err := q.db.QueryContext(ctx, listOrganizationLocations, organizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -228,6 +232,9 @@ func (q *Queries) ListOrganizationLocations(ctx context.Context, organizationID 
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -235,11 +242,11 @@ func (q *Queries) ListOrganizationLocations(ctx context.Context, organizationID 
 }
 
 const listOrganizationPublicImages = `-- name: ListOrganizationPublicImages :many
-SELECT organization_id, placement, src, webp_srcset, alt, width, height FROM organization_public_images WHERE organization_id=$1 ORDER BY placement
+SELECT organization_id, placement, src, webp_srcset, alt, width, height FROM organization_public_images WHERE organization_id=?1 ORDER BY placement
 `
 
 func (q *Queries) ListOrganizationPublicImages(ctx context.Context, organizationID int32) ([]OrganizationPublicImage, error) {
-	rows, err := q.db.Query(ctx, listOrganizationPublicImages, organizationID)
+	rows, err := q.db.QueryContext(ctx, listOrganizationPublicImages, organizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -260,6 +267,9 @@ func (q *Queries) ListOrganizationPublicImages(ctx context.Context, organization
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -268,12 +278,11 @@ func (q *Queries) ListOrganizationPublicImages(ctx context.Context, organization
 
 const listReferenceSchedule = `-- name: ListReferenceSchedule :many
 SELECT gs.id,gs.group_id,gs.season_id,g.name AS group_name,a.name AS activity_name,
- gs.weekday,to_char(gs.start_time,'HH24:MI')::text AS start_time,to_char(gs.end_time,'HH24:MI')::text AS end_time,
- gs.practice_label,gs.location_id,coalesce(l.name,gs.location,'')::text AS location_name,
- coalesce(l.address,'')::text AS location_address,gs.valid_from,gs.valid_until
+ gs.weekday,CAST(substr(gs.start_time,1,5) AS TEXT) AS start_time,CAST(substr(gs.end_time,1,5) AS TEXT) AS end_time,
+ gs.practice_label,gs.location_id,coalesce(l.name,gs.location,'') AS location_name, CAST(coalesce(l.address,'') AS TEXT) AS location_address,gs.valid_from,gs.valid_until
 FROM group_slots gs JOIN groups g ON g.id=gs.group_id JOIN activities a ON a.id=g.activity_id
 JOIN seasons s ON s.id=gs.season_id LEFT JOIN locations l ON l.id=gs.location_id
-WHERE s.id=$1 AND s.is_active AND gs.is_active AND g.is_active AND a.is_active
+WHERE s.id=?1 AND s.is_active AND gs.is_active AND g.is_active AND a.is_active
  AND (gs.location_id IS NULL OR l.is_active)
 ORDER BY gs.weekday,gs.start_time,gs.id
 `
@@ -287,16 +296,16 @@ type ListReferenceScheduleRow struct {
 	Weekday         int16
 	StartTime       string
 	EndTime         string
-	PracticeLabel   pgtype.Text
-	LocationID      pgtype.Int4
+	PracticeLabel   sql.NullString
+	LocationID      sql.NullInt32
 	LocationName    string
 	LocationAddress string
-	ValidFrom       pgtype.Date
-	ValidUntil      pgtype.Date
+	ValidFrom       dbtypes.Date
+	ValidUntil      dbtypes.Date
 }
 
 func (q *Queries) ListReferenceSchedule(ctx context.Context, id int32) ([]ListReferenceScheduleRow, error) {
-	rows, err := q.db.Query(ctx, listReferenceSchedule, id)
+	rows, err := q.db.QueryContext(ctx, listReferenceSchedule, id)
 	if err != nil {
 		return nil, err
 	}
@@ -324,6 +333,9 @@ func (q *Queries) ListReferenceSchedule(ctx context.Context, id int32) ([]ListRe
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -331,16 +343,16 @@ func (q *Queries) ListReferenceSchedule(ctx context.Context, id int32) ([]ListRe
 }
 
 const setGroupSlotLocation = `-- name: SetGroupSlotLocation :one
-UPDATE group_slots SET location_id=$2,location=NULL,updated_at=NOW() WHERE id=$1 RETURNING id, group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, created_at, updated_at, location_id, practice_label
+UPDATE group_slots SET location_id=?1,location=NULL,updated_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?2 RETURNING id, group_id, season_id, weekday, start_time, end_time, location, valid_from, valid_until, is_active, created_at, updated_at, location_id, practice_label
 `
 
 type SetGroupSlotLocationParams struct {
+	LocationID sql.NullInt32
 	ID         int32
-	LocationID pgtype.Int4
 }
 
 func (q *Queries) SetGroupSlotLocation(ctx context.Context, arg SetGroupSlotLocationParams) (GroupSlot, error) {
-	row := q.db.QueryRow(ctx, setGroupSlotLocation, arg.ID, arg.LocationID)
+	row := q.db.QueryRowContext(ctx, setGroupSlotLocation, arg.LocationID, arg.ID)
 	var i GroupSlot
 	err := row.Scan(
 		&i.ID,
@@ -362,22 +374,22 @@ func (q *Queries) SetGroupSlotLocation(ctx context.Context, arg SetGroupSlotLoca
 }
 
 const updateLocation = `-- name: UpdateLocation :one
-UPDATE locations SET name=$2,address=$3,is_active=$4,updated_at=NOW() WHERE id=$1 RETURNING id, organization_id, name, address, is_active, created_at, updated_at
+UPDATE locations SET name=?1,address=?2,is_active=?3,updated_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?4 RETURNING id, organization_id, name, address, is_active, created_at, updated_at
 `
 
 type UpdateLocationParams struct {
-	ID       int32
 	Name     string
 	Address  string
 	IsActive bool
+	ID       int32
 }
 
 func (q *Queries) UpdateLocation(ctx context.Context, arg UpdateLocationParams) (Location, error) {
-	row := q.db.QueryRow(ctx, updateLocation,
-		arg.ID,
+	row := q.db.QueryRowContext(ctx, updateLocation,
 		arg.Name,
 		arg.Address,
 		arg.IsActive,
+		arg.ID,
 	)
 	var i Location
 	err := row.Scan(
@@ -393,25 +405,24 @@ func (q *Queries) UpdateLocation(ctx context.Context, arg UpdateLocationParams) 
 }
 
 const updateOrganization = `-- name: UpdateOrganization :one
-UPDATE organizations SET name=$2,short_name=$3,description=$4,public_email=$5,public_phone=$6,
- correspondence_address=$7,website_url=$8,is_active=$9,updated_at=NOW() WHERE id=$1 RETURNING id, name, short_name, description, public_email, public_phone, correspondence_address, website_url, is_active, created_at, updated_at, public_phone_label, trial_session_description, trial_items_to_bring, trial_equipment_offer, trial_equipment_detail_prompt, public_rules_description, max_trials_per_person_per_season
+UPDATE organizations SET name=?1,short_name=?2,description=?3,public_email=?4,public_phone=?5,
+ correspondence_address=?6,website_url=?7,is_active=?8,updated_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?9 RETURNING id, name, short_name, description, public_email, public_phone, correspondence_address, website_url, is_active, created_at, updated_at, public_phone_label, trial_session_description, trial_items_to_bring, trial_equipment_offer, trial_equipment_detail_prompt, public_rules_description, max_trials_per_person_per_season
 `
 
 type UpdateOrganizationParams struct {
-	ID                    int32
 	Name                  string
-	ShortName             pgtype.Text
-	Description           pgtype.Text
-	PublicEmail           pgtype.Text
-	PublicPhone           pgtype.Text
-	CorrespondenceAddress pgtype.Text
-	WebsiteUrl            pgtype.Text
+	ShortName             sql.NullString
+	Description           sql.NullString
+	PublicEmail           sql.NullString
+	PublicPhone           sql.NullString
+	CorrespondenceAddress sql.NullString
+	WebsiteUrl            sql.NullString
 	IsActive              bool
+	ID                    int32
 }
 
 func (q *Queries) UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) (Organization, error) {
-	row := q.db.QueryRow(ctx, updateOrganization,
-		arg.ID,
+	row := q.db.QueryRowContext(ctx, updateOrganization,
 		arg.Name,
 		arg.ShortName,
 		arg.Description,
@@ -420,6 +431,7 @@ func (q *Queries) UpdateOrganization(ctx context.Context, arg UpdateOrganization
 		arg.CorrespondenceAddress,
 		arg.WebsiteUrl,
 		arg.IsActive,
+		arg.ID,
 	)
 	var i Organization
 	err := row.Scan(
@@ -446,26 +458,26 @@ func (q *Queries) UpdateOrganization(ctx context.Context, arg UpdateOrganization
 }
 
 const updateOrganizationLink = `-- name: UpdateOrganizationLink :one
-UPDATE organization_links SET kind=$2,label=$3,url=$4,position=$5,is_active=$6,updated_at=NOW() WHERE id=$1 RETURNING id, organization_id, kind, label, url, position, is_active, created_at, updated_at
+UPDATE organization_links SET kind=?1,label=?2,url=?3,position=?4,is_active=?5,updated_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?6 RETURNING id, organization_id, kind, label, url, position, is_active, created_at, updated_at
 `
 
 type UpdateOrganizationLinkParams struct {
-	ID       int32
 	Kind     string
 	Label    string
 	Url      string
 	Position int32
 	IsActive bool
+	ID       int32
 }
 
 func (q *Queries) UpdateOrganizationLink(ctx context.Context, arg UpdateOrganizationLinkParams) (OrganizationLink, error) {
-	row := q.db.QueryRow(ctx, updateOrganizationLink,
-		arg.ID,
+	row := q.db.QueryRowContext(ctx, updateOrganizationLink,
 		arg.Kind,
 		arg.Label,
 		arg.Url,
 		arg.Position,
 		arg.IsActive,
+		arg.ID,
 	)
 	var i OrganizationLink
 	err := row.Scan(

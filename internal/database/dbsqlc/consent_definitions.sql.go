@@ -11,7 +11,7 @@ import (
 
 const createConsentDefinition = `-- name: CreateConsentDefinition :one
 INSERT INTO consent_definitions(code, version, title, description, is_active)
-VALUES ($1, $2, $3, $4, $5) RETURNING id, code, version, title, description, is_active, created_at
+VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id, code, version, title, description, is_active, created_at
 `
 
 type CreateConsentDefinitionParams struct {
@@ -23,7 +23,7 @@ type CreateConsentDefinitionParams struct {
 }
 
 func (q *Queries) CreateConsentDefinition(ctx context.Context, arg CreateConsentDefinitionParams) (ConsentDefinition, error) {
-	row := q.db.QueryRow(ctx, createConsentDefinition,
+	row := q.db.QueryRowContext(ctx, createConsentDefinition,
 		arg.Code,
 		arg.Version,
 		arg.Title,
@@ -44,11 +44,11 @@ func (q *Queries) CreateConsentDefinition(ctx context.Context, arg CreateConsent
 }
 
 const deactivateConsentDefinition = `-- name: DeactivateConsentDefinition :one
-UPDATE consent_definitions SET is_active = FALSE WHERE id = $1 RETURNING id, code, version, title, description, is_active, created_at
+UPDATE consent_definitions SET is_active = FALSE WHERE id = ?1 RETURNING id, code, version, title, description, is_active, created_at
 `
 
 func (q *Queries) DeactivateConsentDefinition(ctx context.Context, id int32) (ConsentDefinition, error) {
-	row := q.db.QueryRow(ctx, deactivateConsentDefinition, id)
+	row := q.db.QueryRowContext(ctx, deactivateConsentDefinition, id)
 	var i ConsentDefinition
 	err := row.Scan(
 		&i.ID,
@@ -63,11 +63,11 @@ func (q *Queries) DeactivateConsentDefinition(ctx context.Context, id int32) (Co
 }
 
 const getConsentDefinition = `-- name: GetConsentDefinition :one
-SELECT id, code, version, title, description, is_active, created_at FROM consent_definitions WHERE id = $1
+SELECT id, code, version, title, description, is_active, created_at FROM consent_definitions WHERE id = ?1
 `
 
 func (q *Queries) GetConsentDefinition(ctx context.Context, id int32) (ConsentDefinition, error) {
-	row := q.db.QueryRow(ctx, getConsentDefinition, id)
+	row := q.db.QueryRowContext(ctx, getConsentDefinition, id)
 	var i ConsentDefinition
 	err := row.Scan(
 		&i.ID,
@@ -86,7 +86,7 @@ SELECT id, code, version, title, description, is_active, created_at FROM consent
 `
 
 func (q *Queries) ListActiveConsentDefinitions(ctx context.Context) ([]ConsentDefinition, error) {
-	rows, err := q.db.Query(ctx, listActiveConsentDefinitions)
+	rows, err := q.db.QueryContext(ctx, listActiveConsentDefinitions)
 	if err != nil {
 		return nil, err
 	}
@@ -106,6 +106,9 @@ func (q *Queries) ListActiveConsentDefinitions(ctx context.Context) ([]ConsentDe
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -118,7 +121,7 @@ SELECT id, code, version, title, description, is_active, created_at FROM consent
 `
 
 func (q *Queries) ListConsentDefinitions(ctx context.Context) ([]ConsentDefinition, error) {
-	rows, err := q.db.Query(ctx, listConsentDefinitions)
+	rows, err := q.db.QueryContext(ctx, listConsentDefinitions)
 	if err != nil {
 		return nil, err
 	}
@@ -138,6 +141,9 @@ func (q *Queries) ListConsentDefinitions(ctx context.Context) ([]ConsentDefiniti
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

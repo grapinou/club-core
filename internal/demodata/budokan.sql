@@ -1,15 +1,16 @@
 -- Public Budokan Sud Oise data consulted September 2026. See the milestone report.
 -- This file is executed only inside SeedBudokan's guarded transaction.
 INSERT INTO organizations (name,short_name,description,public_email,public_phone,public_phone_label,website_url,trial_session_description,trial_items_to_bring,trial_equipment_offer,trial_equipment_detail_prompt)
-VALUES ('Budokan Sud Oise','BS.O','Une association de sports de combat à Lamorlaye, avec des séances pour enfants, adolescents et adultes. Découvrez le groupe et le créneau qui vous conviennent, puis venez partager une première séance.','budokansud.oise@gmail.com','06 21 03 21 61','Seb Colosse','https://www.budokansudoise.com/','La séance comprend généralement un échauffement, une partie technique puis des combats. Un gradé vous accompagne pour découvrir l’activité et répondre à vos questions.',ARRAY['De l’eau','Une tenue de sport confortable','Des claquettes pour circuler jusqu’au dojo'],'Un kimono peut être prêté selon les disponibilités.','Indiquez votre taille afin que nous puissions prévoir un kimono adapté, selon les disponibilités.');
-INSERT INTO organization_public_images (organization_id,placement,src,webp_srcset,alt,width,height)
-SELECT id,placement,src,webp_srcset,alt,width,height FROM organizations CROSS JOIN (VALUES
+VALUES ('Budokan Sud Oise','BS.O','Une association de sports de combat à Lamorlaye, avec des séances pour enfants, adolescents et adultes. Découvrez le groupe et le créneau qui vous conviennent, puis venez partager une première séance.','budokansud.oise@gmail.com','06 21 03 21 61','Seb Colosse','https://www.budokansudoise.com/','La séance comprend généralement un échauffement, une partie technique puis des combats. Un gradé vous accompagne pour découvrir l’activité et répondre à vos questions.',json_array('De l’eau','Une tenue de sport confortable','Des claquettes pour circuler jusqu’au dojo'),'Un kimono peut être prêté selon les disponibilités.','Indiquez votre taille afin que nous puissions prévoir un kimono adapté, selon les disponibilités.');
+WITH media(placement,src,webp_srcset,alt,width,height) AS (VALUES
  ('hero','/static/images/budokan/hero/hero-bureau-mascots.png','/static/images/budokan/hero/hero-bureau-mascots-800.webp 800w, /static/images/budokan/hero/hero-bureau-mascots-1600.webp 1600w','Les mascottes du club en tenue de jiu-jitsu brésilien',1774,887),
  ('activity','/static/images/budokan/illustrations/training-jjb.png','/static/images/budokan/illustrations/training-jjb-800.webp 800w, /static/images/budokan/illustrations/training-jjb-1536.webp 1536w','',1536,1024),
  ('community','/static/images/budokan/illustrations/club-spirit.png','/static/images/budokan/illustrations/club-spirit-800.webp 800w, /static/images/budokan/illustrations/club-spirit-1536.webp 1536w','',1536,1024),
  ('schedule','/static/images/budokan/illustrations/schedule-jjb.png','/static/images/budokan/illustrations/schedule-jjb-800.webp 800w, /static/images/budokan/illustrations/schedule-jjb-1536.webp 1536w','',1536,1024),
  ('trial','/static/images/budokan/illustrations/trial-jjb.png','/static/images/budokan/illustrations/trial-jjb-800.webp 800w, /static/images/budokan/illustrations/trial-jjb-1536.webp 1536w','',1536,1024)
-) AS media(placement,src,webp_srcset,alt,width,height);
+)
+INSERT INTO organization_public_images (organization_id,placement,src,webp_srcset,alt,width,height)
+SELECT id,placement,src,webp_srcset,alt,width,height FROM organizations CROSS JOIN media;
 INSERT INTO locations (organization_id,name,address)
 SELECT id,'Gymnase La Mardelle','Rue des Marais, 60260 Lamorlaye' FROM organizations;
 INSERT INTO organization_links (organization_id,kind,label,url)

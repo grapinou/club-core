@@ -14,7 +14,7 @@ import (
 	"github.com/grapinou/club-core/internal/organization"
 )
 
-func TestPublicFrontendPostgres(t *testing.T) {
+func TestPublicFrontendSQLite(t *testing.T) {
 	db := newApplicationDatabase(t, "public_demo")
 	ctx := t.Context()
 	must := func(err error) {
@@ -26,9 +26,9 @@ func TestPublicFrontendPostgres(t *testing.T) {
 	must(demodata.SeedBudokan(ctx, db, true))
 	// Keep the HTTP test independent of the wall-clock year, without changing
 	// seed data or historical fixtures. Season selection itself is tested below.
-	exec := func(sql string, args ...any) { t.Helper(); _, err := db.Exec(ctx, sql, args...); must(err) }
-	exec("UPDATE seasons SET starts_at=CURRENT_DATE-1,ends_at=CURRENT_DATE+365")
-	exec("UPDATE group_slots SET valid_from=CURRENT_DATE-1,valid_until=CURRENT_DATE+365")
+	exec := func(sql string, args ...any) { t.Helper(); _, err := db.ExecContext(ctx, sql, args...); must(err) }
+	exec("UPDATE seasons SET starts_at=date('now','-1 days'),ends_at=date('now','+365 days')")
+	exec("UPDATE group_slots SET valid_from=date('now','-1 days'),valid_until=date('now','+365 days')")
 	cfg := config.Config{SiteName: "TCR SENTINEL", Home: config.PageConfig{Description: "JSON HOME SENTINEL"}, Contact: config.ContactConfig{EmailAddress: "legacy@example.test"}, Rules: config.PageConfig{Description: "Texte éditorial du règlement"}}
 	app, err := NewWithMailer(cfg, config.Runtime{Location: time.UTC, ActivationValidity: time.Hour, RegistrationVerificationTTL: time.Hour}, db, &fakeMailer{})
 	must(err)
@@ -195,7 +195,7 @@ func TestPublicSeasonSelection(t *testing.T) {
 			t.Fatalf("current %s: %+v %v", date, v, err)
 		}
 	}
-	if _, err := db.Exec(ctx, "INSERT INTO seasons(name,starts_at,ends_at) VALUES ('Historique','2025-09-01','2026-08-31')"); err != nil {
+	if _, err := db.ExecContext(ctx, "INSERT INTO seasons(name,starts_at,ends_at) VALUES ('Historique','2025-09-01','2026-08-31')"); err != nil {
 		t.Fatal(err)
 	}
 	for date, name := range map[string]string{"2026-08-31": "Historique", "2026-09-14": "2026/2027", "2027-09-01": ""} {
@@ -204,14 +204,14 @@ func TestPublicSeasonSelection(t *testing.T) {
 			t.Fatalf("season %s: %+v %v", date, v, err)
 		}
 	}
-	if _, err := db.Exec(ctx, "UPDATE seasons SET is_active=false WHERE name='2026/2027'"); err != nil {
+	if _, err := db.ExecContext(ctx, "UPDATE seasons SET is_active=false WHERE name='2026/2027'"); err != nil {
 		t.Fatal(err)
 	}
 	v, err := s.PublicSchedule(ctx, day("2026-09-14"))
 	if err != nil || v.Season != "" {
 		t.Fatal("inactive season")
 	}
-	if _, err := db.Exec(ctx, "UPDATE seasons SET is_active=true; INSERT INTO seasons(name,starts_at,ends_at) VALUES ('Overlap','2026-09-01','2027-08-31')"); err != nil {
+	if _, err := db.ExecContext(ctx, "UPDATE seasons SET is_active=true; INSERT INTO seasons(name,starts_at,ends_at) VALUES ('Overlap','2026-09-01','2027-08-31')"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.PublicSchedule(ctx, day("2026-09-14")); !errors.Is(err, organization.ErrAmbiguousSeason) {

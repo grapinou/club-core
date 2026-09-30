@@ -10,7 +10,7 @@ import (
 )
 
 const assignUserRole = `-- name: AssignUserRole :exec
-INSERT INTO user_roles(user_id,role_id) VALUES ($1,$2)
+INSERT INTO user_roles(user_id,role_id) VALUES (?1,?2)
 ON CONFLICT (user_id,role_id) DO NOTHING
 `
 
@@ -20,16 +20,16 @@ type AssignUserRoleParams struct {
 }
 
 func (q *Queries) AssignUserRole(ctx context.Context, arg AssignUserRoleParams) error {
-	_, err := q.db.Exec(ctx, assignUserRole, arg.UserID, arg.RoleID)
+	_, err := q.db.ExecContext(ctx, assignUserRole, arg.UserID, arg.RoleID)
 	return err
 }
 
 const getRoleByName = `-- name: GetRoleByName :one
-SELECT id, name FROM roles WHERE name=$1
+SELECT id, name FROM roles WHERE name=?1
 `
 
 func (q *Queries) GetRoleByName(ctx context.Context, name string) (Role, error) {
-	row := q.db.QueryRow(ctx, getRoleByName, name)
+	row := q.db.QueryRowContext(ctx, getRoleByName, name)
 	var i Role
 	err := row.Scan(&i.ID, &i.Name)
 	return i, err
@@ -40,7 +40,7 @@ SELECT id, name FROM roles ORDER BY name
 `
 
 func (q *Queries) ListAvailableRoles(ctx context.Context) ([]Role, error) {
-	rows, err := q.db.Query(ctx, listAvailableRoles)
+	rows, err := q.db.QueryContext(ctx, listAvailableRoles)
 	if err != nil {
 		return nil, err
 	}
@@ -52,6 +52,9 @@ func (q *Queries) ListAvailableRoles(ctx context.Context) ([]Role, error) {
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -61,11 +64,11 @@ func (q *Queries) ListAvailableRoles(ctx context.Context) ([]Role, error) {
 
 const listUserRoles = `-- name: ListUserRoles :many
 SELECT r.id, r.name FROM roles r JOIN user_roles ur ON ur.role_id=r.id
-WHERE ur.user_id=$1 ORDER BY r.name
+WHERE ur.user_id=?1 ORDER BY r.name
 `
 
 func (q *Queries) ListUserRoles(ctx context.Context, userID int32) ([]Role, error) {
-	rows, err := q.db.Query(ctx, listUserRoles, userID)
+	rows, err := q.db.QueryContext(ctx, listUserRoles, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -78,6 +81,9 @@ func (q *Queries) ListUserRoles(ctx context.Context, userID int32) ([]Role, erro
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -85,7 +91,7 @@ func (q *Queries) ListUserRoles(ctx context.Context, userID int32) ([]Role, erro
 }
 
 const revokeUserRole = `-- name: RevokeUserRole :exec
-DELETE FROM user_roles WHERE user_id=$1 AND role_id=$2
+DELETE FROM user_roles WHERE user_id=?1 AND role_id=?2
 `
 
 type RevokeUserRoleParams struct {
@@ -94,6 +100,6 @@ type RevokeUserRoleParams struct {
 }
 
 func (q *Queries) RevokeUserRole(ctx context.Context, arg RevokeUserRoleParams) error {
-	_, err := q.db.Exec(ctx, revokeUserRole, arg.UserID, arg.RoleID)
+	_, err := q.db.ExecContext(ctx, revokeUserRole, arg.UserID, arg.RoleID)
 	return err
 }

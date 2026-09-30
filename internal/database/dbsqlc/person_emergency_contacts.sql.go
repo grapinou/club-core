@@ -7,24 +7,23 @@ package dbsqlc
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"database/sql"
 )
 
 const createPersonEmergencyContact = `-- name: CreatePersonEmergencyContact :one
 INSERT INTO person_emergency_contacts(person_id, contact_person_id, relationship_label, priority)
-VALUES ($1, $2, $3, $4) RETURNING id, person_id, contact_person_id, relationship_label, priority, created_at, updated_at
+VALUES (?1, ?2, ?3, ?4) RETURNING id, person_id, contact_person_id, relationship_label, priority, created_at, updated_at
 `
 
 type CreatePersonEmergencyContactParams struct {
 	PersonID          int32
 	ContactPersonID   int32
-	RelationshipLabel pgtype.Text
+	RelationshipLabel sql.NullString
 	Priority          int32
 }
 
 func (q *Queries) CreatePersonEmergencyContact(ctx context.Context, arg CreatePersonEmergencyContactParams) (PersonEmergencyContact, error) {
-	row := q.db.QueryRow(ctx, createPersonEmergencyContact,
+	row := q.db.QueryRowContext(ctx, createPersonEmergencyContact,
 		arg.PersonID,
 		arg.ContactPersonID,
 		arg.RelationshipLabel,
@@ -44,11 +43,11 @@ func (q *Queries) CreatePersonEmergencyContact(ctx context.Context, arg CreatePe
 }
 
 const deletePersonEmergencyContact = `-- name: DeletePersonEmergencyContact :exec
-DELETE FROM person_emergency_contacts WHERE id = $1
+DELETE FROM person_emergency_contacts WHERE id = ?1
 `
 
 func (q *Queries) DeletePersonEmergencyContact(ctx context.Context, id int32) error {
-	_, err := q.db.Exec(ctx, deletePersonEmergencyContact, id)
+	_, err := q.db.ExecContext(ctx, deletePersonEmergencyContact, id)
 	return err
 }
 
@@ -56,7 +55,7 @@ const listEmergencyContactForPersons = `-- name: ListEmergencyContactForPersons 
 SELECT e.id AS emergency_contact_id, e.person_id, e.contact_person_id, p.first_name, p.last_name,
        p.phone_number, p.email, e.relationship_label, e.priority
 FROM person_emergency_contacts e JOIN persons p ON p.id = e.person_id
-WHERE e.contact_person_id = $1 ORDER BY e.person_id
+WHERE e.contact_person_id = ?1 ORDER BY e.person_id
 `
 
 type ListEmergencyContactForPersonsRow struct {
@@ -65,14 +64,14 @@ type ListEmergencyContactForPersonsRow struct {
 	ContactPersonID    int32
 	FirstName          string
 	LastName           string
-	PhoneNumber        pgtype.Text
-	Email              pgtype.Text
-	RelationshipLabel  pgtype.Text
+	PhoneNumber        sql.NullString
+	Email              sql.NullString
+	RelationshipLabel  sql.NullString
 	Priority           int32
 }
 
 func (q *Queries) ListEmergencyContactForPersons(ctx context.Context, contactPersonID int32) ([]ListEmergencyContactForPersonsRow, error) {
-	rows, err := q.db.Query(ctx, listEmergencyContactForPersons, contactPersonID)
+	rows, err := q.db.QueryContext(ctx, listEmergencyContactForPersons, contactPersonID)
 	if err != nil {
 		return nil, err
 	}
@@ -95,6 +94,9 @@ func (q *Queries) ListEmergencyContactForPersons(ctx context.Context, contactPer
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -105,7 +107,7 @@ const listPersonEmergencyContacts = `-- name: ListPersonEmergencyContacts :many
 SELECT e.id AS emergency_contact_id, e.contact_person_id, p.first_name, p.last_name,
        p.phone_number, p.email, e.relationship_label, e.priority
 FROM person_emergency_contacts e JOIN persons p ON p.id = e.contact_person_id
-WHERE e.person_id = $1 ORDER BY e.priority
+WHERE e.person_id = ?1 ORDER BY e.priority
 `
 
 type ListPersonEmergencyContactsRow struct {
@@ -113,14 +115,14 @@ type ListPersonEmergencyContactsRow struct {
 	ContactPersonID    int32
 	FirstName          string
 	LastName           string
-	PhoneNumber        pgtype.Text
-	Email              pgtype.Text
-	RelationshipLabel  pgtype.Text
+	PhoneNumber        sql.NullString
+	Email              sql.NullString
+	RelationshipLabel  sql.NullString
 	Priority           int32
 }
 
 func (q *Queries) ListPersonEmergencyContacts(ctx context.Context, personID int32) ([]ListPersonEmergencyContactsRow, error) {
-	rows, err := q.db.Query(ctx, listPersonEmergencyContacts, personID)
+	rows, err := q.db.QueryContext(ctx, listPersonEmergencyContacts, personID)
 	if err != nil {
 		return nil, err
 	}
@@ -142,6 +144,9 @@ func (q *Queries) ListPersonEmergencyContacts(ctx context.Context, personID int3
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -150,18 +155,18 @@ func (q *Queries) ListPersonEmergencyContacts(ctx context.Context, personID int3
 
 const updatePersonEmergencyContact = `-- name: UpdatePersonEmergencyContact :one
 UPDATE person_emergency_contacts
-SET relationship_label = $2, priority = $3, updated_at = clock_timestamp()
-WHERE id = $1 RETURNING id, person_id, contact_person_id, relationship_label, priority, created_at, updated_at
+SET relationship_label = ?1, priority = ?2, updated_at = strftime('%Y-%m-%d %H:%M:%f','now')
+WHERE id = ?3 RETURNING id, person_id, contact_person_id, relationship_label, priority, created_at, updated_at
 `
 
 type UpdatePersonEmergencyContactParams struct {
-	ID                int32
-	RelationshipLabel pgtype.Text
+	RelationshipLabel sql.NullString
 	Priority          int32
+	ID                int32
 }
 
 func (q *Queries) UpdatePersonEmergencyContact(ctx context.Context, arg UpdatePersonEmergencyContactParams) (PersonEmergencyContact, error) {
-	row := q.db.QueryRow(ctx, updatePersonEmergencyContact, arg.ID, arg.RelationshipLabel, arg.Priority)
+	row := q.db.QueryRowContext(ctx, updatePersonEmergencyContact, arg.RelationshipLabel, arg.Priority, arg.ID)
 	var i PersonEmergencyContact
 	err := row.Scan(
 		&i.ID,

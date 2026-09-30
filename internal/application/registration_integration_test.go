@@ -12,16 +12,17 @@ import (
 	"testing"
 	"time"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 	"github.com/grapinou/club-core/internal/identityresolution"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
-func registrationText(s string) pgtype.Text { return pgtype.Text{String: s, Valid: true} }
+func registrationText(s string) sql.NullString { return sql.NullString{String: s, Valid: true} }
 func registrationInput() identityresolution.SubmissionInput {
-	return identityresolution.SubmissionInput{FirstName: "  RÉMI ", LastName: " DUPONT ", BirthDate: pgtype.Date{Time: time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC), Valid: true}, Email: registrationText("New@example.test"), PhoneNumber: registrationText("06 12 34 56 78"), Address: registrationText("Adresse déclarée <script>alert(1)</script>")}
+	return identityresolution.SubmissionInput{FirstName: "  RÉMI ", LastName: " DUPONT ", BirthDate: dbtypes.Date{Time: time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC), Valid: true}, Email: registrationText("New@example.test"), PhoneNumber: registrationText("06 12 34 56 78"), Address: registrationText("Adresse déclarée <script>alert(1)</script>")}
 }
 func (f *fixture) submit(in identityresolution.SubmissionInput) int32 {
 	f.t.Helper()
@@ -38,7 +39,7 @@ func reviewPath(id int32) string { return fmt.Sprintf("/registration-reviews/%d"
 func (f *fixture) registrationSnapshot() string {
 	f.t.Helper()
 	var out string
-	f.must(f.db.QueryRow(f.t.Context(), "SELECT coalesce(jsonb_agg(to_jsonb(s) ORDER BY id)::text,'[]') FROM registration_submissions s").Scan(&out))
+	f.must(f.db.QueryRowContext(f.t.Context(), "SELECT coalesce(json_group_array(json_object('id',s.id,'status',s.status,'first_name',s.first_name,'last_name',s.last_name,'birth_date',s.birth_date,'email',s.email,'phone_number',s.phone_number,'address',s.address,'created_at',s.created_at,'updated_at',s.updated_at,'resolved_person_id',s.resolved_person_id,'resolution_type',s.resolution_type,'resolved_at',s.resolved_at,'resolved_by_user_id',s.resolved_by_user_id) ORDER BY id),'[]') FROM registration_submissions s").Scan(&out))
 	return out
 }
 func TestRegistrationSubmissionDetectionAndPrivacy(t *testing.T) {
@@ -66,14 +67,14 @@ func TestRegistrationSubmissionDetectionAndPrivacy(t *testing.T) {
 		t.Fatal("submission created or modified Person")
 	}
 	strong := f.id("INSERT INTO persons(first_name,last_name,birth_date,email,phone_number) VALUES ('Rémi','Dupont','1990-01-01','new@example.test','+33 6 12 34 56 78') RETURNING id")
-	weak := f.id("INSERT INTO persons(first_name,last_name,archived_at) VALUES ('Rémi','Dupont',now()) RETURNING id")
+	weak := f.id("INSERT INTO persons(first_name,last_name,archived_at) VALUES ('Rémi','Dupont',strftime('%Y-%m-%d %H:%M:%f','now')) RETURNING id")
 	multiple := f.submit(registrationInput())
 	d, err = f.app.Reviews.GetDetails(t.Context(), f.approver, multiple)
 	f.must(err)
 	if len(d.Candidates) != 3 || d.Candidates[0].PersonID != strong || d.Candidates[0].Confidence != "strong" || d.Candidates[1].Confidence != "possible" || d.Candidates[2].PersonID != weak || d.Candidates[2].Confidence != "weak" {
 		t.Fatal("ranking/homonyms/archived")
 	}
-	f.exec("UPDATE persons SET email='changed@example.test',birth_date=NULL WHERE id=$1", strong)
+	f.exec("UPDATE persons SET email='changed@example.test',birth_date=NULL WHERE id=?1", strong)
 	historical, err := q.ListRegistrationCandidates(t.Context(), multiple)
 	f.must(err)
 	if !historical[0].MatchedEmail || !historical[0].MatchedBirthDate || historical[0].Confidence != "strong" || historical[0].Email.String != "changed@example.test" {
@@ -85,17 +86,17 @@ func TestRegistrationSubmissionDetectionAndPrivacy(t *testing.T) {
 		t.Fatal("late Person altered snapshot")
 	}
 	// Failure partway through candidate insertion rolls back both staging and evidence.
-	f.exec(`CREATE FUNCTION reject_registration_candidate_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.confidence='weak' THEN RAISE EXCEPTION 'private failure'; END IF; RETURN NEW; END $$`)
-	f.exec(`CREATE TRIGGER reject_registration_candidate_test BEFORE INSERT ON registration_submission_candidates FOR EACH ROW EXECUTE FUNCTION reject_registration_candidate_test()`)
+
+	f.exec(`CREATE TRIGGER reject_registration_candidate_test BEFORE INSERT ON registration_submission_candidates WHEN NEW.confidence='weak' BEGIN SELECT RAISE(ABORT, 'private failure'); END;`)
 	snapshot := f.registrationSnapshot()
 	var count int
-	f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM registration_submission_candidates").Scan(&count))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM registration_submission_candidates").Scan(&count))
 	result, err := f.app.Submissions.CreateSubmission(t.Context(), registrationInput())
 	if !errors.Is(err, identityresolution.ErrUnavailable) || result.Status != "" || strings.Contains(err.Error(), "private") {
 		t.Fatal("unsafe public error", err)
 	}
 	var after int
-	f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM registration_submission_candidates").Scan(&after))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM registration_submission_candidates").Scan(&after))
 	if f.registrationSnapshot() != snapshot || count != after {
 		t.Fatal("partial submission survived rollback")
 	}
@@ -104,7 +105,7 @@ func TestRegistrationResolutionAndAudit(t *testing.T) {
 	f := newFixture(t)
 	id := f.submit(registrationInput())
 	before := f.personSnapshot()
-	if err := f.app.Reviews.LinkPerson(t.Context(), f.approver, id, 999999); !errors.Is(err, pgx.ErrNoRows) {
+	if err := f.app.Reviews.LinkPerson(t.Context(), f.approver, id, 999999); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatal("non candidate accepted", err)
 	}
 	f.must(f.app.Reviews.LinkPerson(t.Context(), f.approver, id, f.person))
@@ -121,8 +122,8 @@ func TestRegistrationResolutionAndAudit(t *testing.T) {
 			t.Fatal("second resolution", err)
 		}
 	}
-	for _, query := range []string{"UPDATE registration_submissions SET status='received',resolved_person_id=NULL,resolution_type=NULL,resolved_at=NULL,resolved_by_user_id=NULL WHERE id=$1", "DELETE FROM registration_submissions WHERE id=$1", "UPDATE registration_submission_candidates SET confidence='weak' WHERE submission_id=$1", "DELETE FROM registration_submission_candidates WHERE submission_id=$1"} {
-		if _, err := f.db.Exec(t.Context(), query, id); err == nil {
+	for _, query := range []string{"UPDATE registration_submissions SET status='received',resolved_person_id=NULL,resolution_type=NULL,resolved_at=NULL,resolved_by_user_id=NULL WHERE id=?1", "DELETE FROM registration_submissions WHERE id=?1", "UPDATE registration_submission_candidates SET confidence='weak' WHERE submission_id=?1", "DELETE FROM registration_submission_candidates WHERE submission_id=?1"} {
+		if _, err := f.db.ExecContext(t.Context(), query, id); err == nil {
 			t.Fatal("audit mutation accepted")
 		}
 	}
@@ -136,7 +137,7 @@ func TestRegistrationResolutionAndAudit(t *testing.T) {
 		t.Fatal("explicit Person creation")
 	}
 	var users, memberships int
-	f.must(f.db.QueryRow(t.Context(), "SELECT (SELECT count(*) FROM users WHERE person_id=$1),(SELECT count(*) FROM memberships WHERE person_id=$1)", p.ID).Scan(&users, &memberships))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT (SELECT count(*) FROM users WHERE person_id=?1),(SELECT count(*) FROM memberships WHERE person_id=?1)", p.ID).Scan(&users, &memberships))
 	if users != 0 || memberships != 0 || len(f.mail.messages) != 0 {
 		t.Fatal("identity changed account/membership")
 	}
@@ -145,12 +146,12 @@ func TestRegistrationResolutionRollbackAndConcurrency(t *testing.T) {
 	f := newFixture(t)
 	// Two independent administrators, one submission lock.
 	p := f.id("INSERT INTO persons(first_name,last_name) VALUES ('Second','Admin') RETURNING id")
-	actor := f.id("INSERT INTO users(person_id,username,password_hash,activated_at) VALUES ($1,'second','unchanged',now()) RETURNING id", p)
-	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='secretary'", actor)
+	actor := f.id("INSERT INTO users(person_id,username,password_hash,activated_at) VALUES (?1,'second','unchanged',strftime('%Y-%m-%d %H:%M:%f','now')) RETURNING id", p)
+	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='secretary'", actor)
 	for _, bothCreate := range []bool{true, false} {
 		id := f.submit(registrationInput())
 		var before int
-		f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM persons").Scan(&before))
+		f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM persons").Scan(&before))
 		start := make(chan struct{})
 		results := make(chan error, 2)
 		var wg sync.WaitGroup
@@ -185,7 +186,7 @@ func TestRegistrationResolutionRollbackAndConcurrency(t *testing.T) {
 		d, err := f.app.Reviews.GetDetails(t.Context(), f.approver, id)
 		f.must(err)
 		var after int
-		f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM persons").Scan(&after))
+		f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM persons").Scan(&after))
 		delta := 0
 		if d.Submission.ResolutionType.String == "new_person" {
 			delta = 1
@@ -197,18 +198,18 @@ func TestRegistrationResolutionRollbackAndConcurrency(t *testing.T) {
 	id := f.submit(registrationInput())
 	snapshot := f.registrationSnapshot()
 	before := f.personSnapshot()
-	f.exec(`CREATE FUNCTION reject_registration_person_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private Person failure'; END $$`)
-	f.exec(`CREATE TRIGGER reject_registration_person_test BEFORE INSERT ON persons FOR EACH ROW EXECUTE FUNCTION reject_registration_person_test()`)
+
+	f.exec(`CREATE TRIGGER reject_registration_person_test BEFORE INSERT ON persons BEGIN SELECT RAISE(ABORT, 'private Person failure'); END;`)
 	if err := f.app.Reviews.CreatePerson(t.Context(), f.approver, id); err == nil {
 		t.Fatal("expected failure")
 	}
 	if snapshot != f.registrationSnapshot() || before != f.personSnapshot() {
 		t.Fatal("partial resolution on Person failure")
 	}
-	f.exec("DROP TRIGGER reject_registration_person_test ON persons")
+	f.exec("DROP TRIGGER reject_registration_person_test")
 	// Failure after CreatePerson must roll the new Person back as well.
-	f.exec(`CREATE FUNCTION reject_registration_resolution_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status='resolved' THEN RAISE EXCEPTION 'private resolve failure'; END IF; RETURN NEW; END $$`)
-	f.exec(`CREATE TRIGGER reject_registration_resolution_test BEFORE UPDATE ON registration_submissions FOR EACH ROW EXECUTE FUNCTION reject_registration_resolution_test()`)
+
+	f.exec(`CREATE TRIGGER reject_registration_resolution_test BEFORE UPDATE ON registration_submissions WHEN NEW.status='resolved' BEGIN SELECT RAISE(ABORT, 'private resolve failure'); END;`)
 	if err := f.app.Reviews.CreatePerson(t.Context(), f.approver, id); err == nil {
 		t.Fatal("expected final write failure")
 	}
@@ -222,9 +223,9 @@ func TestRegistrationHTTPPermissionsAndCSRF(t *testing.T) {
 	path := reviewPath(id)
 	for _, role := range []string{"anonymous", "none", "treasurer", "coach", "secretary", "president"} {
 		t.Run(role, func(t *testing.T) {
-			f.exec("DELETE FROM user_roles WHERE user_id=$1", f.approver)
+			f.exec("DELETE FROM user_roles WHERE user_id=?1", f.approver)
 			if role != "anonymous" && role != "none" {
-				f.exec("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name=$2", f.approver, role)
+				f.exec("INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name=?2", f.approver, role)
 			}
 			b := newBrowser(f.app.Handler)
 			if role != "anonymous" {
@@ -283,7 +284,7 @@ func TestRegistrationHTTPPermissionsAndCSRF(t *testing.T) {
 		}
 	}
 	// Same session loses the permission immediately, including application entrypoints.
-	f.exec("DELETE FROM user_roles WHERE user_id=$1", f.approver)
+	f.exec("DELETE FROM user_roles WHERE user_id=?1", f.approver)
 	if r := b.call("GET", path, nil); r.Code != 403 {
 		t.Fatal("revocation")
 	}
@@ -295,8 +296,8 @@ func TestRegistrationHTTPPermissionsAndCSRF(t *testing.T) {
 }
 func TestRegistrationHTTPDetailAndResolution(t *testing.T) {
 	f := newFixture(t)
-	f.exec("UPDATE persons SET phone_number='+33 6 12 34 56 78',address='Adresse existante' WHERE id=$1", f.person)
-	f.id("INSERT INTO users(person_id,username,password_hash,is_active) VALUES ($1,'unchanged','private-hash',false) RETURNING id", f.person)
+	f.exec("UPDATE persons SET phone_number='+33 6 12 34 56 78',address='Adresse existante' WHERE id=?1", f.person)
+	f.id("INSERT INTO users(person_id,username,password_hash,is_active) VALUES (?1,'unchanged','private-hash',false) RETURNING id", f.person)
 	id := f.submit(registrationInput())
 	no := registrationInput()
 	no.FirstName = "Unique"
@@ -347,7 +348,7 @@ func TestRegistrationHTTPDetailAndResolution(t *testing.T) {
 		t.Fatal("new Person resolution")
 	}
 	var active bool
-	f.must(f.db.QueryRow(t.Context(), "SELECT is_active FROM users WHERE person_id=$1", f.person).Scan(&active))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT is_active FROM users WHERE person_id=?1", f.person).Scan(&active))
 	if active || len(f.mail.messages) != 0 {
 		t.Fatal("account reactivation")
 	}
@@ -357,8 +358,8 @@ func TestRegistrationHTTPFailureIsGeneric(t *testing.T) {
 	id := f.submit(registrationInput())
 	b := f.membershipAdminBrowser()
 	token := b.csrf(t, reviewPath(id))
-	f.exec(`CREATE FUNCTION reject_review_http_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private-db-detail'; END $$`)
-	f.exec(`CREATE TRIGGER reject_review_http_test BEFORE INSERT ON persons FOR EACH ROW EXECUTE FUNCTION reject_review_http_test()`)
+
+	f.exec(`CREATE TRIGGER reject_review_http_test BEFORE INSERT ON persons BEGIN SELECT RAISE(ABORT, 'private-db-detail'); END;`)
 	r := b.call("POST", reviewPath(id)+"/create-person", url.Values{"csrf_token": {token}})
 	if r.Code != 500 || strings.Contains(r.Body.String(), "private-db-detail") || strings.Contains(r.Body.String(), "SQLSTATE") {
 		t.Fatal("unsafe internal error")
@@ -368,7 +369,7 @@ func TestRegistrationHTTPFailureIsGeneric(t *testing.T) {
 	if d.Submission.Status != "awaiting_identity_review" {
 		t.Fatal("failed creation resolved submission")
 	}
-	// Read failures also fail closed and expose no raw PostgreSQL details.
+	// Read failures also fail closed and expose no raw SQLite details.
 	f.exec("ALTER TABLE registration_submission_candidates RENAME TO unavailable_candidates")
 	for _, path := range []string{"/registration-reviews", reviewPath(id)} {
 		r = b.call("GET", path, nil)
@@ -390,13 +391,13 @@ func TestRegistrationConcurrentHTTPCreate(t *testing.T) {
 	id := f.submit(registrationInput())
 	first := f.membershipAdminBrowser()
 	p := f.id("INSERT INTO persons(first_name,last_name) VALUES ('Other','Reviewer') RETURNING id")
-	who := f.id("INSERT INTO users(person_id,username,password_hash,activated_at) SELECT $1,'other-reviewer',password_hash,now() FROM users WHERE id=$2 RETURNING id", p, f.approver)
-	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='secretary'", who)
+	who := f.id("INSERT INTO users(person_id,username,password_hash,activated_at) SELECT ?1,'other-reviewer',password_hash,strftime('%Y-%m-%d %H:%M:%f','now') FROM users WHERE id=?2 RETURNING id", p, f.approver)
+	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='secretary'", who)
 	second := f.loginBrowser("other-reviewer")
 	browsers := []*browser{first, second}
 	tokens := []string{first.csrf(t, reviewPath(id)), second.csrf(t, reviewPath(id))}
 	var before int
-	f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM persons").Scan(&before))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM persons").Scan(&before))
 	type response struct {
 		code     int
 		location string
@@ -423,7 +424,7 @@ func TestRegistrationConcurrentHTTPCreate(t *testing.T) {
 		t.Fatal("competing POST outcomes", notices)
 	}
 	var after int
-	f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM persons").Scan(&after))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM persons").Scan(&after))
 	if after != before+1 {
 		t.Fatal("double Person")
 	}
@@ -440,29 +441,29 @@ func TestRegistrationAdditionalInvariants(t *testing.T) {
 		t.Fatal("invalid submission persisted")
 	}
 	id := f.submit(registrationInput())
-	nonCandidate := f.id("SELECT person_id FROM users WHERE id=$1", f.approver)
-	if err := f.app.Reviews.LinkPerson(t.Context(), f.approver, id, nonCandidate); !errors.Is(err, pgx.ErrNoRows) {
+	nonCandidate := f.id("SELECT person_id FROM users WHERE id=?1", f.approver)
+	if err := f.app.Reviews.LinkPerson(t.Context(), f.approver, id, nonCandidate); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatal("arbitrary existing Person accepted")
 	}
 	// Names and submitted coordinates remain immutable even before resolution.
-	if _, err := f.db.Exec(t.Context(), "UPDATE registration_submissions SET email='overwritten@example.test' WHERE id=$1", id); err == nil {
+	if _, err := f.db.ExecContext(t.Context(), "UPDATE registration_submissions SET email='overwritten@example.test' WHERE id=?1", id); err == nil {
 		t.Fatal("declared evidence overwritten")
 	}
-	if _, err := f.db.Exec(t.Context(), "UPDATE registration_submissions SET status='resolved' WHERE id=$1", id); err == nil {
+	if _, err := f.db.ExecContext(t.Context(), "UPDATE registration_submissions SET status='resolved' WHERE id=?1", id); err == nil {
 		t.Fatal("incomplete audit accepted")
 	}
-	if _, err := f.db.Exec(t.Context(), "INSERT INTO registration_submission_candidates SELECT * FROM registration_submission_candidates WHERE submission_id=$1", id); err == nil {
+	if _, err := f.db.ExecContext(t.Context(), "INSERT INTO registration_submission_candidates SELECT * FROM registration_submission_candidates WHERE submission_id=?1", id); err == nil {
 		t.Fatal("duplicate candidate")
 	}
 	b := f.membershipAdminBrowser()
 	for _, state := range []string{"absent", "unactivated", "activated", "disabled"} {
 		switch state {
 		case "unactivated":
-			f.id("INSERT INTO users(person_id,username) VALUES ($1,'candidate-user') RETURNING id", f.person)
+			f.id("INSERT INTO users(person_id,username) VALUES (?1,'candidate-user') RETURNING id", f.person)
 		case "activated":
-			f.exec("UPDATE users SET activated_at=now(),password_hash='never-expose-this-hash' WHERE person_id=$1", f.person)
+			f.exec("UPDATE users SET activated_at=strftime('%Y-%m-%d %H:%M:%f','now'),password_hash='never-expose-this-hash' WHERE person_id=?1", f.person)
 		case "disabled":
-			f.exec("UPDATE users SET is_active=false WHERE person_id=$1", f.person)
+			f.exec("UPDATE users SET is_active=false WHERE person_id=?1", f.person)
 		}
 		r := b.call("GET", reviewPath(id), nil)
 		body := html.UnescapeString(r.Body.String())
@@ -477,7 +478,7 @@ func TestRegistrationAdditionalInvariants(t *testing.T) {
 			t.Fatal("account state presentation", state)
 		}
 	}
-	f.exec("UPDATE registration_submissions SET status='cancelled' WHERE id=$1", id)
+	f.exec("UPDATE registration_submissions SET status='cancelled' WHERE id=?1", id)
 	if err := f.app.Reviews.CreatePerson(t.Context(), f.approver, id); !errors.Is(err, identityresolution.ErrClosed) {
 		t.Fatal("cancelled resolution")
 	}
@@ -485,7 +486,7 @@ func TestRegistrationAdditionalInvariants(t *testing.T) {
 		t.Fatal("cancelled UI")
 	}
 	// Application reads reject stale privileges independently of HTTP.
-	f.exec("UPDATE users SET is_active=false WHERE id=$1", f.approver)
+	f.exec("UPDATE users SET is_active=false WHERE id=?1", f.approver)
 	if _, err := f.app.Reviews.List(t.Context(), f.approver); !errors.Is(err, authorization.ErrForbidden) {
 		t.Fatal("disabled reviewer")
 	}

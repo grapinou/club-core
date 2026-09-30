@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/accounts"
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/authorization"
@@ -17,7 +19,6 @@ import (
 	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/grapinou/club-core/internal/views"
 	"github.com/grapinou/club-core/internal/websecurity"
-	"github.com/jackc/pgx/v5"
 )
 
 type MembershipReader interface {
@@ -58,7 +59,7 @@ func membershipID(w http.ResponseWriter, r *http.Request) (int32, bool) {
 	return id, true
 }
 func membershipError(w http.ResponseWriter, r *http.Request, err error) {
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) {
 		http.NotFound(w, r)
 		return
 	}

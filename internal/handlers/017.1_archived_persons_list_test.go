@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,7 +10,7 @@ import (
 
 	"github.com/grapinou/club-core/internal/config"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 func TestArchivedPersonsListHandler(t *testing.T) {
@@ -25,22 +26,22 @@ func TestArchivedPersonsListHandler(t *testing.T) {
 				FirstName: "Robin",
 				LastName:  "Des Bois",
 
-				BirthDate: pgtype.Date{
+				BirthDate: dbtypes.Date{
 					Time:  time.Date(1990, 5, 12, 0, 0, 0, 0, time.UTC),
 					Valid: true,
 				},
 
-				Email: pgtype.Text{
+				Email: sql.NullString{
 					String: "robin.desbois@example.com",
 					Valid:  true,
 				},
 
-				CreatedAt: pgtype.Timestamptz{
+				CreatedAt: dbtypes.Timestamp{
 					Time:  time.Date(2009, 10, 10, 15, 4, 0, 0, time.UTC),
 					Valid: true,
 				},
 
-				ArchivedAt: pgtype.Timestamptz{
+				ArchivedAt: dbtypes.Timestamp{
 					Time:  time.Date(2026, 8, 24, 15, 0, 0, 0, time.UTC),
 					Valid: true,
 				},

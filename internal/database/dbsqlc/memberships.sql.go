@@ -7,16 +7,18 @@ package dbsqlc
 
 import (
 	"context"
+	"database/sql"
+	"strings"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 const getMembership = `-- name: GetMembership :one
-SELECT id, person_id, season_id, membership_type_id, status, joined_at, ended_at, created_at, updated_at, requested_at, approved_at, approved_by_user_id, admin_note, source_trial_id FROM memberships WHERE id = $1
+SELECT id, person_id, season_id, membership_type_id, status, joined_at, ended_at, created_at, updated_at, requested_at, approved_at, approved_by_user_id, admin_note, source_trial_id FROM memberships WHERE id = ?1
 `
 
 func (q *Queries) GetMembership(ctx context.Context, id int32) (Membership, error) {
-	row := q.db.QueryRow(ctx, getMembership, id)
+	row := q.db.QueryRowContext(ctx, getMembership, id)
 	var i Membership
 	err := row.Scan(
 		&i.ID,
@@ -47,7 +49,7 @@ JOIN seasons s ON s.id = m.season_id
 JOIN membership_types t ON t.id = m.membership_type_id
 LEFT JOIN users u ON u.person_id = p.id
 LEFT JOIN users approver ON approver.id = m.approved_by_user_id
-WHERE m.id = $1
+WHERE m.id = ?1
 `
 
 type GetMembershipDetailsRow struct {
@@ -55,15 +57,15 @@ type GetMembershipDetailsRow struct {
 	Person           Person
 	Season           Season
 	MembershipType   MembershipType
-	UserID           pgtype.Int4
-	Username         pgtype.Text
-	UserIsActive     pgtype.Bool
-	ActivatedAt      pgtype.Timestamptz
-	ApproverUsername pgtype.Text
+	UserID           sql.NullInt32
+	Username         sql.NullString
+	UserIsActive     sql.NullBool
+	ActivatedAt      dbtypes.Timestamp
+	ApproverUsername sql.NullString
 }
 
 func (q *Queries) GetMembershipDetails(ctx context.Context, id int32) (GetMembershipDetailsRow, error) {
-	row := q.db.QueryRow(ctx, getMembershipDetails, id)
+	row := q.db.QueryRowContext(ctx, getMembershipDetails, id)
 	var i GetMembershipDetailsRow
 	err := row.Scan(
 		&i.Membership.ID,
@@ -115,7 +117,7 @@ func (q *Queries) GetMembershipDetails(ctx context.Context, id int32) (GetMember
 
 const getMembershipIDForUser = `-- name: GetMembershipIDForUser :one
 SELECT m.id FROM memberships m JOIN users u ON u.person_id=m.person_id
-WHERE m.id=$1 AND u.id=$2
+WHERE m.id=?1 AND u.id=?2
 `
 
 type GetMembershipIDForUserParams struct {
@@ -124,26 +126,26 @@ type GetMembershipIDForUserParams struct {
 }
 
 func (q *Queries) GetMembershipIDForUser(ctx context.Context, arg GetMembershipIDForUserParams) (int32, error) {
-	row := q.db.QueryRow(ctx, getMembershipIDForUser, arg.MembershipID, arg.UserID)
+	row := q.db.QueryRowContext(ctx, getMembershipIDForUser, arg.MembershipID, arg.UserID)
 	var id int32
 	err := row.Scan(&id)
 	return id, err
 }
 
 const getMembershipSourceTrial = `-- name: GetMembershipSourceTrial :one
-SELECT t.id,t.trial_date,a.name AS activity_name,coalesce(g.name,'')::text AS group_name,
- coalesce(to_char(gs.start_time,'HH24:MI'),'')::text AS start_time,
- EXISTS(SELECT 1 FROM administrative_events e WHERE e.resource_type='membership' AND e.resource_id=m.id AND e.action='membership_trial_group_assigned')::boolean AS group_adopted,
- EXISTS(SELECT 1 FROM administrative_events e WHERE e.resource_type='membership' AND e.resource_id=m.id AND e.action='membership_trial_group_skipped')::boolean AS group_needs_review
+SELECT t.id,t.trial_date,a.name AS activity_name,coalesce(g.name,'') AS group_name,
+ CAST(coalesce(CAST(substr(gs.start_time,1,5) AS TEXT),'') AS TEXT) AS start_time,
+ EXISTS(SELECT 1 FROM administrative_events e WHERE e.resource_type='membership' AND e.resource_id=m.id AND e.action='membership_trial_group_assigned') AS group_adopted,
+ EXISTS(SELECT 1 FROM administrative_events e WHERE e.resource_type='membership' AND e.resource_id=m.id AND e.action='membership_trial_group_skipped') AS group_needs_review
 FROM memberships m JOIN trial_registrations t ON t.id=m.source_trial_id
 JOIN activities a ON a.id=t.activity_id
 LEFT JOIN groups g ON g.id=t.group_id LEFT JOIN group_slots gs ON gs.id=t.group_slot_id
-WHERE m.id=$1
+WHERE m.id=?1
 `
 
 type GetMembershipSourceTrialRow struct {
 	ID               int32
-	TrialDate        pgtype.Date
+	TrialDate        dbtypes.Date
 	ActivityName     string
 	GroupName        string
 	StartTime        string
@@ -152,7 +154,7 @@ type GetMembershipSourceTrialRow struct {
 }
 
 func (q *Queries) GetMembershipSourceTrial(ctx context.Context, id int32) (GetMembershipSourceTrialRow, error) {
-	row := q.db.QueryRow(ctx, getMembershipSourceTrial, id)
+	row := q.db.QueryRowContext(ctx, getMembershipSourceTrial, id)
 	var i GetMembershipSourceTrialRow
 	err := row.Scan(
 		&i.ID,
@@ -167,11 +169,11 @@ func (q *Queries) GetMembershipSourceTrial(ctx context.Context, id int32) (GetMe
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, person_id, login_email, password_hash, is_active, created_at, username, activated_at FROM users WHERE id = $1
+SELECT id, person_id, login_email, password_hash, is_active, created_at, username, activated_at FROM users WHERE id = ?1
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id int32) (User, error) {
-	row := q.db.QueryRow(ctx, getUserByID, id)
+	row := q.db.QueryRowContext(ctx, getUserByID, id)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -187,11 +189,11 @@ func (q *Queries) GetUserByID(ctx context.Context, id int32) (User, error) {
 }
 
 const getUserByPerson = `-- name: GetUserByPerson :one
-SELECT id, person_id, login_email, password_hash, is_active, created_at, username, activated_at FROM users WHERE person_id = $1
+SELECT id, person_id, login_email, password_hash, is_active, created_at, username, activated_at FROM users WHERE person_id = ?1
 `
 
 func (q *Queries) GetUserByPerson(ctx context.Context, personID int32) (User, error) {
-	row := q.db.QueryRow(ctx, getUserByPerson, personID)
+	row := q.db.QueryRowContext(ctx, getUserByPerson, personID)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -207,11 +209,11 @@ func (q *Queries) GetUserByPerson(ctx context.Context, personID int32) (User, er
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, person_id, login_email, password_hash, is_active, created_at, username, activated_at FROM users WHERE username = $1
+SELECT id, person_id, login_email, password_hash, is_active, created_at, username, activated_at FROM users WHERE username = ?1
 `
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User, error) {
-	row := q.db.QueryRow(ctx, getUserByUsername, username)
+	row := q.db.QueryRowContext(ctx, getUserByUsername, username)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -227,7 +229,7 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 }
 
 const listAdministrativeMemberships = `-- name: ListAdministrativeMemberships :many
-SELECT m.id, m.person_id, m.season_id, m.membership_type_id, m.status, m.joined_at, m.ended_at, m.created_at, m.updated_at, m.requested_at, m.approved_at, m.approved_by_user_id, m.admin_note, m.source_trial_id, p.first_name, p.last_name, p.email, ARRAY(SELECT coalesce(gp.email,'') FROM person_guardians gr JOIN persons gp ON gp.id=gr.guardian_person_id WHERE gr.child_person_id=p.id)::text[] AS guardian_emails, s.name AS season_name,
+SELECT m.id, m.person_id, m.season_id, m.membership_type_id, m.status, m.joined_at, m.ended_at, m.created_at, m.updated_at, m.requested_at, m.approved_at, m.approved_by_user_id, m.admin_note, m.source_trial_id, p.first_name, p.last_name, p.email, CAST((SELECT json_group_array(value) FROM (SELECT coalesce(gp.email,'') AS value FROM person_guardians gr JOIN persons gp ON gp.id=gr.guardian_person_id WHERE gr.child_person_id=p.id)) AS JSON_TEXT_STRINGS) AS guardian_emails, s.name AS season_name,
        -- Same effective-access predicates as ListActiveGuardiansForChild.
        EXISTS(SELECT 1 FROM guardian_access_grants ga
          JOIN person_guardians r USING(child_person_id,guardian_person_id)
@@ -251,19 +253,19 @@ type ListAdministrativeMembershipsRow struct {
 	Membership           Membership
 	FirstName            string
 	LastName             string
-	Email                pgtype.Text
-	GuardianEmails       []string
+	Email                sql.NullString
+	GuardianEmails       dbtypes.Strings
 	SeasonName           string
 	HasEffectiveGuardian bool
 	MembershipTypeName   string
-	UserID               pgtype.Int4
-	Username             pgtype.Text
-	UserIsActive         pgtype.Bool
-	ActivatedAt          pgtype.Timestamptz
+	UserID               sql.NullInt32
+	Username             sql.NullString
+	UserIsActive         sql.NullBool
+	ActivatedAt          dbtypes.Timestamp
 }
 
 func (q *Queries) ListAdministrativeMemberships(ctx context.Context) ([]ListAdministrativeMembershipsRow, error) {
-	rows, err := q.db.Query(ctx, listAdministrativeMemberships)
+	rows, err := q.db.QueryContext(ctx, listAdministrativeMemberships)
 	if err != nil {
 		return nil, err
 	}
@@ -302,6 +304,9 @@ func (q *Queries) ListAdministrativeMemberships(ctx context.Context) ([]ListAdmi
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -310,11 +315,11 @@ func (q *Queries) ListAdministrativeMemberships(ctx context.Context) ([]ListAdmi
 
 const listMembershipActivities = `-- name: ListMembershipActivities :many
 SELECT a.id, a.name, a.is_active, a.created_at FROM activities a JOIN membership_activities ma ON ma.activity_id = a.id
-WHERE ma.membership_id = $1 ORDER BY a.name, a.id
+WHERE ma.membership_id = ?1 ORDER BY a.name, a.id
 `
 
 func (q *Queries) ListMembershipActivities(ctx context.Context, membershipID int32) ([]Activity, error) {
-	rows, err := q.db.Query(ctx, listMembershipActivities, membershipID)
+	rows, err := q.db.QueryContext(ctx, listMembershipActivities, membershipID)
 	if err != nil {
 		return nil, err
 	}
@@ -332,6 +337,9 @@ func (q *Queries) ListMembershipActivities(ctx context.Context, membershipID int
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -343,8 +351,7 @@ SELECT m.id, p.birth_date,
  EXISTS(SELECT 1 FROM membership_activities ma WHERE ma.membership_id=m.id) AS has_activity,
  EXISTS(SELECT 1 FROM person_guardians g WHERE g.child_person_id=p.id) AS has_guardian,
  EXISTS(SELECT 1 FROM person_emergency_contacts e WHERE e.person_id=p.id) AS has_emergency,
- ARRAY(
-  SELECT r.consent_definition_id FROM membership_consent_requirements r
+ CAST((SELECT json_group_array(value) FROM (SELECT r.consent_definition_id AS value FROM membership_consent_requirements r
   WHERE r.membership_id=m.id AND NOT EXISTS (
    SELECT 1 FROM membership_consents c
    WHERE c.id=(
@@ -352,24 +359,33 @@ SELECT m.id, p.birth_date,
     WHERE initial.membership_id=r.membership_id AND initial.consent_definition_id=r.consent_definition_id
     ORDER BY initial.recorded_at,initial.id LIMIT 1
    ) AND c.decision IN ('granted','refused')
-  ) ORDER BY r.consent_definition_id
- )::integer[] AS missing_consent_ids
+  ) ORDER BY r.consent_definition_id)) AS JSON_TEXT_IDS) AS missing_consent_ids
 FROM memberships m JOIN persons p ON p.id=m.person_id
-WHERE m.id=ANY($1::integer[])
+WHERE m.id IN (/*SLICE:ids*/?)
 `
 
 type ListMembershipCompletenessFactsRow struct {
 	ID                int32
-	BirthDate         pgtype.Date
+	BirthDate         dbtypes.Date
 	HasActivity       bool
 	HasGuardian       bool
 	HasEmergency      bool
-	MissingConsentIds []int32
+	MissingConsentIds dbtypes.IDs
 }
 
 // Facts only: the shared Go evaluator owns the completeness policy.
-func (q *Queries) ListMembershipCompletenessFacts(ctx context.Context, dollar_1 []int32) ([]ListMembershipCompletenessFactsRow, error) {
-	rows, err := q.db.Query(ctx, listMembershipCompletenessFacts, dollar_1)
+func (q *Queries) ListMembershipCompletenessFacts(ctx context.Context, ids []int32) ([]ListMembershipCompletenessFactsRow, error) {
+	query := listMembershipCompletenessFacts
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}
@@ -389,6 +405,9 @@ func (q *Queries) ListMembershipCompletenessFacts(ctx context.Context, dollar_1 
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -406,27 +425,27 @@ LEFT JOIN membership_consents c ON c.id = (
  ORDER BY mc.recorded_at DESC, mc.id DESC LIMIT 1
 )
 LEFT JOIN persons giver ON giver.id=c.given_by_person_id
-WHERE r.membership_id = $1 ORDER BY d.code, d.version
+WHERE r.membership_id = ?1 ORDER BY d.code, d.version
 `
 
 type ListMembershipConsentRequirementsRow struct {
-	PresentedAt     pgtype.Timestamptz
+	PresentedAt     dbtypes.Timestamp
 	ID              int32
 	Code            string
 	Version         int32
 	Title           string
 	Description     string
 	IsActive        bool
-	CreatedAt       pgtype.Timestamptz
-	Decision        pgtype.Text
-	GivenByPersonID pgtype.Int4
-	RecordedAt      pgtype.Timestamptz
-	GiverFirstName  pgtype.Text
-	GiverLastName   pgtype.Text
+	CreatedAt       dbtypes.Timestamp
+	Decision        sql.NullString
+	GivenByPersonID sql.NullInt32
+	RecordedAt      dbtypes.Timestamp
+	GiverFirstName  sql.NullString
+	GiverLastName   sql.NullString
 }
 
 func (q *Queries) ListMembershipConsentRequirements(ctx context.Context, membershipID int32) ([]ListMembershipConsentRequirementsRow, error) {
-	rows, err := q.db.Query(ctx, listMembershipConsentRequirements, membershipID)
+	rows, err := q.db.QueryContext(ctx, listMembershipConsentRequirements, membershipID)
 	if err != nil {
 		return nil, err
 	}
@@ -452,6 +471,9 @@ func (q *Queries) ListMembershipConsentRequirements(ctx context.Context, members
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

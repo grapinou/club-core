@@ -6,13 +6,14 @@ import (
 	"context"
 	"errors"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/activation"
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/guardianaccess"
 	"github.com/grapinou/club-core/internal/mailer"
 	"github.com/grapinou/club-core/internal/memberships"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type DeliveryStatus string
@@ -59,14 +60,14 @@ type PermissionChecker interface {
 type Service struct {
 	guardians           *guardianaccess.Service
 	permissions         PermissionChecker
-	db                  *pgxpool.Pool
+	db                  *sql.DB
 	memberships         *memberships.Service
 	activation          *activation.Service
 	mailer              mailer.Mailer
 	from, activationURL string
 }
 
-func New(db *pgxpool.Pool, m *memberships.Service, a *activation.Service, sender mailer.Mailer, from, baseURL string, permissions PermissionChecker) *Service {
+func New(db *sql.DB, m *memberships.Service, a *activation.Service, sender mailer.Mailer, from, baseURL string, permissions PermissionChecker) *Service {
 	return &Service{permissions: permissions, db: db, memberships: m, activation: a, mailer: sender, from: from, activationURL: baseURL + "/activate"}
 }
 func (s *Service) deliver(ctx context.Context, d *activation.Delivery) (DeliveryStatus, error) {
@@ -106,13 +107,13 @@ func (s *Service) ResendActivation(ctx context.Context, actorID, userID int32) (
 	if err := s.require(ctx, actorID, authorization.ActivationResend); err != nil {
 		return result, err
 	}
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return result, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	var active, activated bool
-	err = tx.QueryRow(ctx, "SELECT is_active,activated_at IS NOT NULL FROM users WHERE id=$1 FOR UPDATE", userID).Scan(&active, &activated)
+	err = tx.QueryRowContext(ctx, "SELECT is_active,activated_at IS NOT NULL FROM users WHERE id=?1", userID).Scan(&active, &activated)
 	if err != nil {
 		return result, err
 	}
@@ -134,7 +135,7 @@ func (s *Service) ResendActivation(ctx context.Context, actorID, userID int32) (
 	if err != nil {
 		return result, err
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return result, err
 	}
 	result.DeliveryStatus, err = s.deliver(ctx, d)

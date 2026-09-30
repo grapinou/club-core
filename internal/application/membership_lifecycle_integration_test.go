@@ -21,13 +21,13 @@ func TestP3MembershipLifecycle(t *testing.T) {
 			if scenario == "child_trial" {
 				birth = "2018-01-01"
 			}
-			person := f.id("INSERT INTO persons(first_name,last_name,birth_date,email) VALUES($1,'Cycle',$2,'cycle@example.test') RETURNING id", scenario, birth)
+			person := f.id("INSERT INTO persons(first_name,last_name,birth_date,email) VALUES(?1,'Cycle',?2,'cycle@example.test') RETURNING id", scenario, birth)
 			giver := person
 			var parentBrowser *browser
 			var parent int32
 			if scenario == "child_trial" {
 				parent = f.id("INSERT INTO persons(first_name,last_name,birth_date,email) VALUES('Parent','Cycle','1980-01-01','parent@example.test') RETURNING id")
-				f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES($1,$2,'guardian')", person, parent)
+				f.exec("INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES(?1,?2,'guardian')", person, parent)
 				giver = parent
 
 			}
@@ -38,7 +38,7 @@ func TestP3MembershipLifecycle(t *testing.T) {
 				if !strings.HasPrefix(r.Header().Get("Location"), "/trials/") {
 					t.Fatal("trial PRG")
 				}
-				trial = f.id("SELECT id FROM trial_registrations WHERE person_id=$1", person)
+				trial = f.id("SELECT id FROM trial_registrations WHERE person_id=?1", person)
 				officePost(t, admin, officeTrial(trial)+"/status", url.Values{"revision": {"0"}, "status": {"attended"}}, 303)
 				officeOK(t, admin, officeTrial(trial), "Préparer une demande")
 			}
@@ -49,7 +49,7 @@ func TestP3MembershipLifecycle(t *testing.T) {
 				officeOK(t, admin, path+"?trial="+fmt.Sprint(trial), "Depuis l’essai", "Groupe adultes")
 			}
 			officePost(t, admin, path, form, 303)
-			id := f.id("SELECT id FROM memberships WHERE person_id=$1", person)
+			id := f.id("SELECT id FROM memberships WHERE person_id=?1", person)
 			m, err := dbsqlc.New(f.db).GetMembership(t.Context(), id)
 			f.must(err)
 			if m.Status != "pending" || m.SourceTrialID.Valid != (trial != 0) || m.SourceTrialID.Int32 != trial {
@@ -59,7 +59,7 @@ func TestP3MembershipLifecycle(t *testing.T) {
 			if trial != 0 {
 				expectedGroups = 1
 			}
-			if f.count("SELECT count(*) FROM membership_groups WHERE membership_id=$1", id) != expectedGroups {
+			if f.count("SELECT count(*) FROM membership_groups WHERE membership_id=?1", id) != expectedGroups {
 				t.Fatal("trial group default")
 			}
 			if trial != 0 {
@@ -78,7 +78,7 @@ func TestP3MembershipLifecycle(t *testing.T) {
 				if !strings.Contains(denied.Header().Get("Location"), "incomplete") {
 					t.Fatal("incomplete minor approved")
 				}
-				if f.count("SELECT count(*) FROM users WHERE person_id=$1", person) != 0 {
+				if f.count("SELECT count(*) FROM users WHERE person_id=?1", person) != 0 {
 					t.Fatal("child account on failure")
 				}
 				familyPath := fmt.Sprintf("/persons/%d/guardians/%d", person, parent)
@@ -109,7 +109,7 @@ func TestP3MembershipLifecycle(t *testing.T) {
 				t.Fatal("double approval")
 			}
 			if parent != 0 {
-				if f.count("SELECT count(*) FROM users WHERE person_id=$1", person) != 0 {
+				if f.count("SELECT count(*) FROM users WHERE person_id=?1", person) != 0 {
 					t.Fatal("artificial child account")
 				}
 				f.personalOK(parentBrowser, familyMembership(person, id), "Active", "Refusé")

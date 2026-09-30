@@ -2,16 +2,17 @@ package identityresolution
 
 import (
 	"context"
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/authorization"
+	"github.com/grapinou/club-core/internal/database"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // CreateGuardianClaim stages evidence with the same deterministic matcher as
 // submissions. Even a single strong candidate requires administrative resolution.
-func CreateGuardianClaim(ctx context.Context, tx pgx.Tx, in SubmissionInput) (dbsqlc.GuardianIdentityClaim, error) {
+func CreateGuardianClaim(ctx context.Context, tx *sql.Tx, in SubmissionInput) (dbsqlc.GuardianIdentityClaim, error) {
 	q := dbsqlc.New(tx)
 	claim, err := q.CreateGuardianIdentityClaim(ctx, dbsqlc.CreateGuardianIdentityClaimParams{FirstName: in.FirstName, LastName: in.LastName, BirthDate: in.BirthDate, Email: in.Email.String, PhoneNumber: in.PhoneNumber, Address: in.Address})
 	if err != nil {
@@ -43,7 +44,7 @@ func CreateGuardianClaim(ctx context.Context, tx pgx.Tx, in SubmissionInput) (db
 	}
 	return q.GetGuardianIdentityClaim(ctx, claim.ID)
 }
-func resolveGuardianClaim(ctx context.Context, tx pgx.Tx, c dbsqlc.GuardianIdentityClaim, actor int32, person *int32) error {
+func resolveGuardianClaim(ctx context.Context, tx *sql.Tx, c dbsqlc.GuardianIdentityClaim, actor int32, person *int32) error {
 	q := dbsqlc.New(tx)
 	kind := "new_person"
 	var target int32
@@ -67,13 +68,13 @@ func resolveGuardianClaim(ctx context.Context, tx pgx.Tx, c dbsqlc.GuardianIdent
 			return err
 		}
 	} else {
-		p, err := CreateDeclaredPerson(ctx, tx, dbsqlc.RegistrationSubmission{FirstName: c.FirstName, LastName: c.LastName, BirthDate: c.BirthDate, Email: pgtype.Text{String: c.Email, Valid: true}, PhoneNumber: c.PhoneNumber, Address: c.Address})
+		p, err := CreateDeclaredPerson(ctx, tx, dbsqlc.RegistrationSubmission{FirstName: c.FirstName, LastName: c.LastName, BirthDate: c.BirthDate, Email: sql.NullString{String: c.Email, Valid: true}, PhoneNumber: c.PhoneNumber, Address: c.Address})
 		if err != nil {
 			return err
 		}
 		target = p.ID
 	}
-	return q.ResolveGuardianIdentityClaim(ctx, dbsqlc.ResolveGuardianIdentityClaimParams{ID: c.ID, ResolvedPersonID: pgtype.Int4{Int32: target, Valid: true}, ResolutionType: pgtype.Text{String: kind, Valid: true}, ResolvedByUserID: pgtype.Int4{Int32: actor, Valid: actor != 0}})
+	return q.ResolveGuardianIdentityClaim(ctx, dbsqlc.ResolveGuardianIdentityClaimParams{ID: c.ID, ResolvedPersonID: sql.NullInt32{Int32: target, Valid: true}, ResolutionType: sql.NullString{String: kind, Valid: true}, ResolvedByUserID: sql.NullInt32{Int32: actor, Valid: actor != 0}})
 }
 
 // ResolveGuardian uses the submission lock order shared with child resolution and
@@ -85,14 +86,16 @@ func (s *ReviewService) ResolveGuardian(ctx context.Context, actor, id int32, pe
 	if err := s.require(ctx, actor); err != nil {
 		return err
 	}
-	tx, err := s.db.Begin(ctx)
+	unlock, _, err := database.LockDelivery(ctx, s.db, id, true)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
-	if err = LockDeliveryDecision(ctx, tx, id); err != nil {
+	defer unlock()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 	q := dbsqlc.New(tx)
 	if _, err = q.LockRegistrationSubmission(ctx, id); err != nil {
 		return err
@@ -120,7 +123,7 @@ func (s *ReviewService) ResolveGuardian(ctx context.Context, actor, id int32, pe
 			return err
 		}
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return err
 	}
 	s.afterResolution(ctx, id)
@@ -146,7 +149,7 @@ func (s *ReviewService) afterResolution(ctx context.Context, id int32) {
 
 // CreateAuthenticatedGuardianClaim records the caller's known Person, never a
 // declared target ID. Authentication proves only this identity, not parentage.
-func CreateAuthenticatedGuardianClaim(ctx context.Context, tx pgx.Tx) (dbsqlc.GuardianIdentityClaim, error) {
+func CreateAuthenticatedGuardianClaim(ctx context.Context, tx *sql.Tx) (dbsqlc.GuardianIdentityClaim, error) {
 	actor, ok := auth.UserID(ctx)
 	if !ok {
 		return dbsqlc.GuardianIdentityClaim{}, authorization.ErrForbidden
@@ -160,7 +163,7 @@ func CreateAuthenticatedGuardianClaim(ctx context.Context, tx pgx.Tx) (dbsqlc.Gu
 	if err != nil {
 		return c, err
 	}
-	err = q.ResolveGuardianIdentityClaim(ctx, dbsqlc.ResolveGuardianIdentityClaimParams{ID: c.ID, ResolvedPersonID: pgtype.Int4{Int32: p.PersonID, Valid: true}, ResolutionType: pgtype.Text{String: "existing_person", Valid: true}, ResolvedByUserID: pgtype.Int4{Int32: actor, Valid: true}})
+	err = q.ResolveGuardianIdentityClaim(ctx, dbsqlc.ResolveGuardianIdentityClaimParams{ID: c.ID, ResolvedPersonID: sql.NullInt32{Int32: p.PersonID, Valid: true}, ResolutionType: sql.NullString{String: "existing_person", Valid: true}, ResolvedByUserID: sql.NullInt32{Int32: actor, Valid: true}})
 	if err != nil {
 		return c, err
 	}

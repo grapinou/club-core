@@ -10,20 +10,14 @@ import (
 )
 
 const claimRegistrationVerificationJob = `-- name: ClaimRegistrationVerificationJob :one
-WITH candidate AS (
- SELECT id FROM registration_verification_outbox
- WHERE (status='pending' AND available_at<=clock_timestamp())
-    OR (status='processing' AND lease_until<=clock_timestamp())
- ORDER BY available_at,id FOR UPDATE SKIP LOCKED LIMIT 1
-)
-UPDATE registration_verification_outbox o SET status='processing',
- lease_until=clock_timestamp()+make_interval(secs=>$1::double precision),
- lease_version=lease_version+1,updated_at=clock_timestamp()
-FROM candidate WHERE o.id=candidate.id RETURNING o.id, o.submission_id, o.status, o.attempt_count, o.available_at, o.lease_until, o.lease_version, o.created_at, o.updated_at, o.sent_at, o.finished_at, o.last_error_code, o.recipient_hash
+UPDATE registration_verification_outbox SET status='processing',
+ lease_until=strftime('%Y-%m-%d %H:%M:%f','now',(?1 + 0.0) || ' seconds'),
+ lease_version=lease_version+1,updated_at=strftime('%Y-%m-%d %H:%M:%f','now')
+WHERE id=(SELECT id FROM registration_verification_outbox WHERE (status='pending' AND available_at<=strftime('%Y-%m-%d %H:%M:%f','now')) OR (status='processing' AND lease_until<=strftime('%Y-%m-%d %H:%M:%f','now')) ORDER BY available_at,id LIMIT 1) RETURNING id, submission_id, status, attempt_count, available_at, lease_until, lease_version, created_at, updated_at, sent_at, finished_at, last_error_code, recipient_hash
 `
 
-func (q *Queries) ClaimRegistrationVerificationJob(ctx context.Context, leaseSeconds float64) (RegistrationVerificationOutbox, error) {
-	row := q.db.QueryRow(ctx, claimRegistrationVerificationJob, leaseSeconds)
+func (q *Queries) ClaimRegistrationVerificationJob(ctx context.Context, leaseSeconds interface{}) (RegistrationVerificationOutbox, error) {
+	row := q.db.QueryRowContext(ctx, claimRegistrationVerificationJob, leaseSeconds)
 	var i RegistrationVerificationOutbox
 	err := row.Scan(
 		&i.ID,
@@ -44,7 +38,7 @@ func (q *Queries) ClaimRegistrationVerificationJob(ctx context.Context, leaseSec
 }
 
 const countRegistrationVerificationJobs = `-- name: CountRegistrationVerificationJobs :many
-SELECT status,count(*)::bigint AS job_count FROM registration_verification_outbox GROUP BY status ORDER BY status
+SELECT status,CAST(count(*) AS BIGINT) AS job_count FROM registration_verification_outbox GROUP BY status ORDER BY status
 `
 
 type CountRegistrationVerificationJobsRow struct {
@@ -53,7 +47,7 @@ type CountRegistrationVerificationJobsRow struct {
 }
 
 func (q *Queries) CountRegistrationVerificationJobs(ctx context.Context) ([]CountRegistrationVerificationJobsRow, error) {
-	rows, err := q.db.Query(ctx, countRegistrationVerificationJobs)
+	rows, err := q.db.QueryContext(ctx, countRegistrationVerificationJobs)
 	if err != nil {
 		return nil, err
 	}
@@ -65,6 +59,9 @@ func (q *Queries) CountRegistrationVerificationJobs(ctx context.Context) ([]Coun
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

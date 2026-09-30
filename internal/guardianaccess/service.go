@@ -7,13 +7,13 @@ import (
 	"errors"
 	"time"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/civildate"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 var ErrIneligible = errors.New("guardian access unavailable")
@@ -22,7 +22,7 @@ type PermissionChecker interface {
 	HasPermission(context.Context, int32, authorization.Permission) (bool, error)
 }
 type Service struct {
-	db          *pgxpool.Pool
+	db          *sql.DB
 	permissions PermissionChecker
 	location    *time.Location
 	now         func() time.Time
@@ -31,7 +31,7 @@ type Option func(*Service)
 
 func WithClock(now func() time.Time) Option { return func(s *Service) { s.now = now } }
 
-func New(db *pgxpool.Pool, p PermissionChecker, location *time.Location, options ...Option) *Service {
+func New(db *sql.DB, p PermissionChecker, location *time.Location, options ...Option) *Service {
 	if location == nil {
 		panic("guardian access requires business location")
 	}
@@ -41,8 +41,8 @@ func New(db *pgxpool.Pool, p PermissionChecker, location *time.Location, options
 	}
 	return s
 }
-func (s *Service) minor(birth pgtype.Date) bool {
-	return birth.Valid && birth.InfinityModifier == pgtype.Finite && civildate.IsMinor(birth.Time, s.now().In(s.location))
+func (s *Service) minor(birth dbtypes.Date) bool {
+	return birth.Valid && birth.IsFinite() && civildate.IsMinor(birth.Time, s.now().In(s.location))
 }
 
 // RequireAdministrator derives the actor from authentication, never from resource IDs.
@@ -71,10 +71,10 @@ func requireAdministrator(ctx context.Context, q *dbsqlc.Queries, permissions Pe
 	return actor, nil
 }
 
-// lockEligible locks Persons in ID order before the relationship, also serializing
-// account provisioning with approval. Grants need not already have an active User.
-func (s *Service) lockEligible(ctx context.Context, tx pgx.Tx, child, guardian int32) error {
-	rows, err := tx.Query(ctx, "SELECT id FROM persons WHERE id=ANY($1::integer[]) ORDER BY id FOR UPDATE", []int32{child, guardian})
+// lockEligible checks Persons and the relationship in an IMMEDIATE transaction,
+// serializing provisioning with approval. Grants need not have an active User.
+func (s *Service) lockEligible(ctx context.Context, tx *sql.Tx, child, guardian int32) error {
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM persons WHERE id IN (SELECT value FROM json_each(?1)) ORDER BY id", dbtypes.IDs{child, guardian})
 	if err != nil {
 		return err
 	}
@@ -86,15 +86,15 @@ func (s *Service) lockEligible(ctx context.Context, tx pgx.Tx, child, guardian i
 		return err
 	}
 	_, err = dbsqlc.New(tx).LockGuardianRelation(ctx, dbsqlc.LockGuardianRelationParams{ChildPersonID: child, GuardianPersonID: guardian})
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) {
 		return ErrIneligible
 	}
 	if err != nil {
 		return err
 	}
-	var birth pgtype.Date
-	err = tx.QueryRow(ctx, "SELECT c.birth_date FROM persons c JOIN persons g ON g.id=$2 WHERE c.id=$1 AND c.archived_at IS NULL AND g.archived_at IS NULL", child, guardian).Scan(&birth)
-	if errors.Is(err, pgx.ErrNoRows) {
+	var birth dbtypes.Date
+	err = tx.QueryRowContext(ctx, "SELECT c.birth_date FROM persons c JOIN persons g ON g.id=?2 WHERE c.id=?1 AND c.archived_at IS NULL AND g.archived_at IS NULL", child, guardian).Scan(&birth)
+	if errors.Is(err, sql.ErrNoRows) {
 		return ErrIneligible
 	}
 	if err != nil {
@@ -108,7 +108,7 @@ func (s *Service) lockEligible(ctx context.Context, tx pgx.Tx, child, guardian i
 
 // AuthorizeProvisionTx holds eligibility stable until account preparation commits.
 // The caller must commit promptly and deliver activation only afterwards.
-func (s *Service) AuthorizeProvisionTx(ctx context.Context, tx pgx.Tx, child, guardian int32) error {
+func (s *Service) AuthorizeProvisionTx(ctx context.Context, tx *sql.Tx, child, guardian int32) error {
 	// Use this transaction for authentication and RBAC reads too; acquiring another
 	// pool connection here can deadlock concurrent provisioning on a small pool.
 	q := dbsqlc.New(tx)
@@ -119,7 +119,7 @@ func (s *Service) AuthorizeProvisionTx(ctx context.Context, tx pgx.Tx, child, gu
 		return err
 	}
 	_, err := dbsqlc.New(tx).GetActiveGuardianAccess(ctx, dbsqlc.GetActiveGuardianAccessParams{ChildPersonID: child, GuardianPersonID: guardian})
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) {
 		return ErrIneligible
 	}
 	return err
@@ -131,16 +131,16 @@ func (s *Service) Grant(ctx context.Context, child, guardian int32) (dbsqlc.Guar
 	if err != nil {
 		return zero, err
 	}
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return zero, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	grant, err := s.GrantTx(ctx, tx, child, guardian)
 	if err != nil {
 		return zero, err
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return zero, err
 	}
 	return grant, nil
@@ -158,20 +158,20 @@ func (s *Service) revoke(ctx context.Context, child, guardian int32, remove bool
 	if err != nil {
 		return err
 	}
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	q := dbsqlc.New(tx)
 	relation, err := q.LockGuardianRelation(ctx, dbsqlc.LockGuardianRelationParams{ChildPersonID: child, GuardianPersonID: guardian})
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	err = q.RevokeGuardianAccessGrant(ctx, dbsqlc.RevokeGuardianAccessGrantParams{ChildPersonID: child, GuardianPersonID: guardian, RevokedByUserID: pgtype.Int4{Int32: actor, Valid: true}})
+	err = q.RevokeGuardianAccessGrant(ctx, dbsqlc.RevokeGuardianAccessGrantParams{ChildPersonID: child, GuardianPersonID: guardian, RevokedByUserID: sql.NullInt32{Int32: actor, Valid: true}})
 	if err != nil {
 		return err
 	}
@@ -180,7 +180,7 @@ func (s *Service) revoke(ctx context.Context, child, guardian int32, remove bool
 			return err
 		}
 	}
-	return tx.Commit(ctx)
+	return tx.Commit()
 }
 
 type RelatedPerson struct {
@@ -256,7 +256,7 @@ func (s *Service) ListActiveGuardiansForChild(ctx context.Context, child int32) 
 
 // GrantTx is the transactional variant of Grant. It preserves actor, permission,
 // relation and minority checks and never treats primary contact as digital access.
-func (s *Service) GrantTx(ctx context.Context, tx pgx.Tx, child, guardian int32) (dbsqlc.GuardianAccessGrant, error) {
+func (s *Service) GrantTx(ctx context.Context, tx *sql.Tx, child, guardian int32) (dbsqlc.GuardianAccessGrant, error) {
 	q := dbsqlc.New(tx)
 	actor, err := requireAdministrator(ctx, q, authorization.New(q))
 	if err != nil {
@@ -265,8 +265,8 @@ func (s *Service) GrantTx(ctx context.Context, tx pgx.Tx, child, guardian int32)
 	if err = s.lockEligible(ctx, tx, child, guardian); err != nil {
 		return dbsqlc.GuardianAccessGrant{}, err
 	}
-	grant, err := q.CreateGuardianAccessGrant(ctx, dbsqlc.CreateGuardianAccessGrantParams{ChildPersonID: child, GuardianPersonID: guardian, GrantedByUserID: pgtype.Int4{Int32: actor, Valid: true}})
-	if errors.Is(err, pgx.ErrNoRows) {
+	grant, err := q.CreateGuardianAccessGrant(ctx, dbsqlc.CreateGuardianAccessGrantParams{ChildPersonID: child, GuardianPersonID: guardian, GrantedByUserID: sql.NullInt32{Int32: actor, Valid: true}})
+	if errors.Is(err, sql.ErrNoRows) {
 		return q.GetActiveGuardianAccess(ctx, dbsqlc.GetActiveGuardianAccessParams{ChildPersonID: child, GuardianPersonID: guardian})
 	}
 	return grant, err
@@ -274,7 +274,7 @@ func (s *Service) GrantTx(ctx context.Context, tx pgx.Tx, child, guardian int32)
 
 // AuthorizeManagedChildTx keeps existing effective access stable for a family
 // membership request. It does not create a relationship or grant any access.
-func (s *Service) AuthorizeManagedChildTx(ctx context.Context, tx pgx.Tx, child int32) (int32, error) {
+func (s *Service) AuthorizeManagedChildTx(ctx context.Context, tx *sql.Tx, child int32) (int32, error) {
 	actor, ok := auth.UserID(ctx)
 	if !ok {
 		return 0, ErrIneligible
@@ -288,8 +288,8 @@ func (s *Service) AuthorizeManagedChildTx(ctx context.Context, tx pgx.Tx, child 
 		return 0, err
 	}
 	var id int32
-	err = tx.QueryRow(ctx, `SELECT id FROM guardian_access_grants WHERE child_person_id=$1 AND guardian_person_id=$2 AND revoked_at IS NULL FOR SHARE`, child, account.PersonID).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
+	err = tx.QueryRowContext(ctx, `SELECT id FROM guardian_access_grants WHERE child_person_id=?1 AND guardian_person_id=?2 AND revoked_at IS NULL`, child, account.PersonID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
 		return 0, ErrIneligible
 	}
 	return account.PersonID, err

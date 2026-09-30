@@ -1,11 +1,12 @@
 package database
 
 import (
+	"database/sql"
 	"testing"
 	"time"
 
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 func TestGroupsIntegration(t *testing.T) {
@@ -21,21 +22,21 @@ func TestGroupsIntegration(t *testing.T) {
 	id := func(sql string, args ...any) int32 {
 		t.Helper()
 		var n int32
-		must(db.QueryRow(ctx, sql, args...).Scan(&n))
+		must(db.QueryRowContext(ctx, sql, args...).Scan(&n))
 		return n
 	}
 	activity := id("INSERT INTO activities (name) VALUES ('JJB') RETURNING id")
 	activity2 := id("INSERT INTO activities (name) VALUES ('Judo') RETURNING id")
-	season := id("INSERT INTO seasons (name, starts_at, ends_at) VALUES ('Current',CURRENT_DATE-100,CURRENT_DATE+100) RETURNING id")
-	season2 := id("INSERT INTO seasons (name, starts_at, ends_at) VALUES ('Other',CURRENT_DATE+101,CURRENT_DATE+300) RETURNING id")
+	season := id("INSERT INTO seasons (name, starts_at, ends_at) VALUES ('Current',date('now','-100 days'),date('now','+100 days')) RETURNING id")
+	season2 := id("INSERT INTO seasons (name, starts_at, ends_at) VALUES ('Other',date('now','+101 days'),date('now','+300 days')) RETURNING id")
 	membershipType := id("INSERT INTO membership_types (name) VALUES ('Standard') RETURNING id")
-	var today pgtype.Date
-	must(db.QueryRow(ctx, "SELECT CURRENT_DATE").Scan(&today))
-	date := func(days int) pgtype.Date { return pgtype.Date{Time: today.Time.AddDate(0, 0, days), Valid: true} }
+	var today dbtypes.Date
+	must(db.QueryRowContext(ctx, "SELECT CURRENT_DATE").Scan(&today))
+	date := func(days int) dbtypes.Date { return dbtypes.Date{Time: today.Time.AddDate(0, 0, days), Valid: true} }
 	person, err := q.CreatePerson(ctx, dbsqlc.CreatePersonParams{FirstName: "Arthur", LastName: "Test"})
 	must(err)
-	membership := id("INSERT INTO memberships (person_id,season_id,membership_type_id,status) VALUES ($1,$2,$3,'active') RETURNING id", person.ID, season, membershipType)
-	otherMembership := id("INSERT INTO memberships (person_id,season_id,membership_type_id,status) VALUES ($1,$2,$3,'active') RETURNING id", person.ID, season2, membershipType)
+	membership := id("INSERT INTO memberships (person_id,season_id,membership_type_id,status) VALUES (?1,?2,?3,'active') RETURNING id", person.ID, season, membershipType)
+	otherMembership := id("INSERT INTO memberships (person_id,season_id,membership_type_id,status) VALUES (?1,?2,?3,'active') RETURNING id", person.ID, season2, membershipType)
 	group, err := q.CreateGroup(ctx, dbsqlc.CreateGroupParams{ActivityID: activity, Name: "Enfants", IsActive: true})
 	must(err)
 	group2, err := q.CreateGroup(ctx, dbsqlc.CreateGroupParams{ActivityID: activity, Name: "Compétition", IsActive: true})
@@ -43,11 +44,11 @@ func TestGroupsIntegration(t *testing.T) {
 
 	t.Run("groups creation constraints and rich reads", func(t *testing.T) {
 		_, err := q.CreateGroup(ctx, dbsqlc.CreateGroupParams{ActivityID: activity, Name: "Enfants", IsActive: true})
-		requirePostgresCode(t, err, "23505")
+		requireSQLiteConstraint(t, err, "2067")
 		_, err = q.CreateGroup(ctx, dbsqlc.CreateGroupParams{ActivityID: activity2, Name: "Enfants", IsActive: true})
 		must(err)
 		_, err = q.CreateGroup(ctx, dbsqlc.CreateGroupParams{ActivityID: -1, Name: "Missing"})
-		requirePostgresCode(t, err, "23503")
+		requireSQLiteConstraint(t, err, "787")
 		got, err := q.GetGroup(ctx, group.ID)
 		must(err)
 		if got.ActivityID != activity || got.ActivityName != "JJB" || got.Name != "Enfants" || got.Description.Valid {
@@ -59,9 +60,9 @@ func TestGroupsIntegration(t *testing.T) {
 			t.Fatalf("groups: %+v", all)
 		}
 		// Make timestamp maintenance observable without sleeps.
-		_, err = db.Exec(ctx, "UPDATE groups SET updated_at = created_at - INTERVAL '1 day' WHERE id=$1", group.ID)
+		_, err = db.ExecContext(ctx, "UPDATE groups SET updated_at = strftime('%Y-%m-%d %H:%M:%f',created_at,'-1 day') WHERE id=?1", group.ID)
 		must(err)
-		updated, err := q.UpdateGroup(ctx, dbsqlc.UpdateGroupParams{ID: group.ID, Name: "Enfants 1", Description: pgtype.Text{String: "Description", Valid: true}, IsActive: false})
+		updated, err := q.UpdateGroup(ctx, dbsqlc.UpdateGroupParams{ID: group.ID, Name: "Enfants 1", Description: sql.NullString{String: "Description", Valid: true}, IsActive: false})
 		must(err)
 		if updated.Name != "Enfants 1" || !updated.Description.Valid || updated.IsActive || updated.UpdatedAt.Time.Before(updated.CreatedAt.Time) {
 			t.Fatalf("update: %+v", updated)
@@ -82,9 +83,9 @@ func TestGroupsIntegration(t *testing.T) {
 		assignment, err := q.AssignMembershipGroup(ctx, dbsqlc.AssignMembershipGroupParams{MembershipID: membership, GroupID: group.ID, JoinedAt: date(-30)})
 		must(err)
 		_, err = q.AssignMembershipGroup(ctx, dbsqlc.AssignMembershipGroupParams{MembershipID: membership, GroupID: group.ID, JoinedAt: date(-20)})
-		requirePostgresCode(t, err, "23505")
+		requireSQLiteConstraint(t, err, "2067")
 		_, err = q.CloseMembershipGroup(ctx, dbsqlc.CloseMembershipGroupParams{ID: assignment.ID, LeftAt: date(-31)})
-		requirePostgresCode(t, err, "23514")
+		requireSQLiteConstraint(t, err, "275")
 		current, err := q.ListCurrentMembershipGroups(ctx, membership)
 		must(err)
 		if len(current) != 1 || current[0].GroupID != group.ID || current[0].ActivityName != "JJB" {
@@ -132,7 +133,7 @@ func TestGroupsIntegration(t *testing.T) {
 			{"cancelled", false},
 		} {
 			t.Run(tc.status, func(t *testing.T) {
-				if _, err := db.Exec(ctx, "UPDATE memberships SET status=$2 WHERE id=$1", membership, tc.status); err != nil {
+				if _, err := db.ExecContext(ctx, "UPDATE memberships SET status=?2 WHERE id=?1", membership, tc.status); err != nil {
 					t.Fatal(err)
 				}
 				members, err := q.ListCurrentGroupMembers(ctx, dbsqlc.ListCurrentGroupMembersParams{GroupID: group2.ID, SeasonID: season})
@@ -164,17 +165,17 @@ func TestGroupsIntegration(t *testing.T) {
 		}
 		_, err = q.CloseMembershipGroup(ctx, dbsqlc.CloseMembershipGroupParams{ID: future.ID, LeftAt: date(1)})
 		must(err)
-		_, err = db.Exec(ctx, "DELETE FROM groups WHERE id=$1", group.ID)
-		requirePostgresCode(t, err, "23503")
+		_, err = db.ExecContext(ctx, "DELETE FROM groups WHERE id=?1", group.ID)
+		requireSQLiteConstraint(t, err, "787")
 		_, err = q.AssignMembershipGroup(ctx, dbsqlc.AssignMembershipGroupParams{MembershipID: -1, GroupID: group.ID, JoinedAt: today})
-		requirePostgresCode(t, err, "23503")
+		requireSQLiteConstraint(t, err, "787")
 		_, err = q.AssignMembershipGroup(ctx, dbsqlc.AssignMembershipGroupParams{MembershipID: membership, GroupID: -1, JoinedAt: today})
-		requirePostgresCode(t, err, "23503")
+		requireSQLiteConstraint(t, err, "787")
 	})
 
 	t.Run("weekly slots history validity and constraints", func(t *testing.T) {
-		at := func(hour int) pgtype.Time {
-			return pgtype.Time{Microseconds: int64(hour) * int64(time.Hour/time.Microsecond), Valid: true}
+		at := func(hour int) dbtypes.Time {
+			return dbtypes.Time{Microseconds: int64(hour) * int64(time.Hour/time.Microsecond), Valid: true}
 		}
 		params := dbsqlc.CreateGroupSlotParams{GroupID: group.ID, SeasonID: season, Weekday: 2, StartTime: at(18), EndTime: at(19), ValidFrom: date(-30), IsActive: true}
 		old, err := q.CreateGroupSlot(ctx, params)
@@ -194,7 +195,7 @@ func TestGroupsIntegration(t *testing.T) {
 		params.StartTime = at(17)
 		params.EndTime = at(18)
 		params.ValidFrom = today
-		params.Location = pgtype.Text{String: "Dojo municipal", Valid: true}
+		params.Location = sql.NullString{String: "Dojo municipal", Valid: true}
 		replacement, err := q.CreateGroupSlot(ctx, params)
 		must(err)
 		currentParams := dbsqlc.ListCurrentGroupSlotsParams{GroupID: group.ID, SeasonID: season}
@@ -221,7 +222,7 @@ func TestGroupsIntegration(t *testing.T) {
 		if len(forSeason) != 3 {
 			t.Fatalf("season slots: %+v", forSeason)
 		}
-		_, err = db.Exec(ctx, "UPDATE group_slots SET updated_at=created_at - INTERVAL '1 day' WHERE id=$1", replacement.ID)
+		_, err = db.ExecContext(ctx, "UPDATE group_slots SET updated_at=strftime('%Y-%m-%d %H:%M:%f',created_at,'-1 day') WHERE id=?1", replacement.ID)
 		must(err)
 		updated, err := q.UpdateGroupSlot(ctx, dbsqlc.UpdateGroupSlotParams{ID: replacement.ID, Weekday: 3, StartTime: at(17), EndTime: at(19), Location: params.Location, ValidFrom: today, ValidUntil: today, IsActive: true})
 		must(err)
@@ -252,22 +253,22 @@ func TestGroupsIntegration(t *testing.T) {
 			change func(*dbsqlc.CreateGroupSlotParams)
 			code   string
 		}{
-			{"equal times", func(p *dbsqlc.CreateGroupSlotParams) { p.EndTime = p.StartTime }, "23514"},
-			{"reversed times", func(p *dbsqlc.CreateGroupSlotParams) { p.EndTime = at(1) }, "23514"},
-			{"reversed dates", func(p *dbsqlc.CreateGroupSlotParams) { p.ValidUntil = date(-1) }, "23514"},
-			{"weekday zero", func(p *dbsqlc.CreateGroupSlotParams) { p.Weekday = 0 }, "23514"},
-			{"weekday eight", func(p *dbsqlc.CreateGroupSlotParams) { p.Weekday = 8 }, "23514"},
-			{"missing group", func(p *dbsqlc.CreateGroupSlotParams) { p.GroupID = -1 }, "23503"},
-			{"missing season", func(p *dbsqlc.CreateGroupSlotParams) { p.SeasonID = -1 }, "23503"},
+			{"equal times", func(p *dbsqlc.CreateGroupSlotParams) { p.EndTime = p.StartTime }, "275"},
+			{"reversed times", func(p *dbsqlc.CreateGroupSlotParams) { p.EndTime = at(1) }, "275"},
+			{"reversed dates", func(p *dbsqlc.CreateGroupSlotParams) { p.ValidUntil = date(-1) }, "275"},
+			{"weekday zero", func(p *dbsqlc.CreateGroupSlotParams) { p.Weekday = 0 }, "275"},
+			{"weekday eight", func(p *dbsqlc.CreateGroupSlotParams) { p.Weekday = 8 }, "275"},
+			{"missing group", func(p *dbsqlc.CreateGroupSlotParams) { p.GroupID = -1 }, "787"},
+			{"missing season", func(p *dbsqlc.CreateGroupSlotParams) { p.SeasonID = -1 }, "787"},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				p := params
 				tc.change(&p)
 				_, err := q.CreateGroupSlot(ctx, p)
-				requirePostgresCode(t, err, tc.code)
+				requireSQLiteConstraint(t, err, tc.code)
 			})
 		}
 		_, err = q.CloseGroupSlot(ctx, dbsqlc.CloseGroupSlotParams{ID: replacement.ID, ValidUntil: date(-1)})
-		requirePostgresCode(t, err, "23514")
+		requireSQLiteConstraint(t, err, "275")
 	})
 }

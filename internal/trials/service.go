@@ -7,49 +7,48 @@ import (
 	"errors"
 	"fmt"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var ErrInvalidSchedule = errors.New("invalid trial schedule")
 var ErrConverted = errors.New("trial already converted to membership")
 
-type Service struct{ db *pgxpool.Pool }
+type Service struct{ db *sql.DB }
 
-func New(db *pgxpool.Pool) *Service { return &Service{db: db} }
+func New(db *sql.DB) *Service { return &Service{db: db} }
 
 func (s *Service) Schedule(ctx context.Context, p dbsqlc.CreateTrialParams) (dbsqlc.TrialRegistration, error) {
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return dbsqlc.TrialRegistration{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	result, err := s.ScheduleTx(ctx, tx, p)
 	if err != nil {
 		return result, err
 	}
-	return result, tx.Commit(ctx)
+	return result, tx.Commit()
 }
 
 // Reschedule preserves person, status, notes and the P3 origin protection.
 func (s *Service) Reschedule(ctx context.Context, p dbsqlc.RescheduleTrialParams) (dbsqlc.TrialRegistration, error) {
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return dbsqlc.TrialRegistration{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	result, err := s.RescheduleTx(ctx, tx, p)
 	if err != nil {
 		return result, err
 	}
-	return result, tx.Commit(ctx)
+	return result, tx.Commit()
 }
 
 func validate(ctx context.Context, q *dbsqlc.Queries, p dbsqlc.RescheduleTrialParams) error {
 	invalid := func(reason string) error { return fmt.Errorf("%w: %s", ErrInvalidSchedule, reason) }
-	if !p.TrialDate.Valid || p.TrialDate.InfinityModifier != pgtype.Finite {
+	if !p.TrialDate.Valid || !p.TrialDate.IsFinite() {
 		return invalid("a finite date is required")
 	}
 	if p.GroupSlotID.Valid && !p.GroupID.Valid {
@@ -87,7 +86,7 @@ func validate(ctx context.Context, q *dbsqlc.Queries, p dbsqlc.RescheduleTrialPa
 }
 
 // ScheduleTx and RescheduleTx compose the same domain rules with an audit transaction.
-func (s *Service) ScheduleTx(ctx context.Context, tx pgx.Tx, p dbsqlc.CreateTrialParams) (dbsqlc.TrialRegistration, error) {
+func (s *Service) ScheduleTx(ctx context.Context, tx *sql.Tx, p dbsqlc.CreateTrialParams) (dbsqlc.TrialRegistration, error) {
 	q := dbsqlc.New(tx)
 	if _, err := lockPolicy(ctx, tx); err != nil {
 		return dbsqlc.TrialRegistration{}, err
@@ -103,7 +102,7 @@ func (s *Service) ScheduleTx(ctx context.Context, tx pgx.Tx, p dbsqlc.CreateTria
 	}
 	return q.CreateTrial(ctx, p)
 }
-func (s *Service) RescheduleTx(ctx context.Context, tx pgx.Tx, p dbsqlc.RescheduleTrialParams) (dbsqlc.TrialRegistration, error) {
+func (s *Service) RescheduleTx(ctx context.Context, tx *sql.Tx, p dbsqlc.RescheduleTrialParams) (dbsqlc.TrialRegistration, error) {
 	q := dbsqlc.New(tx)
 	old, err := s.LockForUpdate(ctx, tx, p.ID)
 	if err != nil {
@@ -125,12 +124,12 @@ func (s *Service) RescheduleTx(ctx context.Context, tx pgx.Tx, p dbsqlc.Reschedu
 
 // Keep the session behind a durable origin stable. Notes and outcome corrections
 // remain possible; a new session must be scheduled as a separate trial.
-func checkReschedule(ctx context.Context, tx pgx.Tx, id int32) error {
+func checkReschedule(ctx context.Context, tx *sql.Tx, id int32) error {
 	if _, err := dbsqlc.New(tx).LockAdministrativeTrial(ctx, id); err != nil {
 		return err
 	}
 	var converted bool
-	if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM memberships WHERE source_trial_id=$1)", id).Scan(&converted); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM memberships WHERE source_trial_id=?1)", id).Scan(&converted); err != nil {
 		return err
 	}
 	if converted {
@@ -141,7 +140,7 @@ func checkReschedule(ctx context.Context, tx pgx.Tx, id int32) error {
 func ValidStatus(status string) bool {
 	return status == "registered" || status == "attended" || status == "cancelled" || status == "no_show"
 }
-func (s *Service) UpdateStatusTx(ctx context.Context, tx pgx.Tx, p dbsqlc.UpdateTrialStatusParams) (dbsqlc.TrialRegistration, error) {
+func (s *Service) UpdateStatusTx(ctx context.Context, tx *sql.Tx, p dbsqlc.UpdateTrialStatusParams) (dbsqlc.TrialRegistration, error) {
 	if !ValidStatus(p.Status) {
 		return dbsqlc.TrialRegistration{}, ErrInvalidSchedule
 	}
@@ -156,6 +155,6 @@ func (s *Service) UpdateStatusTx(ctx context.Context, tx pgx.Tx, p dbsqlc.Update
 	}
 	return dbsqlc.New(tx).UpdateTrialStatus(ctx, p)
 }
-func (s *Service) UpdateNotesTx(ctx context.Context, tx pgx.Tx, p dbsqlc.UpdateTrialNotesParams) (dbsqlc.TrialRegistration, error) {
+func (s *Service) UpdateNotesTx(ctx context.Context, tx *sql.Tx, p dbsqlc.UpdateTrialNotesParams) (dbsqlc.TrialRegistration, error) {
 	return dbsqlc.New(tx).UpdateTrialNotes(ctx, p)
 }

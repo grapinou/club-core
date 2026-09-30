@@ -7,11 +7,12 @@ import (
 	"net/http"
 	"strconv"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/useraccess"
 	"github.com/grapinou/club-core/internal/views"
 	"github.com/grapinou/club-core/internal/websecurity"
-	"github.com/jackc/pgx/v5"
 )
 
 type UsersHandler struct {
@@ -82,7 +83,7 @@ func (h *UsersHandler) detail(w http.ResponseWriter, r *http.Request) {
 	}
 	v := h.base(r, "detail")
 	v.User, err = h.service.Get(r.Context(), id)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) {
 		http.NotFound(w, r)
 		return
 	}
@@ -121,7 +122,7 @@ func (h *UsersHandler) change(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Accès refusé", 403)
 		return
 	}
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) {
 		http.NotFound(w, r)
 		return
 	}

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,12 +13,12 @@ import (
 
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/authorization"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 	"github.com/grapinou/club-core/internal/identityresolution"
 	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/grapinou/club-core/internal/registrationapplications"
 	"github.com/grapinou/club-core/internal/views"
 	"github.com/grapinou/club-core/internal/websecurity"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type JoinHandler struct {
@@ -118,13 +119,13 @@ func joinInput(form url.Values) (registrationapplications.Input, registrationapp
 			fields["form"] = "Chaque champ doit être renseigné une seule fois."
 		}
 	}
-	text := func(key string) pgtype.Text {
+	text := func(key string) sql.NullString {
 		v := strings.TrimSpace(form.Get(key))
-		return pgtype.Text{String: v, Valid: v != ""}
+		return sql.NullString{String: v, Valid: v != ""}
 	}
 	in.Identity = identityresolution.SubmissionInput{FirstName: strings.TrimSpace(form.Get("first_name")), LastName: strings.TrimSpace(form.Get("last_name")), Email: text("email"), PhoneNumber: text("phone_number"), Address: text("address")}
 	if birth, err := time.Parse("2006-01-02", form.Get("birth_date")); err == nil {
-		in.Identity.BirthDate = pgtype.Date{Time: birth, Valid: true}
+		in.Identity.BirthDate = dbtypes.Date{Time: birth, Valid: true}
 	}
 	in.SeasonID, _ = parseID(form.Get("season_id"))
 	in.MembershipTypeID, _ = parseID(form.Get("membership_type_id"))

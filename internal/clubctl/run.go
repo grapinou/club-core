@@ -8,9 +8,10 @@ import (
 	"fmt"
 	"io"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5"
 )
 
 var ErrUsage = errors.New("usage: clubctl grant-role <username> <role> | revoke-role <username> <role> | list-roles <username>")
@@ -34,7 +35,7 @@ func Run(ctx context.Context, q Queries, args []string, out io.Writer) error {
 		return ErrUsage
 	}
 	user, err := q.GetUserByUsername(ctx, args[1])
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) {
 		return ErrUnknownUser
 	}
 	if err != nil {
@@ -60,7 +61,7 @@ func Run(ctx context.Context, q Queries, args []string, out io.Writer) error {
 		return ErrUnknownRole
 	}
 	role, err := q.GetRoleByName(ctx, args[2])
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) {
 		return ErrUnknownRole
 	}
 	if err != nil {

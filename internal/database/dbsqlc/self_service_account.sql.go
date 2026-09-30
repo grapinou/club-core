@@ -7,35 +7,34 @@ package dbsqlc
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"database/sql"
 )
 
 const consumeEmailChange = `-- name: ConsumeEmailChange :execrows
-UPDATE user_email_change_requests SET used_at=clock_timestamp() WHERE id=$1 AND used_at IS NULL AND invalidated_at IS NULL AND expires_at>clock_timestamp()
+UPDATE user_email_change_requests SET used_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?1 AND used_at IS NULL AND invalidated_at IS NULL AND expires_at>strftime('%Y-%m-%d %H:%M:%f','now')
 `
 
-func (q *Queries) ConsumeEmailChange(ctx context.Context, id int64) (int64, error) {
-	result, err := q.db.Exec(ctx, consumeEmailChange, id)
+func (q *Queries) ConsumeEmailChange(ctx context.Context, id int32) (int64, error) {
+	result, err := q.db.ExecContext(ctx, consumeEmailChange, id)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }
 
 const countRecentEmailChanges = `-- name: CountRecentEmailChanges :one
-SELECT count(*) FROM user_email_change_requests WHERE user_id=$1 AND created_at>clock_timestamp()-interval '1 hour'
+SELECT CAST(count(*) AS BIGINT) FROM user_email_change_requests WHERE user_id=?1 AND created_at>strftime('%Y-%m-%d %H:%M:%f','now','-1 hour')
 `
 
 func (q *Queries) CountRecentEmailChanges(ctx context.Context, userID int32) (int64, error) {
-	row := q.db.QueryRow(ctx, countRecentEmailChanges, userID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
+	row := q.db.QueryRowContext(ctx, countRecentEmailChanges, userID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const createAccountSecurityEvent = `-- name: CreateAccountSecurityEvent :exec
-INSERT INTO account_security_events(user_id,person_id,event) VALUES($1,$2,$3)
+INSERT INTO account_security_events(user_id,person_id,event) VALUES(?1,?2,?3)
 `
 
 type CreateAccountSecurityEventParams struct {
@@ -45,13 +44,13 @@ type CreateAccountSecurityEventParams struct {
 }
 
 func (q *Queries) CreateAccountSecurityEvent(ctx context.Context, arg CreateAccountSecurityEventParams) error {
-	_, err := q.db.Exec(ctx, createAccountSecurityEvent, arg.UserID, arg.PersonID, arg.Event)
+	_, err := q.db.ExecContext(ctx, createAccountSecurityEvent, arg.UserID, arg.PersonID, arg.Event)
 	return err
 }
 
 const createEmailChange = `-- name: CreateEmailChange :exec
 INSERT INTO user_email_change_requests(user_id,person_id,new_email,new_email_normalized,new_email_hash,code_hash,expires_at)
-VALUES($1,$2,$3,$4,$5,$6,clock_timestamp()+make_interval(secs => $7::float8))
+VALUES(?1,?2,?3,?4,?5,?6,strftime('%Y-%m-%d %H:%M:%f','now',(?7 + 0.0) || ' seconds'))
 `
 
 type CreateEmailChangeParams struct {
@@ -61,11 +60,11 @@ type CreateEmailChangeParams struct {
 	NewEmailNormalized string
 	NewEmailHash       []byte
 	CodeHash           []byte
-	TtlSeconds         float64
+	TtlSeconds         interface{}
 }
 
 func (q *Queries) CreateEmailChange(ctx context.Context, arg CreateEmailChangeParams) error {
-	_, err := q.db.Exec(ctx, createEmailChange,
+	_, err := q.db.ExecContext(ctx, createEmailChange,
 		arg.UserID,
 		arg.PersonID,
 		arg.NewEmail,
@@ -78,19 +77,19 @@ func (q *Queries) CreateEmailChange(ctx context.Context, arg CreateEmailChangePa
 }
 
 const invalidateEmailChanges = `-- name: InvalidateEmailChanges :exec
-UPDATE user_email_change_requests SET invalidated_at=clock_timestamp()
-WHERE user_id=$1 AND used_at IS NULL AND invalidated_at IS NULL
+UPDATE user_email_change_requests SET invalidated_at=strftime('%Y-%m-%d %H:%M:%f','now')
+WHERE user_id=?1 AND used_at IS NULL AND invalidated_at IS NULL
 `
 
 func (q *Queries) InvalidateEmailChanges(ctx context.Context, userID int32) error {
-	_, err := q.db.Exec(ctx, invalidateEmailChanges, userID)
+	_, err := q.db.ExecContext(ctx, invalidateEmailChanges, userID)
 	return err
 }
 
 const lockActiveEmailChange = `-- name: LockActiveEmailChange :one
 SELECT id,new_email,code_hash FROM user_email_change_requests
-WHERE user_id=$1 AND person_id=$2 AND used_at IS NULL AND invalidated_at IS NULL
-AND expires_at>clock_timestamp() FOR UPDATE
+WHERE user_id=?1 AND person_id=?2 AND used_at IS NULL AND invalidated_at IS NULL
+AND expires_at>strftime('%Y-%m-%d %H:%M:%f','now')
 `
 
 type LockActiveEmailChangeParams struct {
@@ -99,13 +98,13 @@ type LockActiveEmailChangeParams struct {
 }
 
 type LockActiveEmailChangeRow struct {
-	ID       int64
+	ID       int32
 	NewEmail string
 	CodeHash []byte
 }
 
 func (q *Queries) LockActiveEmailChange(ctx context.Context, arg LockActiveEmailChangeParams) (LockActiveEmailChangeRow, error) {
-	row := q.db.QueryRow(ctx, lockActiveEmailChange, arg.UserID, arg.PersonID)
+	row := q.db.QueryRowContext(ctx, lockActiveEmailChange, arg.UserID, arg.PersonID)
 	var i LockActiveEmailChangeRow
 	err := row.Scan(&i.ID, &i.NewEmail, &i.CodeHash)
 	return i, err
@@ -114,20 +113,20 @@ func (q *Queries) LockActiveEmailChange(ctx context.Context, arg LockActiveEmail
 const lockSelfServiceAccount = `-- name: LockSelfServiceAccount :one
 SELECT u.id,u.person_id,u.password_hash,p.email
 FROM users u JOIN persons p ON p.id=u.person_id
-WHERE u.id=$1 AND u.is_active AND u.activated_at IS NOT NULL
- AND u.password_hash IS NOT NULL AND p.archived_at IS NULL FOR UPDATE OF u,p
+WHERE u.id=?1 AND u.is_active AND u.activated_at IS NOT NULL
+ AND u.password_hash IS NOT NULL AND p.archived_at IS NULL
 `
 
 type LockSelfServiceAccountRow struct {
 	ID           int32
 	PersonID     int32
-	PasswordHash pgtype.Text
-	Email        pgtype.Text
+	PasswordHash sql.NullString
+	Email        sql.NullString
 }
 
 // All account mutations serialize on the session-selected User first.
 func (q *Queries) LockSelfServiceAccount(ctx context.Context, id int32) (LockSelfServiceAccountRow, error) {
-	row := q.db.QueryRow(ctx, lockSelfServiceAccount, id)
+	row := q.db.QueryRowContext(ctx, lockSelfServiceAccount, id)
 	var i LockSelfServiceAccountRow
 	err := row.Scan(
 		&i.ID,
@@ -139,44 +138,44 @@ func (q *Queries) LockSelfServiceAccount(ctx context.Context, id int32) (LockSel
 }
 
 const updateSelfServiceContact = `-- name: UpdateSelfServiceContact :exec
-UPDATE persons SET phone_number=$2,address=$3,updated_at=clock_timestamp() WHERE id=$1 AND archived_at IS NULL
+UPDATE persons SET phone_number=?1,address=?2,updated_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?3 AND archived_at IS NULL
 `
 
 type UpdateSelfServiceContactParams struct {
+	PhoneNumber sql.NullString
+	Address     sql.NullString
 	ID          int32
-	PhoneNumber pgtype.Text
-	Address     pgtype.Text
 }
 
 func (q *Queries) UpdateSelfServiceContact(ctx context.Context, arg UpdateSelfServiceContactParams) error {
-	_, err := q.db.Exec(ctx, updateSelfServiceContact, arg.ID, arg.PhoneNumber, arg.Address)
+	_, err := q.db.ExecContext(ctx, updateSelfServiceContact, arg.PhoneNumber, arg.Address, arg.ID)
 	return err
 }
 
 const updateSelfServiceEmail = `-- name: UpdateSelfServiceEmail :exec
-UPDATE persons SET email=$2,updated_at=clock_timestamp() WHERE id=$1 AND archived_at IS NULL
+UPDATE persons SET email=?1,updated_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?2 AND archived_at IS NULL
 `
 
 type UpdateSelfServiceEmailParams struct {
+	Email sql.NullString
 	ID    int32
-	Email pgtype.Text
 }
 
 func (q *Queries) UpdateSelfServiceEmail(ctx context.Context, arg UpdateSelfServiceEmailParams) error {
-	_, err := q.db.Exec(ctx, updateSelfServiceEmail, arg.ID, arg.Email)
+	_, err := q.db.ExecContext(ctx, updateSelfServiceEmail, arg.Email, arg.ID)
 	return err
 }
 
 const updateSelfServicePassword = `-- name: UpdateSelfServicePassword :exec
-UPDATE users SET password_hash=$2 WHERE id=$1
+UPDATE users SET password_hash=?1 WHERE id=?2
 `
 
 type UpdateSelfServicePasswordParams struct {
+	PasswordHash sql.NullString
 	ID           int32
-	PasswordHash pgtype.Text
 }
 
 func (q *Queries) UpdateSelfServicePassword(ctx context.Context, arg UpdateSelfServicePasswordParams) error {
-	_, err := q.db.Exec(ctx, updateSelfServicePassword, arg.ID, arg.PasswordHash)
+	_, err := q.db.ExecContext(ctx, updateSelfServicePassword, arg.PasswordHash, arg.ID)
 	return err
 }

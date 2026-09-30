@@ -7,13 +7,14 @@ package dbsqlc
 
 import (
 	"context"
+	"database/sql"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 const createMembershipConsent = `-- name: CreateMembershipConsent :one
 INSERT INTO membership_consents(membership_id, consent_definition_id, decision, given_by_person_id)
-VALUES ($1, $2, $3, $4) RETURNING id, membership_id, consent_definition_id, decision, given_by_person_id, recorded_at
+VALUES (?1, ?2, ?3, ?4) RETURNING id, membership_id, consent_definition_id, decision, given_by_person_id, recorded_at
 `
 
 type CreateMembershipConsentParams struct {
@@ -25,7 +26,7 @@ type CreateMembershipConsentParams struct {
 
 // Writes must go through internal/consents.Service for transverse validation.
 func (q *Queries) CreateMembershipConsent(ctx context.Context, arg CreateMembershipConsentParams) (MembershipConsent, error) {
-	row := q.db.QueryRow(ctx, createMembershipConsent,
+	row := q.db.QueryRowContext(ctx, createMembershipConsent,
 		arg.MembershipID,
 		arg.ConsentDefinitionID,
 		arg.Decision,
@@ -45,7 +46,7 @@ func (q *Queries) CreateMembershipConsent(ctx context.Context, arg CreateMembers
 
 const getCurrentMembershipConsentDecision = `-- name: GetCurrentMembershipConsentDecision :one
 SELECT decision FROM membership_consents
-WHERE membership_id = $1 AND consent_definition_id = $2
+WHERE membership_id = ?1 AND consent_definition_id = ?2
 ORDER BY recorded_at DESC, id DESC LIMIT 1
 `
 
@@ -55,14 +56,14 @@ type GetCurrentMembershipConsentDecisionParams struct {
 }
 
 func (q *Queries) GetCurrentMembershipConsentDecision(ctx context.Context, arg GetCurrentMembershipConsentDecisionParams) (string, error) {
-	row := q.db.QueryRow(ctx, getCurrentMembershipConsentDecision, arg.MembershipID, arg.ConsentDefinitionID)
+	row := q.db.QueryRowContext(ctx, getCurrentMembershipConsentDecision, arg.MembershipID, arg.ConsentDefinitionID)
 	var decision string
 	err := row.Scan(&decision)
 	return decision, err
 }
 
 const listCurrentMembershipConsents = `-- name: ListCurrentMembershipConsents :many
-SELECT m.id AS membership_id, d.id AS consent_definition_id, d.code, d.version,
+SELECT CAST(m.id AS INTEGER) AS membership_id, d.id AS consent_definition_id, d.code, d.version,
        d.title, d.description, d.is_active AS definition_is_active,
        c.decision AS current_decision, c.recorded_at AS decision_recorded_at,
        p.id AS given_by_person_id, p.first_name AS given_by_first_name, p.last_name AS given_by_last_name
@@ -73,7 +74,7 @@ LEFT JOIN membership_consents c ON c.id = (
     ORDER BY latest.recorded_at DESC, latest.id DESC LIMIT 1
 )
 LEFT JOIN persons p ON p.id = c.given_by_person_id
-WHERE m.id = $1 AND (d.is_active OR c.id IS NOT NULL)
+WHERE m.id = ?1 AND (d.is_active OR c.id IS NOT NULL)
 ORDER BY d.code, d.version
 `
 
@@ -85,15 +86,15 @@ type ListCurrentMembershipConsentsRow struct {
 	Title               string
 	Description         string
 	DefinitionIsActive  bool
-	CurrentDecision     pgtype.Text
-	DecisionRecordedAt  pgtype.Timestamptz
-	GivenByPersonID     pgtype.Int4
-	GivenByFirstName    pgtype.Text
-	GivenByLastName     pgtype.Text
+	CurrentDecision     sql.NullString
+	DecisionRecordedAt  dbtypes.Timestamp
+	GivenByPersonID     sql.NullInt32
+	GivenByFirstName    sql.NullString
+	GivenByLastName     sql.NullString
 }
 
 func (q *Queries) ListCurrentMembershipConsents(ctx context.Context, id int32) ([]ListCurrentMembershipConsentsRow, error) {
-	rows, err := q.db.Query(ctx, listCurrentMembershipConsents, id)
+	rows, err := q.db.QueryContext(ctx, listCurrentMembershipConsents, id)
 	if err != nil {
 		return nil, err
 	}
@@ -119,6 +120,9 @@ func (q *Queries) ListCurrentMembershipConsents(ctx context.Context, id int32) (
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -130,7 +134,7 @@ SELECT c.id, c.membership_id, c.consent_definition_id, c.decision, c.given_by_pe
        p.first_name AS given_by_first_name, p.last_name AS given_by_last_name
 FROM membership_consents c JOIN consent_definitions d ON d.id = c.consent_definition_id
 JOIN persons p ON p.id = c.given_by_person_id
-WHERE c.membership_id = $1 AND c.consent_definition_id = $2
+WHERE c.membership_id = ?1 AND c.consent_definition_id = ?2
 ORDER BY c.recorded_at, c.id
 `
 
@@ -145,7 +149,7 @@ type ListMembershipConsentHistoryRow struct {
 	ConsentDefinitionID int32
 	Decision            string
 	GivenByPersonID     int32
-	RecordedAt          pgtype.Timestamptz
+	RecordedAt          dbtypes.Timestamp
 	Code                string
 	Version             int32
 	Title               string
@@ -156,7 +160,7 @@ type ListMembershipConsentHistoryRow struct {
 }
 
 func (q *Queries) ListMembershipConsentHistory(ctx context.Context, arg ListMembershipConsentHistoryParams) ([]ListMembershipConsentHistoryRow, error) {
-	rows, err := q.db.Query(ctx, listMembershipConsentHistory, arg.MembershipID, arg.ConsentDefinitionID)
+	rows, err := q.db.QueryContext(ctx, listMembershipConsentHistory, arg.MembershipID, arg.ConsentDefinitionID)
 	if err != nil {
 		return nil, err
 	}
@@ -183,6 +187,9 @@ func (q *Queries) ListMembershipConsentHistory(ctx context.Context, arg ListMemb
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -194,7 +201,7 @@ SELECT c.id, c.membership_id, c.consent_definition_id, c.decision, c.given_by_pe
        p.first_name AS given_by_first_name, p.last_name AS given_by_last_name
 FROM membership_consents c JOIN consent_definitions d ON d.id = c.consent_definition_id
 JOIN persons p ON p.id = c.given_by_person_id
-WHERE c.membership_id = $1 ORDER BY c.recorded_at, c.id
+WHERE c.membership_id = ?1 ORDER BY c.recorded_at, c.id
 `
 
 type ListMembershipConsentsHistoryRow struct {
@@ -203,7 +210,7 @@ type ListMembershipConsentsHistoryRow struct {
 	ConsentDefinitionID int32
 	Decision            string
 	GivenByPersonID     int32
-	RecordedAt          pgtype.Timestamptz
+	RecordedAt          dbtypes.Timestamp
 	Code                string
 	Version             int32
 	Title               string
@@ -214,7 +221,7 @@ type ListMembershipConsentsHistoryRow struct {
 }
 
 func (q *Queries) ListMembershipConsentsHistory(ctx context.Context, membershipID int32) ([]ListMembershipConsentsHistoryRow, error) {
-	rows, err := q.db.Query(ctx, listMembershipConsentsHistory, membershipID)
+	rows, err := q.db.QueryContext(ctx, listMembershipConsentsHistory, membershipID)
 	if err != nil {
 		return nil, err
 	}
@@ -241,6 +248,9 @@ func (q *Queries) ListMembershipConsentsHistory(ctx context.Context, membershipI
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -248,12 +258,12 @@ func (q *Queries) ListMembershipConsentsHistory(ctx context.Context, membershipI
 }
 
 const lockConsentDefinition = `-- name: LockConsentDefinition :one
-SELECT is_active FROM consent_definitions WHERE id = $1 FOR SHARE
+SELECT is_active FROM consent_definitions WHERE id = ?1
 `
 
 // Prevent activation changes between validation and insertion.
 func (q *Queries) LockConsentDefinition(ctx context.Context, id int32) (bool, error) {
-	row := q.db.QueryRow(ctx, lockConsentDefinition, id)
+	row := q.db.QueryRowContext(ctx, lockConsentDefinition, id)
 	var is_active bool
 	err := row.Scan(&is_active)
 	return is_active, err
@@ -261,7 +271,7 @@ func (q *Queries) LockConsentDefinition(ctx context.Context, id int32) (bool, er
 
 const lockConsentGuardian = `-- name: LockConsentGuardian :one
 SELECT id FROM person_guardians
-WHERE child_person_id = $1 AND guardian_person_id = $2 FOR SHARE
+WHERE child_person_id = ?1 AND guardian_person_id = ?2
 `
 
 type LockConsentGuardianParams struct {
@@ -271,19 +281,19 @@ type LockConsentGuardianParams struct {
 
 // Keep the authorizing relationship alive until the decision commits.
 func (q *Queries) LockConsentGuardian(ctx context.Context, arg LockConsentGuardianParams) (int32, error) {
-	row := q.db.QueryRow(ctx, lockConsentGuardian, arg.ChildPersonID, arg.GuardianPersonID)
+	row := q.db.QueryRowContext(ctx, lockConsentGuardian, arg.ChildPersonID, arg.GuardianPersonID)
 	var id int32
 	err := row.Scan(&id)
 	return id, err
 }
 
 const lockConsentMembership = `-- name: LockConsentMembership :one
-SELECT person_id FROM memberships WHERE id = $1 FOR UPDATE
+SELECT person_id FROM memberships WHERE id = ?1
 `
 
 // Serialize decisions for a membership, and prevent its person changing during validation.
 func (q *Queries) LockConsentMembership(ctx context.Context, id int32) (int32, error) {
-	row := q.db.QueryRow(ctx, lockConsentMembership, id)
+	row := q.db.QueryRowContext(ctx, lockConsentMembership, id)
 	var person_id int32
 	err := row.Scan(&person_id)
 	return person_id, err

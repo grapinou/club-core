@@ -1,41 +1,42 @@
 package handlers
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
-func pgTypeDate(value string) (pgtype.Date, error) {
+func pgTypeDate(value string) (dbtypes.Date, error) {
 
 	t, err := time.Parse("2006-01-02", value)
 
 	if err != nil {
-		return pgtype.Date{}, fmt.Errorf(
+		return dbtypes.Date{}, fmt.Errorf(
 			"La conversion de la date %q impossible : %w",
 			value,
 			err)
 	}
 
-	return pgtype.Date{
+	return dbtypes.Date{
 		Time:  t,
 		Valid: true,
 	}, nil
 
 }
 
-func pgTypeText(value string) pgtype.Text {
+func pgTypeText(value string) sql.NullString {
 	value = strings.TrimSpace(value)
 
 	if value == "" {
-		return pgtype.Text{
+		return sql.NullString{
 			Valid: false,
 		}
 	}
 
-	return pgtype.Text{
+	return sql.NullString{
 		String: value,
 		Valid:  true,
 	}

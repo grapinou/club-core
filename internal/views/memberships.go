@@ -9,8 +9,8 @@ import (
 
 	"github.com/grapinou/club-core/internal/activation"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 	"github.com/grapinou/club-core/internal/memberships"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // These presentation types deliberately contain no password hash, delivery code,
@@ -83,14 +83,14 @@ func textOrDash(s string) string {
 	}
 	return s
 }
-func date(v pgtype.Date) string {
-	if !v.Valid || v.InfinityModifier != pgtype.Finite {
+func date(v dbtypes.Date) string {
+	if !v.Valid || !v.IsFinite() {
 		return "—"
 	}
 	return v.Time.Format("02/01/2006")
 }
-func timestamp(v pgtype.Timestamptz, loc *time.Location) string {
-	if !v.Valid || v.InfinityModifier != pgtype.Finite {
+func timestamp(v dbtypes.Timestamp, loc *time.Location) string {
+	if !v.Valid || !v.IsFinite() {
 		return "—"
 	}
 	return v.Time.In(loc).Format("02/01/2006 à 15:04")
@@ -229,7 +229,7 @@ func MembershipDetail(d memberships.Details, loc *time.Location, approve, resend
 	return v
 }
 
-func (MembershipDetailView) Date(d pgtype.Date) string { return date(d) }
+func (MembershipDetailView) Date(d dbtypes.Date) string { return date(d) }
 
 func (v MembershipListView) HasPending() bool {
 	for _, r := range v.Rows {

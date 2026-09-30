@@ -8,10 +8,10 @@ import (
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 	"github.com/grapinou/club-core/internal/identityresolution"
 	"github.com/grapinou/club-core/internal/memberships"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
+	"modernc.org/sqlite"
 )
 
 // FamilyIdentity is loaded exclusively from the session and effective access.
@@ -108,11 +108,11 @@ func (s *Service) SubmitManagedChild(ctx context.Context, in Input, csrf string,
 	if err != nil {
 		return 0, err
 	}
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	guardian, err := s.guardians.AuthorizeManagedChildTx(ctx, tx, child)
 	if err != nil {
 		return 0, err
@@ -132,15 +132,15 @@ func (s *Service) SubmitManagedChild(ctx context.Context, in Input, csrf string,
 	presented := []memberships.PresentedConsent{}
 	for _, d := range in.Consents {
 		request.Consents = append(request.Consents, memberships.Decision{ConsentDefinitionID: d.ConsentDefinitionID, Decision: d.Decision, GivenByPersonID: guardian})
-		presented = append(presented, memberships.PresentedConsent{ConsentDefinitionID: d.ConsentDefinitionID, PresentedAt: pgtype.Timestamptz{Time: time.Unix(p.At, 0), Valid: true}})
+		presented = append(presented, memberships.PresentedConsent{ConsentDefinitionID: d.ConsentDefinitionID, PresentedAt: dbtypes.Timestamp{Time: time.Unix(p.At, 0), Valid: true}})
 	}
 	m, err := s.memberships.CreateRequestWithPresentedConsentsTx(ctx, tx, request, presented)
 	if err != nil {
-		var pgerr *pgconn.PgError
-		if errors.As(err, &pgerr) && pgerr.Code == "23505" {
+		var sqliteErr *sqlite.Error
+		if errors.As(err, &sqliteErr) && sqliteErr.Code() == 2067 {
 			return 0, ValidationErrors{"season_id": "Un dossier existe déjà pour cet enfant et cette saison. Retrouvez-le dans son espace familial."}
 		}
 		return 0, err
 	}
-	return m.ID, tx.Commit(ctx)
+	return m.ID, tx.Commit()
 }

@@ -3,12 +3,13 @@ package auth
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 type credentialUsers struct {
@@ -17,7 +18,7 @@ type credentialUsers struct {
 }
 
 func (u *credentialUsers) GetUserByID(_ context.Context, id int32) (dbsqlc.User, error) {
-	return dbsqlc.User{ID: id, IsActive: true, ActivatedAt: pgtype.Timestamptz{Valid: true}, PasswordHash: pgtype.Text{String: u.hash, Valid: true}}, nil
+	return dbsqlc.User{ID: id, IsActive: true, ActivatedAt: dbtypes.Timestamp{Valid: true}, PasswordHash: sql.NullString{String: u.hash, Valid: true}}, nil
 }
 func TestObsoleteLoginCredentialCannotCreateUsableSession(t *testing.T) {
 	users := &credentialUsers{hash: "new hash"}

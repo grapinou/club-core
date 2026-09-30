@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/grapinou/club-core/internal/database"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/identityresolution"
 	"github.com/grapinou/club-core/internal/mailer"
@@ -48,7 +48,7 @@ func verificationFrom(t *testing.T, m mailer.Message) (string, string) {
 func (f *fixture) emailState(id int32) string {
 	f.t.Helper()
 	var state string
-	f.must(f.db.QueryRow(f.t.Context(), "SELECT status FROM registration_submissions WHERE id=$1", id).Scan(&state))
+	f.must(f.db.QueryRowContext(f.t.Context(), "SELECT status FROM registration_submissions WHERE id=?1", id).Scan(&state))
 	return state
 }
 func TestEmailEligibility(t *testing.T) {
@@ -61,7 +61,7 @@ func TestEmailEligibility(t *testing.T) {
 		eligible bool
 	}{
 		{name: "unique strong", eligible: true},
-		{name: "strong phone different email", mutate: func(in *identityresolution.SubmissionInput) { in.Email = registrationText("new@example.test") }, setup: "UPDATE persons SET phone_number='0612345678' WHERE id=$1", reset: "UPDATE persons SET phone_number=NULL WHERE id=$1"},
+		{name: "strong phone different email", mutate: func(in *identityresolution.SubmissionInput) { in.Email = registrationText("new@example.test") }, setup: "UPDATE persons SET phone_number='0612345678' WHERE id=?1", reset: "UPDATE persons SET phone_number=NULL WHERE id=?1"},
 		{name: "possible", mutate: func(in *identityresolution.SubmissionInput) { in.Email = registrationText("different@example.test") }},
 		{name: "weak", mutate: func(in *identityresolution.SubmissionInput) {
 			in.Email.Valid = false
@@ -69,8 +69,8 @@ func TestEmailEligibility(t *testing.T) {
 			in.PhoneNumber.Valid = false
 		}},
 		{name: "missing submitted email", mutate: func(in *identityresolution.SubmissionInput) { in.Email.Valid = false }},
-		{name: "missing known email", setup: "UPDATE persons SET email=NULL WHERE id=$1", reset: "UPDATE persons SET email='remi@example.test' WHERE id=$1"},
-		{name: "archived", setup: "UPDATE persons SET archived_at=now() WHERE id=$1", reset: "UPDATE persons SET archived_at=NULL WHERE id=$1"},
+		{name: "missing known email", setup: "UPDATE persons SET email=NULL WHERE id=?1", reset: "UPDATE persons SET email='remi@example.test' WHERE id=?1"},
+		{name: "archived", setup: "UPDATE persons SET archived_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?1", reset: "UPDATE persons SET archived_at=NULL WHERE id=?1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -102,7 +102,7 @@ func TestEmailEligibility(t *testing.T) {
 	if _, err := f.app.Verifications.PrepareEmailVerification(t.Context(), id); !errors.Is(err, identityresolution.ErrNotEligible) {
 		t.Fatal("two strong accepted")
 	}
-	f.exec("UPDATE persons SET birth_date=NULL,email=NULL WHERE first_name='Rémi' AND id<>$1", f.person)
+	f.exec("UPDATE persons SET birth_date=NULL,email=NULL WHERE first_name='Rémi' AND id<>?1", f.person)
 	id = f.stage(emailInput())
 	if _, err := f.app.Verifications.PrepareEmailVerification(t.Context(), id); !errors.Is(err, identityresolution.ErrNotEligible) {
 		t.Fatal("additional weak accepted")
@@ -118,7 +118,7 @@ func TestEmailPreparationAndCommitOrdering(t *testing.T) {
 	}
 	var stored, recipient []byte
 	var serialized string
-	f.must(f.db.QueryRow(t.Context(), "SELECT code_hash,recipient_hash,to_jsonb(v)::text FROM registration_email_verifications v WHERE public_reference=$1", d.PublicReference).Scan(&stored, &recipient, &serialized))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT code_hash,recipient_hash,json_object('id',v.id,'submission_id',v.submission_id,'person_id',v.person_id,'public_reference',v.public_reference,'code_hash',hex(v.code_hash),'recipient_hash',hex(v.recipient_hash),'expires_at',v.expires_at,'used_at',v.used_at,'invalidated_at',v.invalidated_at,'created_at',v.created_at) FROM registration_email_verifications v WHERE public_reference=?1", d.PublicReference).Scan(&stored, &recipient, &serialized))
 	expected := sha256.Sum256([]byte(d.PlaintextCode))
 	emailHash := sha256.Sum256([]byte("remi@example.test"))
 	if string(stored) != string(expected[:]) || string(recipient) != string(emailHash[:]) || strings.Contains(serialized, d.PlaintextCode) || strings.Contains(serialized, "remi@example.test") {
@@ -133,7 +133,7 @@ func TestEmailPreparationAndCommitOrdering(t *testing.T) {
 		t.Fatal("old code still valid")
 	}
 	var invalid bool
-	f.must(f.db.QueryRow(t.Context(), "SELECT invalidated_at IS NOT NULL FROM registration_email_verifications WHERE public_reference=$1", d.PublicReference).Scan(&invalid))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT invalidated_at IS NOT NULL FROM registration_email_verifications WHERE public_reference=?1", d.PublicReference).Scan(&invalid))
 	if !invalid {
 		t.Fatal("history invalidation")
 	}
@@ -145,7 +145,7 @@ func TestEmailPreparationAndCommitOrdering(t *testing.T) {
 	f.mail.check = func(m mailer.Message) {
 		reference, _ := verificationFrom(t, m)
 		var status string
-		f.must(f.db.QueryRow(t.Context(), "SELECT s.status FROM registration_submissions s JOIN registration_email_verifications v ON v.submission_id=s.id WHERE v.public_reference=$1", reference).Scan(&status))
+		f.must(f.db.QueryRowContext(t.Context(), "SELECT s.status FROM registration_submissions s JOIN registration_email_verifications v ON v.submission_id=s.id WHERE v.public_reference=?1", reference).Scan(&status))
 		if status != "awaiting_email_verification" {
 			t.Fatal("SMTP before commit")
 		}
@@ -164,7 +164,7 @@ func TestEmailOrchestrationAndSMTPCompensation(t *testing.T) {
 		t.Fatal("retry must keep dossier queued")
 	}
 	var invalid bool
-	f.must(f.db.QueryRow(t.Context(), "SELECT invalidated_at IS NOT NULL FROM registration_email_verifications WHERE submission_id=$1", id).Scan(&invalid))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT invalidated_at IS NOT NULL FROM registration_email_verifications WHERE submission_id=?1", id).Scan(&invalid))
 	if !invalid {
 		t.Fatal("attempt proof not invalidated")
 	}
@@ -179,7 +179,7 @@ func TestEmailOrchestrationAndSMTPCompensation(t *testing.T) {
 }
 func TestEmailVerificationAndNoIdentityMutations(t *testing.T) {
 	f := newFixture(t)
-	f.id("INSERT INTO users(person_id,username,is_active) VALUES ($1,'unchanged-account',false) RETURNING id", f.person)
+	f.id("INSERT INTO users(person_id,username,is_active) VALUES (?1,'unchanged-account',false) RETURNING id", f.person)
 	before := f.personSnapshot()
 	id := f.submitAndDispatch(emailInput())
 	reference, code := verificationFrom(t, f.mail.messages[0])
@@ -200,7 +200,7 @@ func TestEmailVerificationAndNoIdentityMutations(t *testing.T) {
 	}
 	var active bool
 	var accounts, memberships int
-	f.must(f.db.QueryRow(t.Context(), "SELECT is_active,(SELECT count(*) FROM users),(SELECT count(*) FROM memberships) FROM users WHERE person_id=$1", f.person).Scan(&active, &accounts, &memberships))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT is_active,(SELECT count(*) FROM users),(SELECT count(*) FROM memberships) FROM users WHERE person_id=?1", f.person).Scan(&active, &accounts, &memberships))
 	if active || accounts != 2 || memberships != 0 {
 		t.Fatal("unexpected account/membership side effect")
 	}
@@ -213,7 +213,7 @@ func TestEmailVerificationAndNoIdentityMutations(t *testing.T) {
 }
 func TestEmailChangedCandidateAndExpiry(t *testing.T) {
 	f := newFixture(t)
-	for _, change := range []string{"UPDATE persons SET email='different@example.test' WHERE id=$1", "UPDATE persons SET archived_at=now() WHERE id=$1"} {
+	for _, change := range []string{"UPDATE persons SET email='different@example.test' WHERE id=?1", "UPDATE persons SET archived_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?1"} {
 		id := f.stage(emailInput())
 		d, err := f.app.Verifications.PrepareEmailVerification(t.Context(), id)
 		f.must(err)
@@ -224,7 +224,7 @@ func TestEmailChangedCandidateAndExpiry(t *testing.T) {
 		if f.emailState(id) != "awaiting_identity_review" {
 			t.Fatal("not returned for review")
 		}
-		f.exec("UPDATE persons SET email='remi@example.test',archived_at=NULL WHERE id=$1", f.person)
+		f.exec("UPDATE persons SET email='remi@example.test',archived_at=NULL WHERE id=?1", f.person)
 	}
 	svc, err := identityresolution.NewEmailService(f.db, 20*time.Millisecond)
 	f.must(err)
@@ -235,7 +235,7 @@ func TestEmailChangedCandidateAndExpiry(t *testing.T) {
 		d, err := svc.PrepareEmailVerification(t.Context(), id)
 		f.must(err)
 		// Wait on the database's clock, which is also the expiry authority.
-		f.exec("SELECT pg_sleep(GREATEST(0,extract(epoch FROM (expires_at-clock_timestamp())))+0.01) FROM registration_email_verifications WHERE public_reference=$1", d.PublicReference)
+		f.waitProofExpiry(d.PublicReference)
 		switch read {
 		case "count":
 			_, err = f.app.Reviews.CountOpen(t.Context(), f.approver)
@@ -260,7 +260,7 @@ func TestEmailChangedCandidateAndExpiry(t *testing.T) {
 			t.Fatal("expired proof missing from counter")
 		}
 		var invalid bool
-		f.must(f.db.QueryRow(t.Context(), "SELECT invalidated_at IS NOT NULL FROM registration_email_verifications WHERE public_reference=$1", d.PublicReference).Scan(&invalid))
+		f.must(f.db.QueryRowContext(t.Context(), "SELECT invalidated_at IS NOT NULL FROM registration_email_verifications WHERE public_reference=?1", d.PublicReference).Scan(&invalid))
 		if !invalid {
 			t.Fatal("expired history not invalidated")
 		}
@@ -290,7 +290,7 @@ func TestEmailConcurrentOperations(t *testing.T) {
 		t.Fatal("reference collision")
 	}
 	var live int
-	f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM registration_email_verifications WHERE submission_id=$1 AND used_at IS NULL AND invalidated_at IS NULL", id).Scan(&live))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM registration_email_verifications WHERE submission_id=?1 AND used_at IS NULL AND invalidated_at IS NULL", id).Scan(&live))
 	if live != 1 {
 		t.Fatal("multiple live proofs")
 	}
@@ -453,9 +453,9 @@ func TestEmailAdministrativeAuditAndMigrationDown(t *testing.T) {
 		}
 	}
 	for _, role := range []string{"secretary", "treasurer", "coach", "none"} {
-		f.exec("DELETE FROM user_roles WHERE user_id=$1", f.approver)
+		f.exec("DELETE FROM user_roles WHERE user_id=?1", f.approver)
 		if role != "none" {
-			f.exec("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name=$2", f.approver, role)
+			f.exec("INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name=?2", f.approver, role)
 		}
 		r = b.call("GET", reviewPath(id), nil)
 		want := 403
@@ -466,20 +466,20 @@ func TestEmailAdministrativeAuditAndMigrationDown(t *testing.T) {
 			t.Fatal("proof RBAC")
 		}
 	}
-	db, err := sql.Open("pgx", f.db.Config().ConnString())
+	db, err := openTestConnection(t, f.db)
 	f.must(err)
 	defer db.Close()
-	provider, err := goose.NewProvider(goose.DialectPostgres, db, os.DirFS("../../migrations"))
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db, os.DirFS("../../migrations"))
 	f.must(err)
-	if _, err = provider.DownTo(t.Context(), 18); err == nil {
+	if _, err = provider.DownTo(t.Context(), 0); err == nil {
 		t.Fatal("audit erased by Down")
 	}
 	var used bool
-	f.must(f.db.QueryRow(t.Context(), "SELECT used_at IS NOT NULL FROM registration_email_verifications WHERE public_reference=$1", reference).Scan(&used))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT used_at IS NOT NULL FROM registration_email_verifications WHERE public_reference=?1", reference).Scan(&used))
 	if !used {
 		t.Fatal("proof lost")
 	}
-	if _, err = f.db.Exec(t.Context(), "DELETE FROM registration_email_verifications WHERE public_reference=$1", reference); err == nil {
+	if _, err = f.db.ExecContext(t.Context(), "DELETE FROM registration_email_verifications WHERE public_reference=?1", reference); err == nil {
 		t.Fatal("proof deleted")
 	}
 }
@@ -489,21 +489,21 @@ func TestEmailResolutionRollbackAndPreparationFailure(t *testing.T) {
 	id := f.stage(emailInput())
 	d, err := f.app.Verifications.PrepareEmailVerification(t.Context(), id)
 	f.must(err)
-	f.exec(`CREATE FUNCTION fail_email_resolution_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status='resolved' THEN RAISE EXCEPTION 'private resolution error'; END IF; RETURN NEW; END $$`)
-	f.exec(`CREATE TRIGGER fail_email_resolution_test BEFORE UPDATE ON registration_submissions FOR EACH ROW EXECUTE FUNCTION fail_email_resolution_test()`)
+
+	f.exec(`CREATE TRIGGER fail_email_resolution_test BEFORE UPDATE ON registration_submissions WHEN NEW.status='resolved' BEGIN SELECT RAISE(ABORT, 'private resolution error'); END;`)
 	if err = f.app.Verifications.VerifyEmail(t.Context(), d.PublicReference, d.PlaintextCode); !errors.Is(err, identityresolution.ErrVerification) {
 		t.Fatal("unsafe resolution error", err)
 	}
 	var used bool
-	f.must(f.db.QueryRow(t.Context(), "SELECT used_at IS NOT NULL FROM registration_email_verifications WHERE public_reference=$1", d.PublicReference).Scan(&used))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT used_at IS NOT NULL FROM registration_email_verifications WHERE public_reference=?1", d.PublicReference).Scan(&used))
 	if used || f.emailState(id) != "awaiting_email_verification" {
 		t.Fatal("proof consumed without resolution")
 	}
-	f.exec("DROP TRIGGER fail_email_resolution_test ON registration_submissions")
+	f.exec("DROP TRIGGER fail_email_resolution_test")
 	f.must(f.app.Verifications.VerifyEmail(t.Context(), d.PublicReference, d.PlaintextCode))
 	// Failure while choosing the queued status rolls back the entire submission.
-	f.exec(`CREATE FUNCTION fail_email_preparation_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status='awaiting_email_verification' THEN RAISE EXCEPTION 'private preparation error'; END IF; RETURN NEW; END $$`)
-	f.exec(`CREATE TRIGGER fail_email_preparation_test BEFORE UPDATE ON registration_submissions FOR EACH ROW EXECUTE FUNCTION fail_email_preparation_test()`)
+
+	f.exec(`CREATE TRIGGER fail_email_preparation_test BEFORE UPDATE ON registration_submissions WHEN NEW.status='awaiting_email_verification' BEGIN SELECT RAISE(ABORT, 'private preparation error'); END;`)
 	before := f.registrationSnapshot()
 	if _, err = f.app.Submissions.CreateSubmission(t.Context(), emailInput()); !errors.Is(err, identityresolution.ErrUnavailable) {
 		t.Fatal("enqueue failure accepted")
@@ -512,17 +512,17 @@ func TestEmailResolutionRollbackAndPreparationFailure(t *testing.T) {
 		t.Fatal("partial submission")
 	}
 	var count int
-	f.must(f.db.QueryRow(t.Context(), "SELECT count(*) FROM registration_email_verifications WHERE submission_id=$1", id).Scan(&count))
+	f.must(f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM registration_email_verifications WHERE submission_id=?1", id).Scan(&count))
 	if count != 1 || f.emailState(id) != "resolved" || len(f.mail.messages) != 0 {
 		t.Fatal("partially prepared or sent proof")
 	}
-	f.exec("DROP TRIGGER fail_email_preparation_test ON registration_submissions")
+	f.exec("DROP TRIGGER fail_email_preparation_test")
 	// A changed candidate makes re-preparation definitively ineligible and returns
 	// the old pending proof to review immediately rather than waiting for expiry.
 	id = f.stage(emailInput())
 	d, err = f.app.Verifications.PrepareEmailVerification(t.Context(), id)
 	f.must(err)
-	f.exec("UPDATE persons SET email='changed@example.test' WHERE id=$1", f.person)
+	f.exec("UPDATE persons SET email='changed@example.test' WHERE id=?1", f.person)
 	if _, err = f.app.Verifications.PrepareEmailVerification(t.Context(), id); !errors.Is(err, identityresolution.ErrNotEligible) {
 		t.Fatal("changed email eligible")
 	}
@@ -548,7 +548,7 @@ func TestEmailCompensationAssociationAndConstraints(t *testing.T) {
 		t.Fatal("cross-submission compensation")
 	}
 	// The database enforces one live challenge, not only the service lock.
-	_, err = f.db.Exec(t.Context(), `INSERT INTO registration_email_verifications(submission_id,person_id,public_reference,code_hash,recipient_hash,expires_at) SELECT submission_id,person_id,$2,code_hash,recipient_hash,expires_at FROM registration_email_verifications WHERE public_reference=$1`, a.PublicReference, strings.Repeat("e", 64))
+	_, err = f.db.ExecContext(t.Context(), `INSERT INTO registration_email_verifications(submission_id,person_id,public_reference,code_hash,recipient_hash,expires_at) SELECT submission_id,person_id,?2,code_hash,recipient_hash,expires_at FROM registration_email_verifications WHERE public_reference=?1`, a.PublicReference, strings.Repeat("e", 64))
 	if err == nil {
 		t.Fatal("multiple live challenges allowed by database")
 	}
@@ -590,9 +590,9 @@ func TestEmailHTTPRejectionsAreIndistinguishable(t *testing.T) {
 		case "admin-resolved":
 			f.must(f.app.Reviews.LinkPerson(t.Context(), f.approver, id, f.person))
 		case "unavailable":
-			f.exec("UPDATE persons SET archived_at=now() WHERE id=$1", f.person)
+			f.exec("UPDATE persons SET archived_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?1", f.person)
 		case "expired":
-			f.exec("SELECT pg_sleep(GREATEST(0,extract(epoch FROM (expires_at-clock_timestamp())))+0.01) FROM registration_email_verifications WHERE public_reference=$1", ref)
+			f.waitProofExpiry(ref)
 		}
 		response := b.call("POST", "/registration/verify", url.Values{"csrf_token": {token}, "reference": {ref}, "code": {code}})
 		if response.Code != 303 || response.Header().Get("Location") != "/registration/verify?result=failed" || response.Header().Get("Cache-Control") != "no-store" {
@@ -610,7 +610,7 @@ func TestEmailHTTPRejectionsAreIndistinguishable(t *testing.T) {
 			}
 		}
 		if reason == "unavailable" {
-			f.exec("UPDATE persons SET archived_at=NULL WHERE id=$1", f.person)
+			f.exec("UPDATE persons SET archived_at=NULL WHERE id=?1", f.person)
 		}
 	}
 }
@@ -623,8 +623,8 @@ func TestEmailCompensationFailureLogsNoSecretsAndEventuallyRecovers(t *testing.T
 	svc, err := identityresolution.NewEmailService(f.db, time.Hour)
 	f.must(err)
 	submitter := identityresolution.NewEmailSubmitter(f.db, svc)
-	f.exec(`CREATE FUNCTION fail_email_compensation_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'sensitive database detail'; END $$`)
-	f.exec(`CREATE TRIGGER fail_email_compensation_test BEFORE UPDATE ON registration_email_verifications FOR EACH ROW EXECUTE FUNCTION fail_email_compensation_test()`)
+
+	f.exec(`CREATE TRIGGER fail_email_compensation_test BEFORE UPDATE ON registration_email_verifications BEGIN SELECT RAISE(ABORT, 'sensitive database detail'); END;`)
 	f.mail.err = errors.New("sensitive SMTP detail")
 	result, err := submitter.CreateSubmission(t.Context(), emailInput())
 	f.must(err)
@@ -645,8 +645,8 @@ func TestEmailCompensationFailureLogsNoSecretsAndEventuallyRecovers(t *testing.T
 			t.Fatal("sensitive log disclosure")
 		}
 	}
-	f.exec("DROP TRIGGER fail_email_compensation_test ON registration_email_verifications")
-	f.exec("UPDATE registration_verification_outbox SET lease_until=clock_timestamp()-interval '1 second',attempt_count=3 WHERE status='processing'")
+	f.exec("DROP TRIGGER fail_email_compensation_test")
+	f.exec("UPDATE registration_verification_outbox SET lease_until=strftime('%Y-%m-%d %H:%M:%f','now','-1 second'),attempt_count=3 WHERE status='processing'")
 	_, err = worker.ProcessOne(t.Context())
 	f.must(err)
 	count, err := f.app.Reviews.CountOpen(t.Context(), f.approver)
@@ -666,19 +666,21 @@ func (f *fixture) submitAndDispatch(in identityresolution.SubmissionInput) int32
 }
 
 func (f *fixture) invalidateDelivery(ctx context.Context, d *identityresolution.EmailDelivery) error {
-	tx, err := f.db.Begin(ctx)
+	unlock, _, err := database.LockDelivery(ctx, f.db, d.SubmissionID, true)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
-	if err = identityresolution.LockDeliveryDecision(ctx, tx, d.SubmissionID); err != nil {
+	defer unlock()
+	tx, err := f.db.BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 	if _, err = dbsqlc.New(tx).LockRegistrationSubmission(ctx, d.SubmissionID); err != nil {
 		return err
 	}
 	if err = identityresolution.InvalidateDeliveryAttempt(ctx, tx, d); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return tx.Commit()
 }

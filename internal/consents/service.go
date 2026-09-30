@@ -7,9 +7,9 @@ import (
 	"errors"
 	"fmt"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
@@ -19,30 +19,30 @@ var (
 	ErrInvalidDecision        = errors.New("invalid consent decision")
 )
 
-type Service struct{ db *pgxpool.Pool }
+type Service struct{ db *sql.DB }
 
-func New(db *pgxpool.Pool) *Service { return &Service{db: db} }
+func New(db *sql.DB) *Service { return &Service{db: db} }
 
 func (s *Service) RecordConsentDecision(ctx context.Context, p dbsqlc.CreateMembershipConsentParams) (dbsqlc.MembershipConsent, error) {
 	var zero dbsqlc.MembershipConsent
 	if p.Decision != "granted" && p.Decision != "refused" && p.Decision != "withdrawn" {
 		return zero, ErrInvalidDecision
 	}
-	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return zero, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	result, err := recordTx(ctx, tx, p)
 	if err != nil {
 		return zero, err
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return zero, err
 	}
 	return result, nil
 }
-func recordTx(ctx context.Context, tx pgx.Tx, p dbsqlc.CreateMembershipConsentParams) (dbsqlc.MembershipConsent, error) {
+func recordTx(ctx context.Context, tx *sql.Tx, p dbsqlc.CreateMembershipConsentParams) (dbsqlc.MembershipConsent, error) {
 	var zero dbsqlc.MembershipConsent
 	if p.Decision != "granted" && p.Decision != "refused" && p.Decision != "withdrawn" {
 		return zero, ErrInvalidDecision
@@ -54,7 +54,7 @@ func recordTx(ctx context.Context, tx pgx.Tx, p dbsqlc.CreateMembershipConsentPa
 	}
 	if person != p.GivenByPersonID {
 		_, err = q.LockConsentGuardian(ctx, dbsqlc.LockConsentGuardianParams{ChildPersonID: person, GuardianPersonID: p.GivenByPersonID})
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
 			return zero, ErrUnauthorizedGiver
 		}
 		if err != nil {
@@ -70,7 +70,7 @@ func recordTx(ctx context.Context, tx pgx.Tx, p dbsqlc.CreateMembershipConsentPa
 	}
 	if p.Decision == "withdrawn" {
 		decision, err := q.GetCurrentMembershipConsentDecision(ctx, dbsqlc.GetCurrentMembershipConsentDecisionParams{MembershipID: p.MembershipID, ConsentDefinitionID: p.ConsentDefinitionID})
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
 			return zero, ErrWithdrawalWithoutGrant
 		}
 		if err != nil {

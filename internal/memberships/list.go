@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5"
 )
 
 type ListEntry struct {
@@ -17,11 +16,11 @@ type ListEntry struct {
 // List uses two queries regardless of the number of memberships. All rows and
 // completeness facts come from one read-only snapshot and one administrative date.
 func (s *Service) List(ctx context.Context) ([]ListEntry, error) {
-	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	q := dbsqlc.New(tx)
 	rows, err := q.ListAdministrativeMemberships(ctx)
 	if err != nil {
@@ -46,7 +45,7 @@ func (s *Service) List(ctx context.Context) ([]ListEntry, error) {
 			Exists: row.UserID.Valid, IsActive: row.UserIsActive.Bool, IsActivated: row.ActivatedAt.Valid, NeedsActivation: row.UserID.Valid && !row.ActivatedAt.Valid,
 		}})
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
 	return result, nil

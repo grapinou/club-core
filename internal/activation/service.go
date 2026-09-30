@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var ErrInvalidCode = errors.New("invalid or unavailable activation code")
@@ -31,11 +31,11 @@ type Delivery struct {
 }
 
 type Service struct {
-	db       *pgxpool.Pool
+	db       *sql.DB
 	validity time.Duration
 }
 
-func New(db *pgxpool.Pool, validity time.Duration) (*Service, error) {
+func New(db *sql.DB, validity time.Duration) (*Service, error) {
 	if validity <= 0 {
 		return nil, errors.New("activation validity must be positive")
 	}
@@ -44,21 +44,21 @@ func New(db *pgxpool.Pool, validity time.Duration) (*Service, error) {
 
 // PrepareTx joins the caller's transaction and locks the user before replacing codes.
 // A delivery is usable only after the caller commits successfully.
-func (s *Service) PrepareTx(ctx context.Context, tx pgx.Tx, userID int32) (*Delivery, error) {
+func (s *Service) PrepareTx(ctx context.Context, tx *sql.Tx, userID int32) (*Delivery, error) {
 	return s.prepareTx(ctx, tx, userID, false)
 }
 
 // PreparePersonOnlyTx uses the same code lifecycle without a guardian fallback.
 // Guardian provisioning must never borrow another Person's delivery channel.
-func (s *Service) PreparePersonOnlyTx(ctx context.Context, tx pgx.Tx, userID int32) (*Delivery, error) {
+func (s *Service) PreparePersonOnlyTx(ctx context.Context, tx *sql.Tx, userID int32) (*Delivery, error) {
 	return s.prepareTx(ctx, tx, userID, true)
 }
-func (s *Service) prepareTx(ctx context.Context, tx pgx.Tx, userID int32, personOnly bool) (*Delivery, error) {
+func (s *Service) prepareTx(ctx context.Context, tx *sql.Tx, userID int32, personOnly bool) (*Delivery, error) {
 	var d Delivery
 	var person int32
 	var activated *time.Time
 	var active bool
-	err := tx.QueryRow(ctx, "SELECT id,username,person_id,activated_at,is_active FROM users WHERE id=$1 FOR UPDATE", userID).Scan(&d.UserID, &d.Username, &person, &activated, &active)
+	err := tx.QueryRowContext(ctx, "SELECT id,username,person_id,activated_at,is_active FROM users WHERE id=?1", userID).Scan(&d.UserID, &d.Username, &person, &activated, &active)
 	if err != nil {
 		return nil, err
 	}
@@ -74,11 +74,11 @@ func (s *Service) prepareTx(ctx context.Context, tx pgx.Tx, userID int32, person
 	}
 	d.PlaintextCode = code
 	hash := sha256.Sum256([]byte(code))
-	_, err = tx.Exec(ctx, "UPDATE user_activation_codes SET invalidated_at=clock_timestamp() WHERE user_id=$1 AND used_at IS NULL AND invalidated_at IS NULL", userID)
+	_, err = tx.ExecContext(ctx, "UPDATE user_activation_codes SET invalidated_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE user_id=?1 AND used_at IS NULL AND invalidated_at IS NULL", userID)
 	if err != nil {
 		return nil, err
 	}
-	_, err = tx.Exec(ctx, "INSERT INTO user_activation_codes(user_id,code_hash,created_at,expires_at) VALUES ($1,$2,clock_timestamp(),clock_timestamp()+make_interval(secs => $3))", userID, hash[:], s.validity.Seconds())
+	_, err = tx.ExecContext(ctx, "INSERT INTO user_activation_codes(user_id,code_hash,created_at,expires_at) VALUES (?1,?2,strftime('%Y-%m-%d %H:%M:%f','now'),strftime('%Y-%m-%d %H:%M:%f','now',?3 || ' seconds'))", userID, hash[:], s.validity.Seconds())
 	if err != nil {
 		return nil, err
 	}
@@ -102,16 +102,16 @@ func (s *Service) Activate(ctx context.Context, username, code, password string)
 	if err != nil {
 		return zero, err
 	}
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return zero, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	var userID int32
 	var active bool
 	var activated *time.Time
-	err = tx.QueryRow(ctx, "SELECT id,is_active,activated_at FROM users WHERE username=$1 FOR UPDATE", username).Scan(&userID, &active, &activated)
-	if errors.Is(err, pgx.ErrNoRows) {
+	err = tx.QueryRowContext(ctx, "SELECT id,is_active,activated_at FROM users WHERE username=?1", username).Scan(&userID, &active, &activated)
+	if errors.Is(err, sql.ErrNoRows) {
 		return zero, ErrInvalidCode
 	}
 	if err != nil {
@@ -122,8 +122,8 @@ func (s *Service) Activate(ctx context.Context, username, code, password string)
 	}
 	var codeID int64
 	var stored []byte
-	err = tx.QueryRow(ctx, "SELECT id,code_hash FROM user_activation_codes WHERE user_id=$1 AND used_at IS NULL AND invalidated_at IS NULL AND expires_at>clock_timestamp() FOR UPDATE", userID).Scan(&codeID, &stored)
-	if errors.Is(err, pgx.ErrNoRows) {
+	err = tx.QueryRowContext(ctx, "SELECT id,code_hash FROM user_activation_codes WHERE user_id=?1 AND used_at IS NULL AND invalidated_at IS NULL AND expires_at>strftime('%Y-%m-%d %H:%M:%f','now')", userID).Scan(&codeID, &stored)
+	if errors.Is(err, sql.ErrNoRows) {
 		return zero, ErrInvalidCode
 	}
 	if err != nil {
@@ -133,14 +133,14 @@ func (s *Service) Activate(ctx context.Context, username, code, password string)
 	if subtle.ConstantTimeCompare(candidate[:], stored) != 1 {
 		return zero, ErrInvalidCode
 	}
-	tag, err := tx.Exec(ctx, "UPDATE user_activation_codes SET used_at=clock_timestamp() WHERE id=$1 AND expires_at>clock_timestamp()", codeID)
+	tag, err := tx.ExecContext(ctx, "UPDATE user_activation_codes SET used_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?1 AND expires_at>strftime('%Y-%m-%d %H:%M:%f','now')", codeID)
 	if err != nil {
 		return zero, err
 	}
-	if tag.RowsAffected() != 1 {
+	if affected, affectedErr := tag.RowsAffected(); affectedErr != nil || affected != 1 {
 		return zero, ErrInvalidCode
 	}
-	_, err = tx.Exec(ctx, "UPDATE users SET password_hash=$2,activated_at=clock_timestamp() WHERE id=$1", userID, string(hash))
+	_, err = tx.ExecContext(ctx, "UPDATE users SET password_hash=?2,activated_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?1", userID, string(hash))
 	if err != nil {
 		return zero, err
 	}
@@ -148,7 +148,7 @@ func (s *Service) Activate(ctx context.Context, username, code, password string)
 	if err != nil {
 		return zero, err
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return zero, err
 	}
 	return user, nil
@@ -175,9 +175,9 @@ func UsableEmail(value string) bool {
 	return err == nil && address.Address == value && len(value) <= 254
 }
 
-func RecipientTx(ctx context.Context, tx pgx.Tx, userID int32, personOnly bool) (Delivery, error) {
+func RecipientTx(ctx context.Context, tx *sql.Tx, userID int32, personOnly bool) (Delivery, error) {
 	var d Delivery
-	rows, err := tx.Query(ctx, "SELECT id,email FROM (SELECT p.id,coalesce(p.email,'') AS email,0 AS rank,0 AS position FROM users u JOIN persons p ON p.id=u.person_id WHERE u.id=$1 UNION ALL SELECT p.id,coalesce(p.email,''),CASE WHEN g.is_primary_contact THEN 1 ELSE 2 END,g.id FROM users u JOIN person_guardians g ON g.child_person_id=u.person_id JOIN persons p ON p.id=g.guardian_person_id WHERE u.id=$1 AND NOT $2::boolean) candidates ORDER BY rank,position,id", userID, personOnly)
+	rows, err := tx.QueryContext(ctx, "SELECT id,email FROM (SELECT p.id,coalesce(p.email,'') AS email,0 AS rank,0 AS position FROM users u JOIN persons p ON p.id=u.person_id WHERE u.id=?1 UNION ALL SELECT p.id,coalesce(p.email,''),CASE WHEN g.is_primary_contact THEN 1 ELSE 2 END,g.id FROM users u JOIN person_guardians g ON g.child_person_id=u.person_id JOIN persons p ON p.id=g.guardian_person_id WHERE u.id=?1 AND NOT ?2) candidates ORDER BY rank,position,id", userID, personOnly)
 	if err != nil {
 		return d, err
 	}

@@ -43,7 +43,7 @@ func (f *fixture) accountPost(b *browser, path string, form url.Values, want int
 func (f *fixture) personEmail(id int32) string {
 	f.t.Helper()
 	var v string
-	f.must(f.db.QueryRow(f.t.Context(), `SELECT coalesce(email,'') FROM persons WHERE id=$1`, id).Scan(&v))
+	f.must(f.db.QueryRowContext(f.t.Context(), `SELECT coalesce(email,'') FROM persons WHERE id=?1`, id).Scan(&v))
 	return v
 }
 func emailChangeCode(t *testing.T, m mailer.Message) string {
@@ -94,21 +94,21 @@ func TestSelfServiceProfileAndHTTPBoundary(t *testing.T) {
 			t.Fatal("CSRF", path, r.Code)
 		}
 	}
-	f.exec(`UPDATE persons SET address='Ancienne adresse' WHERE id=$1`, f.person)
+	f.exec(`UPDATE persons SET address='Ancienne adresse' WHERE id=?1`, f.person)
 	f.personalOK(b, "/me/account/profile", "Ancienne adresse")
-	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='secretary'`, user)
+	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='secretary'`, user)
 	foreign := f.id(`INSERT INTO persons(first_name,last_name,phone_number,address) VALUES('Autre','Personne','0123456789','Intacte') RETURNING id`)
 	form := url.Values{"phone_number": {" +33 (0)6 12 34 56 78 "}, "address": {"  12 rue du Club\nParis  "}, "person_id": {fmt.Sprint(foreign)}, "user_id": {fmt.Sprint(f.approver)}, "first_name": {"INJECTED"}, "username": {"INJECTED"}}
 	// Use the exact existing normalization convention (French 06... -> 336...).
 	form.Set("phone_number", " 06 12 34 56 78 ")
 	f.accountPost(b, paths[0], form, 303)
 	var phone, address, name string
-	f.must(f.db.QueryRow(t.Context(), `SELECT phone_number,address,first_name FROM persons WHERE id=$1`, f.person).Scan(&phone, &address, &name))
+	f.must(f.db.QueryRowContext(t.Context(), `SELECT phone_number,address,first_name FROM persons WHERE id=?1`, f.person).Scan(&phone, &address, &name))
 	if phone != "33612345678" || address != "12 rue du Club\nParis" || name != "Rémi" {
 		t.Fatal("contact update", phone, address, name)
 	}
 	var untouched string
-	f.must(f.db.QueryRow(t.Context(), `SELECT address FROM persons WHERE id=$1`, foreign).Scan(&untouched))
+	f.must(f.db.QueryRowContext(t.Context(), `SELECT address FROM persons WHERE id=?1`, foreign).Scan(&untouched))
 	if untouched != "Intacte" {
 		t.Fatal("admin IDOR")
 	}
@@ -119,10 +119,10 @@ func TestSelfServiceProfileAndHTTPBoundary(t *testing.T) {
 	}
 	f.accountPost(b, paths[0], url.Values{"phone_number": {""}, "address": {strings.Repeat("x", 2001)}}, 422)
 	f.accountPost(b, paths[0], url.Values{"phone_number": {" "}, "address": {" "}}, 303)
-	if f.count(`SELECT count(*) FROM persons WHERE id=$1 AND phone_number IS NULL AND address IS NULL`, f.person) != 1 {
+	if f.count(`SELECT count(*) FROM persons WHERE id=?1 AND phone_number IS NULL AND address IS NULL`, f.person) != 1 {
 		t.Fatal("optional fields")
 	}
-	if f.count(`SELECT count(*) FROM account_security_events WHERE user_id=$1 AND event='profile_contact_updated'`, user) != 2 {
+	if f.count(`SELECT count(*) FROM account_security_events WHERE user_id=?1 AND event='profile_contact_updated'`, user) != 2 {
 		t.Fatal("audit")
 	}
 	for _, value := range []string{"first_name", "last_name", "birth_date", "username", "person_id", "user_id"} {
@@ -147,14 +147,14 @@ func TestSelfServiceEmailLifecycle(t *testing.T) {
 	}
 	code := emailChangeCode(t, f.mail.messages[0])
 	digest := sha256.Sum256([]byte(code))
-	if f.count(`SELECT count(*) FROM user_email_change_requests WHERE user_id=$1 AND code_hash=$2 AND new_email_normalized='next@example.test'`, user, digest[:]) != 1 {
+	if f.count(`SELECT count(*) FROM user_email_change_requests WHERE user_id=?1 AND code_hash=?2 AND new_email_normalized='next@example.test'`, user, digest[:]) != 1 {
 		t.Fatal("code storage")
 	}
 	if strings.Contains(f.personalOK(b, verify), code) {
 		t.Fatal("code leaked")
 	}
 	f.accountPost(b, verify, url.Values{"code": {"000"}}, 422)
-	f.exec(`UPDATE user_email_change_requests SET expires_at=clock_timestamp()-interval '1 second' WHERE user_id=$1`, user)
+	f.exec(`UPDATE user_email_change_requests SET expires_at=strftime('%Y-%m-%d %H:%M:%f','now','-1 second') WHERE user_id=?1`, user)
 	f.accountPost(b, verify, url.Values{"code": {code}}, 422)
 	// A replacement invalidates even expired active rows.
 	f.accountPost(b, request, input("shared@example.test", "a secure password"), 303)
@@ -172,7 +172,7 @@ func TestSelfServiceEmailLifecycle(t *testing.T) {
 	f.personalOK(b, verify+"?saved=1", "Votre nouvelle adresse email a été vérifiée")
 	f.accountPost(b, request, input("third@example.test", "a secure password"), 303)
 	f.accountPost(b, request, input("fourth@example.test", "a secure password"), 429)
-	if f.count(`SELECT count(*) FROM account_security_events WHERE user_id=$1 AND event='email_changed'`, user) != 1 {
+	if f.count(`SELECT count(*) FROM account_security_events WHERE user_id=?1 AND event='email_changed'`, user) != 1 {
 		t.Fatal("email audit")
 	}
 	u, err := dbsqlc.New(f.db).GetUserByID(t.Context(), user)
@@ -223,7 +223,7 @@ func TestSelfServicePasswordAndSessions(t *testing.T) {
 	if id, err := login.Authenticate(t.Context(), "member", "new secure password"); err != nil || id != user {
 		t.Fatal("new password")
 	}
-	if f.count(`SELECT count(*) FROM account_security_events WHERE event='password_changed' AND user_id=$1`, user) != 1 {
+	if f.count(`SELECT count(*) FROM account_security_events WHERE event='password_changed' AND user_id=?1`, user) != 1 {
 		t.Fatal("password audit")
 	}
 	fresh := newBrowser(f.app.Handler)
@@ -265,14 +265,14 @@ func TestSelfServiceConcurrency(t *testing.T) {
 	}) {
 		f.must(err)
 	}
-	if f.count(`SELECT count(*) FROM user_email_change_requests WHERE user_id=$1 AND invalidated_at IS NULL AND used_at IS NULL`, user) != 1 {
+	if f.count(`SELECT count(*) FROM user_email_change_requests WHERE user_id=?1 AND invalidated_at IS NULL AND used_at IS NULL`, user) != 1 {
 		t.Fatal("multiple active")
 	}
-	if f.count(`SELECT count(*) FROM user_email_change_requests WHERE user_id=$1 AND invalidated_at IS NOT NULL`, user) != 1 {
+	if f.count(`SELECT count(*) FROM user_email_change_requests WHERE user_id=?1 AND invalidated_at IS NOT NULL`, user) != 1 {
 		t.Fatal("old not invalidated")
 	}
 	var activeHash []byte
-	f.must(f.db.QueryRow(t.Context(), `SELECT code_hash FROM user_email_change_requests WHERE user_id=$1 AND invalidated_at IS NULL`, user).Scan(&activeHash))
+	f.must(f.db.QueryRowContext(t.Context(), `SELECT code_hash FROM user_email_change_requests WHERE user_id=?1 AND invalidated_at IS NULL`, user).Scan(&activeHash))
 	activeCode := ""
 	for _, m := range sender.messages {
 		code := emailChangeCode(t, m)
@@ -333,7 +333,7 @@ func TestSelfServiceEmailUserIsolationAndNotificationFailure(t *testing.T) {
 	_, a := f.personalBrowser(f.person, "member")
 	foreign := f.id(`INSERT INTO persons(first_name,last_name,email) VALUES('Autre','Membre','foreign@example.test') RETURNING id`)
 	user, b := f.personalBrowser(foreign, "other")
-	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='secretary'`, user)
+	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='secretary'`, user)
 	request := "/me/account/email"
 	verify := request + "/verify"
 	f.accountPost(a, request, url.Values{"new_email": {"first@example.test"}, "current_password": {"a secure password"}}, 303)

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,7 +10,7 @@ import (
 
 	"github.com/grapinou/club-core/internal/config"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 func TestPersonsListHandler(t *testing.T) {
@@ -25,27 +26,27 @@ func TestPersonsListHandler(t *testing.T) {
 				FirstName: "Robin",
 				LastName:  "Des Bois",
 
-				BirthDate: pgtype.Date{
+				BirthDate: dbtypes.Date{
 					Time:  time.Date(1990, 5, 12, 0, 0, 0, 0, time.UTC),
 					Valid: true,
 				},
 
-				PhoneNumber: pgtype.Text{
+				PhoneNumber: sql.NullString{
 					String: "00 01 02 03 04",
 					Valid:  true,
 				},
 
-				Email: pgtype.Text{
+				Email: sql.NullString{
 					String: "robin.desbois@example.com",
 					Valid:  true,
 				},
 
-				Address: pgtype.Text{
+				Address: sql.NullString{
 					String: "Bois de Sherwood",
 					Valid:  true,
 				},
 
-				CreatedAt: pgtype.Timestamptz{
+				CreatedAt: dbtypes.Timestamp{
 					Time:  time.Date(2009, 10, 10, 15, 4, 0, 0, time.UTC),
 					Valid: true,
 				},
@@ -55,26 +56,26 @@ func TestPersonsListHandler(t *testing.T) {
 				FirstName: "Bob",
 				LastName:  "Sinclair",
 
-				BirthDate: pgtype.Date{
+				BirthDate: dbtypes.Date{
 					Time:  time.Date(1925, 7, 10, 0, 0, 0, 0, time.UTC),
 					Valid: true,
 				},
 
-				PhoneNumber: pgtype.Text{
+				PhoneNumber: sql.NullString{
 					String: "   ",
 					Valid:  true,
 				},
 
-				Email: pgtype.Text{
+				Email: sql.NullString{
 					Valid: false,
 				},
 
-				Address: pgtype.Text{
+				Address: sql.NullString{
 					String: "Rue du Magnifique",
 					Valid:  true,
 				},
 
-				CreatedAt: pgtype.Timestamptz{
+				CreatedAt: dbtypes.Timestamp{
 					Time:  time.Date(2009, 10, 10, 15, 4, 0, 0, time.UTC),
 					Valid: true,
 				},

@@ -2,13 +2,14 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 type sessionUsers struct{ active bool }
@@ -17,7 +18,7 @@ func (u *sessionUsers) GetUserByUsername(context.Context, string) (dbsqlc.User, 
 	return dbsqlc.User{}, nil
 }
 func (u *sessionUsers) GetUserByID(_ context.Context, id int32) (dbsqlc.User, error) {
-	return dbsqlc.User{ID: id, IsActive: u.active, ActivatedAt: pgtype.Timestamptz{Valid: true}, PasswordHash: pgtype.Text{Valid: true, String: "hash"}}, nil
+	return dbsqlc.User{ID: id, IsActive: u.active, ActivatedAt: dbtypes.Timestamp{Valid: true}, PasswordHash: sql.NullString{Valid: true, String: "hash"}}, nil
 }
 func TestSessionLifecycle(t *testing.T) {
 	sessions := NewSessions(true)

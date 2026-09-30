@@ -5,19 +5,20 @@ import (
 	"errors"
 	"time"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 // AssignGroupTx preserves past intervals and prevents overlapping assignments.
-func (s *Service) AssignGroupTx(ctx context.Context, tx pgx.Tx, p dbsqlc.AssignMembershipGroupParams) error {
+func (s *Service) AssignGroupTx(ctx context.Context, tx *sql.Tx, p dbsqlc.AssignMembershipGroupParams) error {
 	q := dbsqlc.New(tx)
 	m, err := q.LockMembershipGroupTarget(ctx, p.MembershipID)
 	if err != nil {
 		return err
 	}
-	if (m.Status != "pending" && m.Status != "active") || !p.JoinedAt.Valid || p.JoinedAt.InfinityModifier != pgtype.Finite || p.JoinedAt.Time.Before(m.StartsAt.Time) || p.JoinedAt.Time.After(m.EndsAt.Time) {
+	if (m.Status != "pending" && m.Status != "active") || !p.JoinedAt.Valid || !p.JoinedAt.IsFinite() || p.JoinedAt.Time.Before(m.StartsAt.Time) || p.JoinedAt.Time.After(m.EndsAt.Time) {
 		return ErrInvalidRequest
 	}
 	g, err := q.LockTrialGroup(ctx, p.GroupID)
@@ -44,7 +45,7 @@ func (s *Service) AssignGroupTx(ctx context.Context, tx pgx.Tx, p dbsqlc.AssignM
 	_, err = q.AssignMembershipGroup(ctx, p)
 	return err
 }
-func (s *Service) CloseGroupTx(ctx context.Context, tx pgx.Tx, membership, assignment int32, left pgtype.Date) error {
+func (s *Service) CloseGroupTx(ctx context.Context, tx *sql.Tx, membership, assignment int32, left dbtypes.Date) error {
 	q := dbsqlc.New(tx)
 	if _, err := q.LockMembershipGroupTarget(ctx, membership); err != nil {
 		return err
@@ -53,7 +54,7 @@ func (s *Service) CloseGroupTx(ctx context.Context, tx pgx.Tx, membership, assig
 	if err != nil {
 		return err
 	}
-	if a.LeftAt.Valid || !left.Valid || left.InfinityModifier != pgtype.Finite || left.Time.Before(a.JoinedAt.Time) {
+	if a.LeftAt.Valid || !left.Valid || !left.IsFinite() || left.Time.Before(a.JoinedAt.Time) {
 		return ErrInvalidRequest
 	}
 	_, err = q.CloseMembershipGroup(ctx, dbsqlc.CloseMembershipGroupParams{ID: assignment, LeftAt: left})
@@ -64,7 +65,7 @@ func (s *Service) CloseGroupTx(ctx context.Context, tx pgx.Tx, membership, assig
 // immediately after CreateRequestTx in the same transaction. The source trial,
 // person and season are already locked by creation. No historical backfill.
 // A domain refusal is a stale suggestion; a database failure aborts creation.
-func (s *Service) AssignSourceTrialGroupTx(ctx context.Context, tx pgx.Tx, m dbsqlc.Membership) (attempted, assigned bool, err error) {
+func (s *Service) AssignSourceTrialGroupTx(ctx context.Context, tx *sql.Tx, m dbsqlc.Membership) (attempted, assigned bool, err error) {
 	if !m.SourceTrialID.Valid {
 		return false, false, nil
 	}
@@ -88,7 +89,7 @@ func (s *Service) AssignSourceTrialGroupTx(ctx context.Context, tx pgx.Tx, m dbs
 	if joined.Before(season.StartsAt.Time) {
 		joined = season.StartsAt.Time
 	}
-	err = s.AssignGroupTx(ctx, tx, dbsqlc.AssignMembershipGroupParams{MembershipID: m.ID, GroupID: trial.GroupID.Int32, JoinedAt: pgtype.Date{Time: joined, Valid: true}})
+	err = s.AssignGroupTx(ctx, tx, dbsqlc.AssignMembershipGroupParams{MembershipID: m.ID, GroupID: trial.GroupID.Int32, JoinedAt: dbtypes.Date{Time: joined, Valid: true}})
 	if errors.Is(err, ErrInvalidRequest) {
 		return true, false, nil
 	}

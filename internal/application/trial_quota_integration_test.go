@@ -27,7 +27,7 @@ func TestP31QuotaConfigurationAndPublic(t *testing.T) {
 		t.Fatal("config CSRF", r.Code)
 	}
 	user, member := f.personalBrowser(f.person, "ordinary.quota")
-	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='secretary'", user)
+	f.exec("INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='secretary'", user)
 	if r := member.call("POST", path, form); r.Code != 403 {
 		t.Fatal("club.configure bypass", r.Code)
 	}
@@ -76,7 +76,7 @@ func TestP31QuotaConfigurationAndPublic(t *testing.T) {
 		t.Fatal("configuration audit")
 	}
 	for _, value := range []int{-1, 0} {
-		if _, err = f.db.Exec(t.Context(), "UPDATE organizations SET max_trials_per_person_per_season=$1", value); err == nil {
+		if _, err = f.db.ExecContext(t.Context(), "UPDATE organizations SET max_trials_per_person_per_season=?1", value); err == nil {
 			t.Fatal("DB check")
 		}
 	}
@@ -89,9 +89,9 @@ func TestP31QuotaConfigurationAndPublic(t *testing.T) {
 	save("1", 303)
 	// Repeated anonymous details still create distinct prospects. There is no proof
 	// of identity here and quota enforcement must never merge them automatically.
-	f.exec("UPDATE seasons SET starts_at=CURRENT_DATE-1,ends_at=CURRENT_DATE+365 WHERE id=$1", f.season)
-	group := f.id("INSERT INTO groups(activity_id,name) VALUES($1,'Découverte') RETURNING id", f.activity)
-	f.id("INSERT INTO group_slots(group_id,season_id,weekday,start_time,end_time,valid_from) VALUES($1,$2,3,'14:00','16:00',CURRENT_DATE-1) RETURNING id", group, f.season)
+	f.exec("UPDATE seasons SET starts_at=date('now','-1 days'),ends_at=date('now','+365 days') WHERE id=?1", f.season)
+	group := f.id("INSERT INTO groups(activity_id,name) VALUES(?1,'Découverte') RETURNING id", f.activity)
+	f.id("INSERT INTO group_slots(group_id,season_id,weekday,start_time,end_time,valid_from) VALUES(?1,?2,3,'14:00','16:00',date('now','-1 days')) RETURNING id", group, f.season)
 	offers, err := trials.NewPublic(f.db, time.UTC).Offerings(t.Context(), time.Now().UTC())
 	f.must(err)
 	if len(offers) != 1 || len(offers[0].Dates) == 0 {
@@ -124,7 +124,7 @@ func TestP31QuotaAdministrativeHTTP(t *testing.T) {
 	}
 	officeOK(t, b, path, "3 / 3", "Quota atteint")
 	officeOK(t, b, path, "Quota atteint")
-	trial := f.id("SELECT min(id) FROM trial_registrations WHERE person_id=$1", f.person)
+	trial := f.id("SELECT min(id) FROM trial_registrations WHERE person_id=?1", f.person)
 	officeOK(t, b, officeTrial(trial), "3 / 3")
 	before := f.count("SELECT count(*) FROM administrative_events")
 	r := officePost(t, b, path, form, 422)
@@ -139,7 +139,7 @@ func TestP31QuotaAdministrativeHTTP(t *testing.T) {
 	officeOK(t, b, officePerson(f.person), "Annulée")
 	officePost(t, b, path, form, 303)
 	officePost(t, b, officeTrial(trial)+"/status", url.Values{"revision": {"1"}, "status": {"attended"}}, 422)
-	f.exec("UPDATE seasons SET starts_at='2027-01-01' WHERE id=$1", f.season)
+	f.exec("UPDATE seasons SET starts_at='2027-01-01' WHERE id=?1", f.season)
 	officePost(t, b, path, form, 422)
 	if strings.Contains(officeOK(t, b, officePerson(f.person)), "<pre>") {
 		t.Fatal("SQL error exposed")

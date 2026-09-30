@@ -1,6 +1,7 @@
 package views
 
 import (
+	"database/sql"
 	"embed"
 	"html/template"
 	"io"
@@ -11,9 +12,9 @@ import (
 	"github.com/grapinou/club-core/internal/activation"
 	"github.com/grapinou/club-core/internal/administration"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/grapinou/club-core/internal/trials"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type TrialDay struct {
@@ -25,7 +26,7 @@ type AdministrativeView struct {
 	WeekLabel, PreviousWeek, NextWeek         string
 	EligibleTrials                            []dbsqlc.EligibleMembershipSourceTrialsRow
 	ListPath, SearchPath                      string
-	TrialPolicy                               pgtype.Int4
+	TrialPolicy                               sql.NullInt32
 	PendingMemberships, ActivationMemberships []MembershipRowView
 	TrialQuota                                []trials.QuotaUsage
 	SecurityData
@@ -41,7 +42,7 @@ type AdministrativeView struct {
 	TrialGuardians                       []dbsqlc.AdministrativeRelationsRow
 	Choices                              administration.Choices
 	Membership                           administration.Membership
-	Today                                pgtype.Date
+	Today                                dbtypes.Date
 	Form                                 url.Values
 }
 
@@ -71,16 +72,16 @@ func (v AdministrativeView) Selected(key string, id int32) bool {
 	}
 	return false
 }
-func (v AdministrativeView) Current(joined, left pgtype.Date) bool {
+func (v AdministrativeView) Current(joined, left dbtypes.Date) bool {
 	return !joined.Time.After(v.Today.Time) && (!left.Valid || left.Time.After(v.Today.Time))
 }
-func (v AdministrativeView) Past(d pgtype.Date) bool {
+func (v AdministrativeView) Past(d dbtypes.Date) bool {
 	return d.Valid && d.Time.Before(v.Today.Time)
 }
 
 //go:embed templates/layouts/base.html templates/pages/administration.html
 var administrativeFiles embed.FS
-var administrativeTemplate = template.Must(template.New("administration").Funcs(template.FuncMap{"date": date, "iso": func(d pgtype.Date) string {
+var administrativeTemplate = template.Must(template.New("administration").Funcs(template.FuncMap{"date": date, "iso": func(d dbtypes.Date) string {
 	if !d.Valid {
 		return ""
 	}

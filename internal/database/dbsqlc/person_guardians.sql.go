@@ -7,13 +7,14 @@ package dbsqlc
 
 import (
 	"context"
+	"database/sql"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 const createPersonGuardian = `-- name: CreatePersonGuardian :one
 INSERT INTO person_guardians (child_person_id, guardian_person_id, relationship_type, is_primary_contact)
-VALUES ($1, $2, $3, $4)
+VALUES (?1, ?2, ?3, CAST(?4 AS BOOLEAN))
 RETURNING id, child_person_id, guardian_person_id, relationship_type, is_primary_contact, created_at
 `
 
@@ -25,7 +26,7 @@ type CreatePersonGuardianParams struct {
 }
 
 func (q *Queries) CreatePersonGuardian(ctx context.Context, arg CreatePersonGuardianParams) (PersonGuardian, error) {
-	row := q.db.QueryRow(ctx, createPersonGuardian,
+	row := q.db.QueryRowContext(ctx, createPersonGuardian,
 		arg.ChildPersonID,
 		arg.GuardianPersonID,
 		arg.RelationshipType,
@@ -44,11 +45,11 @@ func (q *Queries) CreatePersonGuardian(ctx context.Context, arg CreatePersonGuar
 }
 
 const deletePersonGuardian = `-- name: DeletePersonGuardian :exec
-DELETE FROM person_guardians WHERE id = $1
+DELETE FROM person_guardians WHERE id = ?1
 `
 
 func (q *Queries) DeletePersonGuardian(ctx context.Context, id int32) error {
-	_, err := q.db.Exec(ctx, deletePersonGuardian, id)
+	_, err := q.db.ExecContext(ctx, deletePersonGuardian, id)
 	return err
 }
 
@@ -56,7 +57,7 @@ const listGuardianChildren = `-- name: ListGuardianChildren :many
 SELECT pg.id, pg.child_person_id, pg.guardian_person_id, pg.relationship_type, pg.is_primary_contact, pg.created_at, p.first_name, p.last_name
 FROM person_guardians pg
 JOIN persons p ON p.id = pg.child_person_id
-WHERE pg.guardian_person_id = $1
+WHERE pg.guardian_person_id = ?1
 ORDER BY pg.id
 `
 
@@ -66,13 +67,13 @@ type ListGuardianChildrenRow struct {
 	GuardianPersonID int32
 	RelationshipType string
 	IsPrimaryContact bool
-	CreatedAt        pgtype.Timestamptz
+	CreatedAt        dbtypes.Timestamp
 	FirstName        string
 	LastName         string
 }
 
 func (q *Queries) ListGuardianChildren(ctx context.Context, guardianPersonID int32) ([]ListGuardianChildrenRow, error) {
-	rows, err := q.db.Query(ctx, listGuardianChildren, guardianPersonID)
+	rows, err := q.db.QueryContext(ctx, listGuardianChildren, guardianPersonID)
 	if err != nil {
 		return nil, err
 	}
@@ -94,6 +95,9 @@ func (q *Queries) ListGuardianChildren(ctx context.Context, guardianPersonID int
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -104,7 +108,7 @@ const listPersonGuardians = `-- name: ListPersonGuardians :many
 SELECT pg.id, pg.child_person_id, pg.guardian_person_id, pg.relationship_type, pg.is_primary_contact, pg.created_at, p.first_name, p.last_name, p.phone_number, p.email
 FROM person_guardians pg
 JOIN persons p ON p.id = pg.guardian_person_id
-WHERE pg.child_person_id = $1
+WHERE pg.child_person_id = ?1
 ORDER BY pg.id
 `
 
@@ -114,15 +118,15 @@ type ListPersonGuardiansRow struct {
 	GuardianPersonID int32
 	RelationshipType string
 	IsPrimaryContact bool
-	CreatedAt        pgtype.Timestamptz
+	CreatedAt        dbtypes.Timestamp
 	FirstName        string
 	LastName         string
-	PhoneNumber      pgtype.Text
-	Email            pgtype.Text
+	PhoneNumber      sql.NullString
+	Email            sql.NullString
 }
 
 func (q *Queries) ListPersonGuardians(ctx context.Context, childPersonID int32) ([]ListPersonGuardiansRow, error) {
-	rows, err := q.db.Query(ctx, listPersonGuardians, childPersonID)
+	rows, err := q.db.QueryContext(ctx, listPersonGuardians, childPersonID)
 	if err != nil {
 		return nil, err
 	}
@@ -146,6 +150,9 @@ func (q *Queries) ListPersonGuardians(ctx context.Context, childPersonID int32) 
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -154,19 +161,19 @@ func (q *Queries) ListPersonGuardians(ctx context.Context, childPersonID int32) 
 
 const updatePersonGuardian = `-- name: UpdatePersonGuardian :one
 UPDATE person_guardians
-SET relationship_type = $2, is_primary_contact = $3
-WHERE id = $1
+SET relationship_type = ?1, is_primary_contact = CAST(?2 AS BOOLEAN)
+WHERE id = ?3
 RETURNING id, child_person_id, guardian_person_id, relationship_type, is_primary_contact, created_at
 `
 
 type UpdatePersonGuardianParams struct {
-	ID               int32
 	RelationshipType string
 	IsPrimaryContact bool
+	ID               int32
 }
 
 func (q *Queries) UpdatePersonGuardian(ctx context.Context, arg UpdatePersonGuardianParams) (PersonGuardian, error) {
-	row := q.db.QueryRow(ctx, updatePersonGuardian, arg.ID, arg.RelationshipType, arg.IsPrimaryContact)
+	row := q.db.QueryRowContext(ctx, updatePersonGuardian, arg.RelationshipType, arg.IsPrimaryContact, arg.ID)
 	var i PersonGuardian
 	err := row.Scan(
 		&i.ID,

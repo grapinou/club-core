@@ -1,10 +1,10 @@
 -- name: AssignMembershipGroup :one
 INSERT INTO membership_groups (membership_id, group_id, joined_at)
-VALUES ($1, $2, $3) RETURNING *;
+VALUES (sqlc.arg(membership_id), sqlc.arg(group_id), sqlc.arg(joined_at)) RETURNING *;
 
 -- name: CloseMembershipGroup :one
-UPDATE membership_groups SET left_at = sqlc.arg(left_at)::date
-WHERE id = $1 RETURNING *;
+UPDATE membership_groups SET left_at = sqlc.arg(left_at)
+WHERE id = sqlc.arg(id) RETURNING *;
 
 -- name: ListMembershipGroupHistory :many
 SELECT mg.*, g.name AS group_name, g.is_active AS group_is_active,
@@ -12,7 +12,7 @@ SELECT mg.*, g.name AS group_name, g.is_active AS group_is_active,
 FROM membership_groups mg
 JOIN groups g ON g.id = mg.group_id
 JOIN activities a ON a.id = g.activity_id
-WHERE mg.membership_id = $1
+WHERE mg.membership_id = sqlc.arg(membership_id)
 ORDER BY mg.joined_at, mg.id;
 
 -- name: ListCurrentMembershipGroups :many
@@ -21,7 +21,7 @@ SELECT mg.*, g.name AS group_name, g.is_active AS group_is_active,
 FROM membership_groups mg
 JOIN groups g ON g.id = mg.group_id
 JOIN activities a ON a.id = g.activity_id
-WHERE mg.membership_id = $1
+WHERE mg.membership_id = sqlc.arg(membership_id)
   AND mg.joined_at <= CURRENT_DATE
   AND (mg.left_at IS NULL OR mg.left_at > CURRENT_DATE)
 ORDER BY g.name, mg.id;
@@ -32,17 +32,17 @@ SELECT mg.id AS membership_group_id, m.id AS membership_id, m.season_id,
 FROM membership_groups mg
 JOIN memberships m ON m.id = mg.membership_id
 JOIN persons p ON p.id = m.person_id
-WHERE mg.group_id = $1 AND m.season_id = $2
+WHERE mg.group_id = sqlc.arg(group_id) AND m.season_id = sqlc.arg(season_id)
   AND m.status IN ('pending', 'active')
   AND mg.joined_at <= CURRENT_DATE
   AND (mg.left_at IS NULL OR mg.left_at > CURRENT_DATE)
 ORDER BY p.last_name, p.first_name, mg.id;
 
 -- name: LockMembershipGroupTarget :one
-SELECT m.status,s.starts_at,s.ends_at FROM memberships m JOIN seasons s ON s.id=m.season_id WHERE m.id=$1 FOR UPDATE OF m;
+SELECT m.status,s.starts_at,s.ends_at FROM memberships m JOIN seasons s ON s.id=m.season_id WHERE m.id=sqlc.arg(id);
 -- name: MembershipHasGroupActivity :one
-SELECT EXISTS(SELECT 1 FROM membership_activities WHERE membership_id=$1 AND activity_id=$2)::boolean;
+SELECT EXISTS(SELECT 1 FROM membership_activities WHERE membership_id=sqlc.arg(membership_id) AND activity_id=sqlc.arg(activity_id));
 -- name: MembershipGroupOverlaps :one
-SELECT EXISTS(SELECT 1 FROM membership_groups WHERE membership_id=$1 AND group_id=$2 AND (left_at IS NULL OR left_at>sqlc.arg(joined_at)::date))::boolean;
+SELECT EXISTS(SELECT 1 FROM membership_groups WHERE membership_id=sqlc.arg(membership_id) AND group_id=sqlc.arg(group_id) AND (left_at IS NULL OR left_at>sqlc.arg(joined_at)));
 -- name: LockMembershipGroupAssignment :one
-SELECT * FROM membership_groups WHERE id=$1 AND membership_id=$2 FOR UPDATE;
+SELECT * FROM membership_groups WHERE id=sqlc.arg(id) AND membership_id=sqlc.arg(membership_id);

@@ -7,18 +7,19 @@ package dbsqlc
 
 import (
 	"context"
+	"database/sql"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 const archivePerson = `-- name: ArchivePerson :exec
 UPDATE persons
-SET archived_at = NOW()
-WHERE id = $1
+SET archived_at = strftime('%Y-%m-%d %H:%M:%f','now')
+WHERE id = ?1
 `
 
 func (q *Queries) ArchivePerson(ctx context.Context, id int32) error {
-	_, err := q.db.Exec(ctx, archivePerson, id)
+	_, err := q.db.ExecContext(ctx, archivePerson, id)
 	return err
 }
 
@@ -32,13 +33,13 @@ INSERT INTO persons (
     address,
     notes
 ) VALUES (
-    $1,
-    $2,
-    $3,
-    $4,
-    $5,
-    $6,
-    $7
+    ?1,
+    ?2,
+    ?3,
+    ?4,
+    ?5,
+    ?6,
+    ?7
 )
 RETURNING id, first_name, last_name, birth_date, phone_number, email, address, created_at, archived_at, notes, updated_at
 `
@@ -46,15 +47,15 @@ RETURNING id, first_name, last_name, birth_date, phone_number, email, address, c
 type CreatePersonParams struct {
 	FirstName   string
 	LastName    string
-	BirthDate   pgtype.Date
-	PhoneNumber pgtype.Text
-	Email       pgtype.Text
-	Address     pgtype.Text
-	Notes       pgtype.Text
+	BirthDate   dbtypes.Date
+	PhoneNumber sql.NullString
+	Email       sql.NullString
+	Address     sql.NullString
+	Notes       sql.NullString
 }
 
 func (q *Queries) CreatePerson(ctx context.Context, arg CreatePersonParams) (Person, error) {
-	row := q.db.QueryRow(ctx, createPerson,
+	row := q.db.QueryRowContext(ctx, createPerson,
 		arg.FirstName,
 		arg.LastName,
 		arg.BirthDate,
@@ -83,11 +84,11 @@ func (q *Queries) CreatePerson(ctx context.Context, arg CreatePersonParams) (Per
 const getPersonByID = `-- name: GetPersonByID :one
 SELECT id, first_name, last_name, birth_date, phone_number, email, address, created_at, archived_at, notes, updated_at
 FROM persons
-WHERE id = $1
+WHERE id = ?1
 `
 
 func (q *Queries) GetPersonByID(ctx context.Context, id int32) (Person, error) {
-	row := q.db.QueryRow(ctx, getPersonByID, id)
+	row := q.db.QueryRowContext(ctx, getPersonByID, id)
 	var i Person
 	err := row.Scan(
 		&i.ID,
@@ -113,7 +114,7 @@ ORDER BY last_name, first_name
 `
 
 func (q *Queries) ListArchivedPersons(ctx context.Context) ([]Person, error) {
-	rows, err := q.db.Query(ctx, listArchivedPersons)
+	rows, err := q.db.QueryContext(ctx, listArchivedPersons)
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +138,9 @@ func (q *Queries) ListArchivedPersons(ctx context.Context) ([]Person, error) {
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -152,7 +156,7 @@ ORDER BY last_name, first_name
 `
 
 func (q *Queries) ListPersons(ctx context.Context) ([]Person, error) {
-	rows, err := q.db.Query(ctx, listPersons)
+	rows, err := q.db.QueryContext(ctx, listPersons)
 	if err != nil {
 		return nil, err
 	}
@@ -177,6 +181,9 @@ func (q *Queries) ListPersons(ctx context.Context) ([]Person, error) {
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -186,44 +193,43 @@ func (q *Queries) ListPersons(ctx context.Context) ([]Person, error) {
 const restorePerson = `-- name: RestorePerson :exec
 UPDATE persons
 SET archived_at = NULL
-WHERE id = $1
+WHERE id = ?1
 `
 
 func (q *Queries) RestorePerson(ctx context.Context, id int32) error {
-	_, err := q.db.Exec(ctx, restorePerson, id)
+	_, err := q.db.ExecContext(ctx, restorePerson, id)
 	return err
 }
 
 const updatePerson = `-- name: UpdatePerson :one
 UPDATE persons
 SET 
-    first_name = $2,
-    last_name = $3,
-    birth_date = $4,
-    phone_number = $5,
-    email = $6,
-    address = $7,
+    first_name = ?1,
+    last_name = ?2,
+    birth_date = ?3,
+    phone_number = ?4,
+    email = ?5,
+    address = ?6,
     -- Existing callers preserve notes unless explicitly requested (NULL clears them).
-    notes = CASE WHEN $8::boolean THEN $9::text ELSE notes END
-WHERE id = $1
+    notes = CASE WHEN CAST(?7 AS BOOLEAN) THEN ?8 ELSE notes END
+WHERE id = ?9
 RETURNING id, first_name, last_name, birth_date, phone_number, email, address, created_at, archived_at, notes, updated_at
 `
 
 type UpdatePersonParams struct {
-	ID          int32
 	FirstName   string
 	LastName    string
-	BirthDate   pgtype.Date
-	PhoneNumber pgtype.Text
-	Email       pgtype.Text
-	Address     pgtype.Text
+	BirthDate   dbtypes.Date
+	PhoneNumber sql.NullString
+	Email       sql.NullString
+	Address     sql.NullString
 	UpdateNotes bool
-	Notes       pgtype.Text
+	Notes       sql.NullString
+	ID          int32
 }
 
 func (q *Queries) UpdatePerson(ctx context.Context, arg UpdatePersonParams) (Person, error) {
-	row := q.db.QueryRow(ctx, updatePerson,
-		arg.ID,
+	row := q.db.QueryRowContext(ctx, updatePerson,
 		arg.FirstName,
 		arg.LastName,
 		arg.BirthDate,
@@ -232,6 +238,7 @@ func (q *Queries) UpdatePerson(ctx context.Context, arg UpdatePersonParams) (Per
 		arg.Address,
 		arg.UpdateNotes,
 		arg.Notes,
+		arg.ID,
 	)
 	var i Person
 	err := row.Scan(

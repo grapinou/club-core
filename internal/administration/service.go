@@ -9,22 +9,22 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 	"github.com/grapinou/club-core/internal/identityresolution"
 	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/grapinou/club-core/internal/trials"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var ErrConflict = errors.New("dossier changed; reload before retrying")
 var ErrInvalid = errors.New("invalid administrative input")
 
 type Service struct {
-	db          *pgxpool.Pool
+	db          *sql.DB
 	q           *dbsqlc.Queries
 	permissions *authorization.Service
 	trials      *trials.Service
@@ -32,14 +32,14 @@ type Service struct {
 	loc         *time.Location
 }
 
-func New(db *pgxpool.Pool, p *authorization.Service, m *memberships.Service, loc *time.Location) *Service {
+func New(db *sql.DB, p *authorization.Service, m *memberships.Service, loc *time.Location) *Service {
 	return &Service{db: db, q: dbsqlc.New(db), permissions: p, trials: trials.New(db), memberships: m, loc: loc}
 }
 func (s *Service) Location() *time.Location { return s.loc }
 
-func (s *Service) Today() pgtype.Date {
+func (s *Service) Today() dbtypes.Date {
 	now := time.Now().In(s.loc)
-	return pgtype.Date{Time: time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC), Valid: true}
+	return dbtypes.Date{Time: time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC), Valid: true}
 }
 func (s *Service) require(ctx context.Context, p authorization.Permission) (int32, error) {
 	id, ok := auth.UserID(ctx)
@@ -62,16 +62,16 @@ func (s *Service) require(ctx context.Context, p authorization.Permission) (int3
 	}
 	return id, nil
 }
-func (s *Service) mutate(ctx context.Context, p authorization.Permission, fn func(pgx.Tx, *dbsqlc.Queries) (string, string, int32, error)) error {
+func (s *Service) mutate(ctx context.Context, p authorization.Permission, fn func(*sql.Tx, *dbsqlc.Queries) (string, string, int32, error)) error {
 	actor, err := s.require(ctx, p)
 	if err != nil {
 		return err
 	}
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	q := dbsqlc.New(tx)
 	action, kind, id, err := fn(tx, q)
 	if err != nil {
@@ -80,14 +80,14 @@ func (s *Service) mutate(ctx context.Context, p authorization.Permission, fn fun
 	if err = q.CreateAdministrativeEvent(ctx, dbsqlc.CreateAdministrativeEventParams{ActorUserID: actor, Action: action, ResourceType: kind, ResourceID: id}); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return tx.Commit()
 }
-func Note(value string) (pgtype.Text, error) {
+func Note(value string) (sql.NullString, error) {
 	value = strings.TrimSpace(value)
 	if !utf8.ValidString(value) || strings.ContainsRune(value, 0) || utf8.RuneCountInString(value) > 10000 {
-		return pgtype.Text{}, ErrInvalid
+		return sql.NullString{}, ErrInvalid
 	}
-	return pgtype.Text{String: value, Valid: value != ""}, nil
+	return sql.NullString{String: value, Valid: value != ""}, nil
 }
 
 type Home struct {
@@ -112,7 +112,7 @@ func (s *Service) Dashboard(ctx context.Context) (Home, error) {
 	if err != nil {
 		return d, err
 	}
-	d.Upcoming, err = s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{FromDate: today, Today: today, RangeEnd: pgtype.Date{Time: today.Time.AddDate(0, 0, 2), Valid: true}})
+	d.Upcoming, err = s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{FromDate: today, Today: today, RangeEnd: dbtypes.Date{Time: today.Time.AddDate(0, 0, 2), Valid: true}})
 	if err != nil {
 		return d, err
 	}
@@ -213,7 +213,7 @@ func (s *Service) TrialQuota(ctx context.Context, id int32) ([]trials.QuotaUsage
 // AddGuardianEmergency adds a known legal guardian without replacing other
 // contacts. Person locking serializes priority allocation with approval.
 func (s *Service) AddGuardianEmergency(ctx context.Context, child, guardian int32) error {
-	return s.mutate(ctx, authorization.PersonsWrite, func(tx pgx.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
+	return s.mutate(ctx, authorization.PersonsWrite, func(tx *sql.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
 		first, second := child, guardian
 		if first > second {
 			first, second = second, first
@@ -226,13 +226,13 @@ func (s *Service) AddGuardianEmergency(ctx context.Context, child, guardian int3
 		if _, err := q.LockConsentGuardian(ctx, dbsqlc.LockConsentGuardianParams{ChildPersonID: child, GuardianPersonID: guardian}); err != nil {
 			return "", "", 0, err
 		}
-		_, err := tx.Exec(ctx, `INSERT INTO person_emergency_contacts(person_id,contact_person_id,priority)
-		 SELECT $1,$2,coalesce(max(priority),0)+1 FROM person_emergency_contacts WHERE person_id=$1
+		_, err := tx.ExecContext(ctx, `INSERT INTO person_emergency_contacts(person_id,contact_person_id,priority)
+		 SELECT ?1,?2,coalesce(max(priority),0)+1 FROM person_emergency_contacts WHERE person_id=?1
 		 ON CONFLICT (person_id,contact_person_id) DO NOTHING`, child, guardian)
 		return "emergency_contact_added", "person", child, err
 	})
 }
-func (s *Service) Trials(ctx context.Context, on, from pgtype.Date) ([]dbsqlc.AdministrativeTrialsRow, error) {
+func (s *Service) Trials(ctx context.Context, on, from dbtypes.Date) ([]dbsqlc.AdministrativeTrialsRow, error) {
 	if _, err := s.require(ctx, authorization.PersonsRead); err != nil {
 		return nil, err
 	}
@@ -254,7 +254,7 @@ func (s *Service) Trial(ctx context.Context, id int32) (dbsqlc.AdministrativeTri
 		return dbsqlc.AdministrativeTrialsRow{}, err
 	}
 	if len(rows) != 1 {
-		return dbsqlc.AdministrativeTrialsRow{}, pgx.ErrNoRows
+		return dbsqlc.AdministrativeTrialsRow{}, sql.ErrNoRows
 	}
 	return rows[0], nil
 }
@@ -308,7 +308,7 @@ func (s *Service) UpdatePersonNotes(ctx context.Context, id int32, value string)
 	if err != nil {
 		return err
 	}
-	return s.mutate(ctx, authorization.PersonsWrite, func(tx pgx.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
+	return s.mutate(ctx, authorization.PersonsWrite, func(tx *sql.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
 		if _, err := q.LockAdministrativePerson(ctx, id); err != nil {
 			return "", "", 0, err
 		}
@@ -322,7 +322,7 @@ func (s *Service) Schedule(ctx context.Context, p dbsqlc.CreateTrialParams) (int
 		return 0, err
 	}
 	p.Notes = notes
-	err = s.mutate(ctx, authorization.PersonsWrite, func(tx pgx.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
+	err = s.mutate(ctx, authorization.PersonsWrite, func(tx *sql.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
 		t, err := s.trials.ScheduleTx(ctx, tx, p)
 		id = t.ID
 		return "trial_scheduled", "trial", id, err
@@ -330,7 +330,7 @@ func (s *Service) Schedule(ctx context.Context, p dbsqlc.CreateTrialParams) (int
 	return id, err
 }
 func (s *Service) UpdateTrial(ctx context.Context, id, revision int32, action string, schedule dbsqlc.RescheduleTrialParams, value string) error {
-	return s.mutate(ctx, authorization.PersonsWrite, func(tx pgx.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
+	return s.mutate(ctx, authorization.PersonsWrite, func(tx *sql.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
 		t, err := s.trials.LockForUpdate(ctx, tx, id)
 		if err != nil {
 			return "", "", 0, err
@@ -345,7 +345,7 @@ func (s *Service) UpdateTrial(ctx context.Context, id, revision int32, action st
 		case "status":
 			_, err = s.trials.UpdateStatusTx(ctx, tx, dbsqlc.UpdateTrialStatusParams{ID: id, Status: value})
 		case "notes":
-			var note pgtype.Text
+			var note sql.NullString
 			note, err = Note(value)
 			if err == nil {
 				_, err = s.trials.UpdateNotesTx(ctx, tx, dbsqlc.UpdateTrialNotesParams{ID: id, Notes: note})
@@ -359,7 +359,7 @@ func (s *Service) UpdateTrial(ctx context.Context, id, revision int32, action st
 }
 func (s *Service) RequestMembership(ctx context.Context, r memberships.Request, sourceTrial int32, groupChoices ...map[int32]int32) (int32, error) {
 	var id int32
-	err := s.mutate(ctx, authorization.MembershipsApprove, func(tx pgx.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
+	err := s.mutate(ctx, authorization.MembershipsApprove, func(tx *sql.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
 		if _, err := q.LockAdministrativePerson(ctx, r.PersonID); err != nil {
 			return "", "", 0, err
 		}
@@ -422,7 +422,7 @@ func (s *Service) RequestMembership(ctx context.Context, r memberships.Request, 
 type Membership struct {
 	Info          dbsqlc.Membership
 	ActivityIDs   []int32
-	DefaultJoined pgtype.Date
+	DefaultJoined dbtypes.Date
 	History       []dbsqlc.ListMembershipGroupHistoryRow
 }
 
@@ -452,7 +452,7 @@ func (s *Service) Membership(ctx context.Context, id int32) (Membership, error) 
 		m.DefaultJoined = season.StartsAt
 	}
 	if m.DefaultJoined.Time.After(season.EndsAt.Time) {
-		m.DefaultJoined = pgtype.Date{}
+		m.DefaultJoined = dbtypes.Date{}
 	}
 	m.History, err = s.q.ListMembershipGroupHistory(ctx, id)
 	return m, err
@@ -462,7 +462,7 @@ func (s *Service) UpdateMembershipNotes(ctx context.Context, id int32, value str
 	if err != nil {
 		return err
 	}
-	return s.mutate(ctx, authorization.MembershipsApprove, func(tx pgx.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
+	return s.mutate(ctx, authorization.MembershipsApprove, func(tx *sql.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
 		if _, err := q.LockAdministrativeMembership(ctx, id); err != nil {
 			return "", "", 0, err
 		}
@@ -470,24 +470,24 @@ func (s *Service) UpdateMembershipNotes(ctx context.Context, id int32, value str
 	})
 }
 func (s *Service) AssignGroup(ctx context.Context, p dbsqlc.AssignMembershipGroupParams) error {
-	return s.mutate(ctx, authorization.MembershipsApprove, func(tx pgx.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
+	return s.mutate(ctx, authorization.MembershipsApprove, func(tx *sql.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
 		return "membership_group_assigned", "membership", p.MembershipID, s.memberships.AssignGroupTx(ctx, tx, p)
 	})
 }
-func (s *Service) CloseGroup(ctx context.Context, membership, assignment int32, left pgtype.Date) error {
-	return s.mutate(ctx, authorization.MembershipsApprove, func(tx pgx.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
+func (s *Service) CloseGroup(ctx context.Context, membership, assignment int32, left dbtypes.Date) error {
+	return s.mutate(ctx, authorization.MembershipsApprove, func(tx *sql.Tx, q *dbsqlc.Queries) (string, string, int32, error) {
 		return "membership_group_closed", "membership", membership, s.memberships.CloseGroupTx(ctx, tx, membership, assignment, left)
 	})
 }
 
 // TrialPolicy is operational read information; modification remains club.configure.
-func (s *Service) TrialPolicy(ctx context.Context) (pgtype.Int4, error) {
+func (s *Service) TrialPolicy(ctx context.Context) (sql.NullInt32, error) {
 	if _, err := s.require(ctx, authorization.PersonsRead); err != nil {
-		return pgtype.Int4{}, err
+		return sql.NullInt32{}, err
 	}
 	limit, err := s.q.GetTrialQuotaLimit(ctx)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return pgtype.Int4{}, nil
+	if errors.Is(err, sql.ErrNoRows) {
+		return sql.NullInt32{}, nil
 	}
 	return limit, err
 }
@@ -512,5 +512,5 @@ func (s *Service) TrialsInWeek(ctx context.Context, start time.Time) ([]dbsqlc.A
 	if _, err := s.require(ctx, authorization.PersonsRead); err != nil {
 		return nil, err
 	}
-	return s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{Today: s.Today(), RangeStart: pgtype.Date{Time: start, Valid: true}, RangeEnd: pgtype.Date{Time: start.AddDate(0, 0, 7), Valid: true}})
+	return s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{Today: s.Today(), RangeStart: dbtypes.Date{Time: start, Valid: true}, RangeEnd: dbtypes.Date{Time: start.AddDate(0, 0, 7), Valid: true}})
 }

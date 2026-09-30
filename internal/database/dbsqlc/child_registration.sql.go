@@ -7,26 +7,27 @@ package dbsqlc
 
 import (
 	"context"
+	"database/sql"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 const confirmChildRegistrationGuardian = `-- name: ConfirmChildRegistrationGuardian :exec
-UPDATE child_registration_applications SET guardian_confirmed_at=clock_timestamp(),guardian_confirmed_by_user_id=$2 WHERE application_id=$1 AND guardian_confirmed_at IS NULL
+UPDATE child_registration_applications SET guardian_confirmed_at=strftime('%Y-%m-%d %H:%M:%f','now'),guardian_confirmed_by_user_id=?1 WHERE application_id=?2 AND guardian_confirmed_at IS NULL
 `
 
 type ConfirmChildRegistrationGuardianParams struct {
+	GuardianConfirmedByUserID sql.NullInt32
 	ApplicationID             int32
-	GuardianConfirmedByUserID pgtype.Int4
 }
 
 func (q *Queries) ConfirmChildRegistrationGuardian(ctx context.Context, arg ConfirmChildRegistrationGuardianParams) error {
-	_, err := q.db.Exec(ctx, confirmChildRegistrationGuardian, arg.ApplicationID, arg.GuardianConfirmedByUserID)
+	_, err := q.db.ExecContext(ctx, confirmChildRegistrationGuardian, arg.GuardianConfirmedByUserID, arg.ApplicationID)
 	return err
 }
 
 const createChildRegistrationApplication = `-- name: CreateChildRegistrationApplication :exec
-INSERT INTO child_registration_applications(application_id,guardian_claim_id,relationship_type,emergency_contact_requested) VALUES($1,$2,$3,$4)
+INSERT INTO child_registration_applications(application_id,guardian_claim_id,relationship_type,emergency_contact_requested) VALUES(?1,?2,?3,?4)
 `
 
 type CreateChildRegistrationApplicationParams struct {
@@ -37,7 +38,7 @@ type CreateChildRegistrationApplicationParams struct {
 }
 
 func (q *Queries) CreateChildRegistrationApplication(ctx context.Context, arg CreateChildRegistrationApplicationParams) error {
-	_, err := q.db.Exec(ctx, createChildRegistrationApplication,
+	_, err := q.db.ExecContext(ctx, createChildRegistrationApplication,
 		arg.ApplicationID,
 		arg.GuardianClaimID,
 		arg.RelationshipType,
@@ -47,7 +48,7 @@ func (q *Queries) CreateChildRegistrationApplication(ctx context.Context, arg Cr
 }
 
 const createGuardianIdentityCandidate = `-- name: CreateGuardianIdentityCandidate :exec
-INSERT INTO guardian_identity_claim_candidates(guardian_claim_id,person_id,confidence,matched_name,matched_birth_date,matched_email,matched_phone) VALUES($1,$2,$3,$4,$5,$6,$7)
+INSERT INTO guardian_identity_claim_candidates(guardian_claim_id,person_id,confidence,matched_name,matched_birth_date,matched_email,matched_phone) VALUES(?1,?2,?3,?4,?5,?6,?7)
 `
 
 type CreateGuardianIdentityCandidateParams struct {
@@ -61,7 +62,7 @@ type CreateGuardianIdentityCandidateParams struct {
 }
 
 func (q *Queries) CreateGuardianIdentityCandidate(ctx context.Context, arg CreateGuardianIdentityCandidateParams) error {
-	_, err := q.db.Exec(ctx, createGuardianIdentityCandidate,
+	_, err := q.db.ExecContext(ctx, createGuardianIdentityCandidate,
 		arg.GuardianClaimID,
 		arg.PersonID,
 		arg.Confidence,
@@ -74,20 +75,20 @@ func (q *Queries) CreateGuardianIdentityCandidate(ctx context.Context, arg Creat
 }
 
 const createGuardianIdentityClaim = `-- name: CreateGuardianIdentityClaim :one
-INSERT INTO guardian_identity_claims(first_name,last_name,birth_date,email,phone_number,address) VALUES($1,$2,$3,$4,$5,$6) RETURNING id, status, first_name, last_name, birth_date, email, phone_number, address, resolved_person_id, resolution_type, resolved_at, resolved_by_user_id, created_at, updated_at
+INSERT INTO guardian_identity_claims(first_name,last_name,birth_date,email,phone_number,address) VALUES(?1,?2,?3,?4,?5,?6) RETURNING id, status, first_name, last_name, birth_date, email, phone_number, address, resolved_person_id, resolution_type, resolved_at, resolved_by_user_id, created_at, updated_at
 `
 
 type CreateGuardianIdentityClaimParams struct {
 	FirstName   string
 	LastName    string
-	BirthDate   pgtype.Date
+	BirthDate   dbtypes.Date
 	Email       string
-	PhoneNumber pgtype.Text
-	Address     pgtype.Text
+	PhoneNumber sql.NullString
+	Address     sql.NullString
 }
 
 func (q *Queries) CreateGuardianIdentityClaim(ctx context.Context, arg CreateGuardianIdentityClaimParams) (GuardianIdentityClaim, error) {
-	row := q.db.QueryRow(ctx, createGuardianIdentityClaim,
+	row := q.db.QueryRowContext(ctx, createGuardianIdentityClaim,
 		arg.FirstName,
 		arg.LastName,
 		arg.BirthDate,
@@ -116,11 +117,11 @@ func (q *Queries) CreateGuardianIdentityClaim(ctx context.Context, arg CreateGua
 }
 
 const getChildRegistrationApplication = `-- name: GetChildRegistrationApplication :one
-SELECT application_id, guardian_claim_id, relationship_type, emergency_contact_requested, guardian_confirmed_at, guardian_confirmed_by_user_id, created_at FROM child_registration_applications WHERE application_id=$1
+SELECT application_id, guardian_claim_id, relationship_type, emergency_contact_requested, guardian_confirmed_at, guardian_confirmed_by_user_id, created_at FROM child_registration_applications WHERE application_id=?1
 `
 
 func (q *Queries) GetChildRegistrationApplication(ctx context.Context, applicationID int32) (ChildRegistrationApplication, error) {
-	row := q.db.QueryRow(ctx, getChildRegistrationApplication, applicationID)
+	row := q.db.QueryRowContext(ctx, getChildRegistrationApplication, applicationID)
 	var i ChildRegistrationApplication
 	err := row.Scan(
 		&i.ApplicationID,
@@ -135,11 +136,11 @@ func (q *Queries) GetChildRegistrationApplication(ctx context.Context, applicati
 }
 
 const getGuardianIdentityClaim = `-- name: GetGuardianIdentityClaim :one
-SELECT id, status, first_name, last_name, birth_date, email, phone_number, address, resolved_person_id, resolution_type, resolved_at, resolved_by_user_id, created_at, updated_at FROM guardian_identity_claims WHERE id=$1
+SELECT id, status, first_name, last_name, birth_date, email, phone_number, address, resolved_person_id, resolution_type, resolved_at, resolved_by_user_id, created_at, updated_at FROM guardian_identity_claims WHERE id=?1
 `
 
 func (q *Queries) GetGuardianIdentityClaim(ctx context.Context, id int32) (GuardianIdentityClaim, error) {
-	row := q.db.QueryRow(ctx, getGuardianIdentityClaim, id)
+	row := q.db.QueryRowContext(ctx, getGuardianIdentityClaim, id)
 	var i GuardianIdentityClaim
 	err := row.Scan(
 		&i.ID,
@@ -162,7 +163,7 @@ func (q *Queries) GetGuardianIdentityClaim(ctx context.Context, id int32) (Guard
 
 const listGuardianIdentityCandidates = `-- name: ListGuardianIdentityCandidates :many
 SELECT c.guardian_claim_id, c.person_id, c.confidence, c.matched_name, c.matched_birth_date, c.matched_email, c.matched_phone, c.detected_at,p.first_name,p.last_name,p.birth_date,p.email,p.phone_number,p.address,p.archived_at
-FROM guardian_identity_claim_candidates c JOIN persons p ON p.id=c.person_id WHERE c.guardian_claim_id=$1 ORDER BY p.id
+FROM guardian_identity_claim_candidates c JOIN persons p ON p.id=c.person_id WHERE c.guardian_claim_id=?1 ORDER BY p.id
 `
 
 type ListGuardianIdentityCandidatesRow struct {
@@ -173,18 +174,18 @@ type ListGuardianIdentityCandidatesRow struct {
 	MatchedBirthDate bool
 	MatchedEmail     bool
 	MatchedPhone     bool
-	DetectedAt       pgtype.Timestamptz
+	DetectedAt       dbtypes.Timestamp
 	FirstName        string
 	LastName         string
-	BirthDate        pgtype.Date
-	Email            pgtype.Text
-	PhoneNumber      pgtype.Text
-	Address          pgtype.Text
-	ArchivedAt       pgtype.Timestamptz
+	BirthDate        dbtypes.Date
+	Email            sql.NullString
+	PhoneNumber      sql.NullString
+	Address          sql.NullString
+	ArchivedAt       dbtypes.Timestamp
 }
 
 func (q *Queries) ListGuardianIdentityCandidates(ctx context.Context, guardianClaimID int32) ([]ListGuardianIdentityCandidatesRow, error) {
-	rows, err := q.db.Query(ctx, listGuardianIdentityCandidates, guardianClaimID)
+	rows, err := q.db.QueryContext(ctx, listGuardianIdentityCandidates, guardianClaimID)
 	if err != nil {
 		return nil, err
 	}
@@ -213,6 +214,9 @@ func (q *Queries) ListGuardianIdentityCandidates(ctx context.Context, guardianCl
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -220,11 +224,11 @@ func (q *Queries) ListGuardianIdentityCandidates(ctx context.Context, guardianCl
 }
 
 const lockGuardianIdentityClaim = `-- name: LockGuardianIdentityClaim :one
-SELECT id, status, first_name, last_name, birth_date, email, phone_number, address, resolved_person_id, resolution_type, resolved_at, resolved_by_user_id, created_at, updated_at FROM guardian_identity_claims WHERE id=$1 FOR UPDATE
+SELECT id, status, first_name, last_name, birth_date, email, phone_number, address, resolved_person_id, resolution_type, resolved_at, resolved_by_user_id, created_at, updated_at FROM guardian_identity_claims WHERE id=?1
 `
 
 func (q *Queries) LockGuardianIdentityClaim(ctx context.Context, id int32) (GuardianIdentityClaim, error) {
-	row := q.db.QueryRow(ctx, lockGuardianIdentityClaim, id)
+	row := q.db.QueryRowContext(ctx, lockGuardianIdentityClaim, id)
 	var i GuardianIdentityClaim
 	err := row.Scan(
 		&i.ID,
@@ -246,31 +250,31 @@ func (q *Queries) LockGuardianIdentityClaim(ctx context.Context, id int32) (Guar
 }
 
 const markGuardianIdentityReview = `-- name: MarkGuardianIdentityReview :exec
-UPDATE guardian_identity_claims SET status='awaiting_review',updated_at=clock_timestamp() WHERE id=$1 AND status='received'
+UPDATE guardian_identity_claims SET status='awaiting_review',updated_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?1 AND status='received'
 `
 
 func (q *Queries) MarkGuardianIdentityReview(ctx context.Context, id int32) error {
-	_, err := q.db.Exec(ctx, markGuardianIdentityReview, id)
+	_, err := q.db.ExecContext(ctx, markGuardianIdentityReview, id)
 	return err
 }
 
 const resolveGuardianIdentityClaim = `-- name: ResolveGuardianIdentityClaim :exec
-UPDATE guardian_identity_claims SET status='resolved',resolved_person_id=$2,resolution_type=$3,resolved_by_user_id=$4,resolved_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=$1 AND status IN ('received','awaiting_review')
+UPDATE guardian_identity_claims SET status='resolved',resolved_person_id=?1,resolution_type=?2,resolved_by_user_id=?3,resolved_at=strftime('%Y-%m-%d %H:%M:%f','now'),updated_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?4 AND status IN ('received','awaiting_review')
 `
 
 type ResolveGuardianIdentityClaimParams struct {
+	ResolvedPersonID sql.NullInt32
+	ResolutionType   sql.NullString
+	ResolvedByUserID sql.NullInt32
 	ID               int32
-	ResolvedPersonID pgtype.Int4
-	ResolutionType   pgtype.Text
-	ResolvedByUserID pgtype.Int4
 }
 
 func (q *Queries) ResolveGuardianIdentityClaim(ctx context.Context, arg ResolveGuardianIdentityClaimParams) error {
-	_, err := q.db.Exec(ctx, resolveGuardianIdentityClaim,
-		arg.ID,
+	_, err := q.db.ExecContext(ctx, resolveGuardianIdentityClaim,
 		arg.ResolvedPersonID,
 		arg.ResolutionType,
 		arg.ResolvedByUserID,
+		arg.ID,
 	)
 	return err
 }

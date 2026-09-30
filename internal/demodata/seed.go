@@ -5,10 +5,10 @@ import (
 	"context"
 	_ "embed"
 	"errors"
+	"path/filepath"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"database/sql"
 )
 
 //go:embed budokan.sql
@@ -19,27 +19,25 @@ var ErrNotEmpty = errors.New("seed refusé : la base contient déjà des donnée
 
 // SeedBudokan accepts only an explicitly designated, migrated, empty demo DB.
 // It never resets or upserts existing business data. Repetition returns ErrNotEmpty.
-func SeedBudokan(ctx context.Context, db *pgxpool.Pool, confirmed bool) error {
+func SeedBudokan(ctx context.Context, db *sql.DB, confirmed bool) error {
 	if !confirmed {
 		return ErrGuard
 	}
-	tx, err := db.Begin(ctx)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
-	var name string
-	if err = tx.QueryRow(ctx, "SELECT current_database()").Scan(&name); err != nil {
+	defer tx.Rollback()
+	var seq int
+	var alias, name string
+	if err = tx.QueryRowContext(ctx, "PRAGMA database_list").Scan(&seq, &alias, &name); err != nil {
 		return err
 	}
-	if !strings.HasSuffix(name, "_demo") {
+	if !strings.HasSuffix(strings.TrimSuffix(filepath.Base(name), filepath.Ext(name)), "_demo") {
 		return ErrGuard
 	}
-	// Serialize concurrent seeds, then lock every application table against writes.
-	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(260914)"); err != nil {
-		return err
-	}
-	rows, err := tx.Query(ctx, "SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename NOT IN ('goose_db_version','roles','installation_setup') ORDER BY tablename")
+	// BEGIN IMMEDIATE serializes the emptiness check and the complete seed.
+	rows, err := tx.QueryContext(ctx, "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('goose_db_version','roles','installation_setup') ORDER BY name")
 	if err != nil {
 		return err
 	}
@@ -58,20 +56,17 @@ func SeedBudokan(ctx context.Context, db *pgxpool.Pool, confirmed bool) error {
 		return err
 	}
 	for _, table := range tables {
-		identifier := pgx.Identifier{"public", table}.Sanitize()
-		if _, err = tx.Exec(ctx, "LOCK TABLE "+identifier+" IN EXCLUSIVE MODE"); err != nil {
-			return err
-		}
+		identifier := `"` + strings.ReplaceAll(table, `"`, `""`) + `"`
 		var exists bool
-		if err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM "+identifier+")").Scan(&exists); err != nil {
+		if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM "+identifier+")").Scan(&exists); err != nil {
 			return err
 		}
 		if exists {
 			return ErrNotEmpty
 		}
 	}
-	if _, err = tx.Exec(ctx, budokanSQL); err != nil {
+	if _, err = tx.ExecContext(ctx, budokanSQL); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return tx.Commit()
 }

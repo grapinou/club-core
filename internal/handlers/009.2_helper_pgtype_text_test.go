@@ -1,16 +1,15 @@
 package handlers
 
 import (
+	"database/sql"
 	"testing"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func TestHelperPgTypeText(t *testing.T) {
 
 	textValue := pgTypeText("bonjour")
 
-	expected := pgtype.Text{
+	expected := sql.NullString{
 		String: "bonjour",
 		Valid:  true,
 	}

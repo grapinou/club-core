@@ -9,8 +9,8 @@ import (
 
 	"github.com/grapinou/club-core/internal/activation"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 	"github.com/grapinou/club-core/internal/identityresolution"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type RegistrationListView struct {
@@ -211,7 +211,7 @@ func RegistrationDetail(d identityresolution.Details, loc *time.Location) Regist
 	return v
 }
 
-func (v RegistrationDetailView) ReviewTime(t pgtype.Timestamptz) string {
+func (v RegistrationDetailView) ReviewTime(t dbtypes.Timestamp) string {
 	return timestamp(t, v.Location)
 }
 

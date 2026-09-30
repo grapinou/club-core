@@ -7,9 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 // Public DTOs deliberately omit internal IDs, descriptions of technical groups,
@@ -21,7 +22,7 @@ type PublicImage struct {
 	Width, Height        int32
 }
 type PublicClub struct {
-	MaxTrialsPerPersonPerSeason                                              pgtype.Int4
+	MaxTrialsPerPersonPerSeason                                              sql.NullInt32
 	Name, ShortName, Description, Email, Phone, PhoneLabel, Website          string
 	TrialSessionDescription, TrialEquipmentOffer, TrialEquipmentDetailPrompt string
 	RulesDescription                                                         string
@@ -43,7 +44,7 @@ var ErrAmbiguousSeason = errors.New("multiple current seasons")
 
 func (s *Service) PublicIdentity(ctx context.Context) (PublicClub, error) {
 	identity, err := s.Identity(ctx)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) {
 		return PublicClub{}, nil
 	}
 	if err != nil {
@@ -93,7 +94,7 @@ func (s *Service) PublicMembershipTypes(ctx context.Context) ([]string, error) {
 type PublicPrice struct{ Name, Amount, Currency, Note string }
 
 func (s *Service) PublicPrices(ctx context.Context) ([]PublicPrice, error) {
-	rows, err := s.db.Query(ctx, "SELECT name,amount_cents,currency,coalesce(public_note,'') FROM membership_types WHERE is_active ORDER BY name,id")
+	rows, err := s.db.QueryContext(ctx, "SELECT name,amount_cents,currency,coalesce(public_note,'') FROM membership_types WHERE is_active ORDER BY name,id")
 	if err != nil {
 		return nil, err
 	}
@@ -118,13 +119,13 @@ func (s *Service) PublicPrices(ctx context.Context) ([]PublicPrice, error) {
 func (s *Service) PublicSchedule(ctx context.Context, now time.Time) (PublicTimetable, error) {
 	var result PublicTimetable
 	o, err := s.queries.GetActiveOrganization(ctx)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) {
 		return result, nil
 	}
 	if err != nil {
 		return result, err
 	}
-	today := pgtype.Date{Time: time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC), Valid: true}
+	today := dbtypes.Date{Time: time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC), Valid: true}
 	seasons, err := s.queries.ListCurrentPublicSeasons(ctx, today)
 	if err != nil {
 		return result, err

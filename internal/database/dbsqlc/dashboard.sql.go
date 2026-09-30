@@ -7,10 +7,12 @@ package dbsqlc
 
 import (
 	"context"
+
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 const getDashboardPerson = `-- name: GetDashboardPerson :one
-SELECT p.id,p.first_name,p.last_name FROM persons p JOIN users u ON u.person_id=p.id WHERE u.id=$1
+SELECT p.id,p.first_name,p.last_name FROM persons p JOIN users u ON u.person_id=p.id WHERE u.id=?1
 `
 
 type GetDashboardPersonRow struct {
@@ -21,7 +23,7 @@ type GetDashboardPersonRow struct {
 
 // Read-only dashboard projections: no administrative dossier or credentials.
 func (q *Queries) GetDashboardPerson(ctx context.Context, id int32) (GetDashboardPersonRow, error) {
-	row := q.db.QueryRow(ctx, getDashboardPerson, id)
+	row := q.db.QueryRowContext(ctx, getDashboardPerson, id)
 	var i GetDashboardPersonRow
 	err := row.Scan(&i.ID, &i.FirstName, &i.LastName)
 	return i, err
@@ -29,9 +31,9 @@ func (q *Queries) GetDashboardPerson(ctx context.Context, id int32) (GetDashboar
 
 const listDashboardMemberships = `-- name: ListDashboardMemberships :many
 SELECT m.id,m.status,s.name AS season_name,t.name AS membership_type_name,
- ARRAY(SELECT a.name FROM activities a JOIN membership_activities ma ON ma.activity_id=a.id WHERE ma.membership_id=m.id ORDER BY a.name)::text[] AS activities
+ CAST((SELECT json_group_array(value) FROM (SELECT a.name AS value FROM activities a JOIN membership_activities ma ON ma.activity_id=a.id WHERE ma.membership_id=m.id ORDER BY a.name)) AS JSON_TEXT_STRINGS) AS activities
 FROM memberships m JOIN seasons s ON s.id=m.season_id JOIN membership_types t ON t.id=m.membership_type_id
-WHERE m.person_id=$1 ORDER BY s.starts_at DESC,m.id DESC
+WHERE m.person_id=?1 ORDER BY s.starts_at DESC,m.id DESC
 `
 
 type ListDashboardMembershipsRow struct {
@@ -39,11 +41,11 @@ type ListDashboardMembershipsRow struct {
 	Status             string
 	SeasonName         string
 	MembershipTypeName string
-	Activities         []string
+	Activities         dbtypes.Strings
 }
 
 func (q *Queries) ListDashboardMemberships(ctx context.Context, personID int32) ([]ListDashboardMembershipsRow, error) {
-	rows, err := q.db.Query(ctx, listDashboardMemberships, personID)
+	rows, err := q.db.QueryContext(ctx, listDashboardMemberships, personID)
 	if err != nil {
 		return nil, err
 	}
@@ -61,6 +63,9 @@ func (q *Queries) ListDashboardMemberships(ctx context.Context, personID int32) 
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

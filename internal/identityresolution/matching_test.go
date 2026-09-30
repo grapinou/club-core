@@ -1,21 +1,22 @@
 package identityresolution
 
 import (
+	"database/sql"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
-func txt(s string) pgtype.Text { return pgtype.Text{String: s, Valid: true} }
+func txt(s string) sql.NullString { return sql.NullString{String: s, Valid: true} }
 func TestMatchingRules(t *testing.T) {
-	dob := pgtype.Date{Time: time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC), Valid: true}
+	dob := dbtypes.Date{Time: time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC), Valid: true}
 	person := dbsqlc.ListIdentityMatchingPersonsRow{ID: 42, FirstName: "Rémi", LastName: "Du Pont", BirthDate: dob, Email: txt("known@example.test"), PhoneNumber: txt("+33 6 12 34 56 78")}
 	for _, tc := range []struct {
 		name, first, last, email, phone string
-		birth                           pgtype.Date
+		birth                           dbtypes.Date
 		want                            string
 		date, emailMatch, phoneMatch    bool
 	}{
@@ -26,7 +27,7 @@ func TestMatchingRules(t *testing.T) {
 		{name: "phone French", first: "Rémi", last: "Du Pont", phone: "06.12.34.56.78", want: "possible", phoneMatch: true},
 		{name: "strong email", first: "Rémi", last: "Du Pont", email: "known@example.test", birth: dob, want: "strong", date: true, emailMatch: true},
 		{name: "strong international phone", first: "Rémi", last: "Du Pont", phone: "0033 (6) 12-34-56-78", birth: dob, want: "strong", date: true, phoneMatch: true},
-		{name: "different birth stays possible", first: "Rémi", last: "Du Pont", email: "known@example.test", birth: pgtype.Date{Time: dob.Time.AddDate(0, 0, 1), Valid: true}, want: "possible", emailMatch: true},
+		{name: "different birth stays possible", first: "Rémi", last: "Du Pont", email: "known@example.test", birth: dbtypes.Date{Time: dob.Time.AddDate(0, 0, 1), Valid: true}, want: "possible", emailMatch: true},
 		{name: "different name family email", first: "Anne", last: "Du Pont", email: "known@example.test", phone: "0612345678"},
 		{name: "accent remains significant", first: "Remi", last: "Du Pont", birth: dob},
 		{name: "punctuation remains significant", first: "Rémi", last: "Du-Pont", birth: dob},
@@ -47,7 +48,7 @@ func TestPhoneNormalization(t *testing.T) {
 	}
 }
 func TestSubmissionValidation(t *testing.T) {
-	for _, in := range []SubmissionInput{{}, {FirstName: " \t", LastName: "Name"}, {FirstName: strings.Repeat("a", 201), LastName: "Name"}, {FirstName: "A", LastName: "B", Email: txt(strings.Repeat("x", 255))}, {FirstName: "A", LastName: "B", BirthDate: pgtype.Date{Valid: true, InfinityModifier: pgtype.Infinity}}} {
+	for _, in := range []SubmissionInput{{}, {FirstName: " \t", LastName: "Name"}, {FirstName: strings.Repeat("a", 201), LastName: "Name"}, {FirstName: "A", LastName: "B", Email: txt(strings.Repeat("x", 255))}, {FirstName: "A", LastName: "B", BirthDate: dbtypes.Date{Valid: true, Time: time.Time{}}}} {
 		if ValidInput(in) {
 			t.Fatal("invalid input accepted")
 		}

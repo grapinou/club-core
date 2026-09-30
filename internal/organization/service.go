@@ -5,16 +5,17 @@ package organization
 import (
 	"context"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Service struct {
 	queries *dbsqlc.Queries
-	db      *pgxpool.Pool
+	db      *sql.DB
 }
 
-func New(db *pgxpool.Pool) *Service { return &Service{queries: dbsqlc.New(db), db: db} }
+func New(db *sql.DB) *Service { return &Service{queries: dbsqlc.New(db), db: db} }
 
 // Identity is read afresh; no club-specific runtime configuration or cache.
 type Identity struct {

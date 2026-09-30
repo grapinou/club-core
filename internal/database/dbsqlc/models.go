@@ -5,32 +5,34 @@
 package dbsqlc
 
 import (
-	"github.com/jackc/pgx/v5/pgtype"
+	"database/sql"
+
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 type AccountSecurityEvent struct {
-	ID        int64
+	ID        int32
 	UserID    int32
 	PersonID  int32
 	Event     string
-	CreatedAt pgtype.Timestamptz
+	CreatedAt dbtypes.Timestamp
 }
 
 type Activity struct {
 	ID        int32
 	Name      string
 	IsActive  bool
-	CreatedAt pgtype.Timestamptz
+	CreatedAt dbtypes.Timestamp
 }
 
 type AdministrativeEvent struct {
-	ID           int64
+	ID           int32
 	ActorUserID  int32
 	Action       string
 	ResourceType string
 	ResourceID   int32
-	CreatedAt    pgtype.Timestamptz
-	RoleName     pgtype.Text
+	CreatedAt    dbtypes.Timestamp
+	RoleName     sql.NullString
 }
 
 type ChildRegistrationApplication struct {
@@ -38,9 +40,9 @@ type ChildRegistrationApplication struct {
 	GuardianClaimID           int32
 	RelationshipType          string
 	EmergencyContactRequested bool
-	GuardianConfirmedAt       pgtype.Timestamptz
-	GuardianConfirmedByUserID pgtype.Int4
-	CreatedAt                 pgtype.Timestamptz
+	GuardianConfirmedAt       dbtypes.Timestamp
+	GuardianConfirmedByUserID sql.NullInt32
+	CreatedAt                 dbtypes.Timestamp
 }
 
 type ConsentDefinition struct {
@@ -50,50 +52,46 @@ type ConsentDefinition struct {
 	Title       string
 	Description string
 	IsActive    bool
-	CreatedAt   pgtype.Timestamptz
+	CreatedAt   dbtypes.Timestamp
 }
 
 type Group struct {
 	ID               int32
 	ActivityID       int32
 	Name             string
-	Description      pgtype.Text
+	Description      sql.NullString
 	IsActive         bool
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
+	CreatedAt        dbtypes.Timestamp
+	UpdatedAt        dbtypes.Timestamp
 	ShowNamePublicly bool
 }
 
 type GroupSlot struct {
-	ID       int32
-	GroupID  int32
-	SeasonID int32
-	// ISO weekday: 1 = Monday, 7 = Sunday
-	Weekday   int16
-	StartTime pgtype.Time
-	EndTime   pgtype.Time
-	// Legacy free text; mutually exclusive with location_id. New reference data uses locations.
-	Location  pgtype.Text
-	ValidFrom pgtype.Date
-	// Inclusive last date of validity
-	ValidUntil pgtype.Date
-	IsActive   bool
-	CreatedAt  pgtype.Timestamptz
-	UpdatedAt  pgtype.Timestamptz
-	LocationID pgtype.Int4
-	// Optional session designation, not an activity or eligibility rule.
-	PracticeLabel pgtype.Text
+	ID            int32
+	GroupID       int32
+	SeasonID      int32
+	Weekday       int16
+	StartTime     dbtypes.Time
+	EndTime       dbtypes.Time
+	Location      sql.NullString
+	ValidFrom     dbtypes.Date
+	ValidUntil    dbtypes.Date
+	IsActive      bool
+	CreatedAt     dbtypes.Timestamp
+	UpdatedAt     dbtypes.Timestamp
+	LocationID    sql.NullInt32
+	PracticeLabel sql.NullString
 }
 
 type GuardianAccessGrant struct {
-	ID               int64
+	ID               int32
 	ChildPersonID    int32
 	GuardianPersonID int32
-	GrantedAt        pgtype.Timestamptz
-	GrantedByUserID  pgtype.Int4
-	RevokedAt        pgtype.Timestamptz
-	RevokedByUserID  pgtype.Int4
-	CreatedAt        pgtype.Timestamptz
+	GrantedAt        dbtypes.Timestamp
+	GrantedByUserID  sql.NullInt32
+	RevokedAt        dbtypes.Timestamp
+	RevokedByUserID  sql.NullInt32
+	CreatedAt        dbtypes.Timestamp
 }
 
 type GuardianIdentityClaim struct {
@@ -101,16 +99,16 @@ type GuardianIdentityClaim struct {
 	Status           string
 	FirstName        string
 	LastName         string
-	BirthDate        pgtype.Date
+	BirthDate        dbtypes.Date
 	Email            string
-	PhoneNumber      pgtype.Text
-	Address          pgtype.Text
-	ResolvedPersonID pgtype.Int4
-	ResolutionType   pgtype.Text
-	ResolvedAt       pgtype.Timestamptz
-	ResolvedByUserID pgtype.Int4
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
+	PhoneNumber      sql.NullString
+	Address          sql.NullString
+	ResolvedPersonID sql.NullInt32
+	ResolutionType   sql.NullString
+	ResolvedAt       dbtypes.Timestamp
+	ResolvedByUserID sql.NullInt32
+	CreatedAt        dbtypes.Timestamp
+	UpdatedAt        dbtypes.Timestamp
 }
 
 type GuardianIdentityClaimCandidate struct {
@@ -121,15 +119,15 @@ type GuardianIdentityClaimCandidate struct {
 	MatchedBirthDate bool
 	MatchedEmail     bool
 	MatchedPhone     bool
-	DetectedAt       pgtype.Timestamptz
+	DetectedAt       dbtypes.Timestamp
 }
 
 type InstallationSetup struct {
 	ID               bool
-	InitializedAt    pgtype.Timestamptz
-	FirstAdminUserID pgtype.Int4
+	InitializedAt    dbtypes.Timestamp
+	FirstAdminUserID sql.NullInt32
 	SecretHash       []byte
-	SecretIssuedAt   pgtype.Timestamptz
+	SecretIssuedAt   dbtypes.Timestamp
 	SecretGeneration int32
 }
 
@@ -139,8 +137,8 @@ type Location struct {
 	Name           string
 	Address        string
 	IsActive       bool
-	CreatedAt      pgtype.Timestamptz
-	UpdatedAt      pgtype.Timestamptz
+	CreatedAt      dbtypes.Timestamp
+	UpdatedAt      dbtypes.Timestamp
 }
 
 type Membership struct {
@@ -149,15 +147,15 @@ type Membership struct {
 	SeasonID         int32
 	MembershipTypeID int32
 	Status           string
-	JoinedAt         pgtype.Date
-	EndedAt          pgtype.Date
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
-	RequestedAt      pgtype.Timestamptz
-	ApprovedAt       pgtype.Timestamptz
-	ApprovedByUserID pgtype.Int4
-	AdminNote        pgtype.Text
-	SourceTrialID    pgtype.Int4
+	JoinedAt         dbtypes.Date
+	EndedAt          dbtypes.Date
+	CreatedAt        dbtypes.Timestamp
+	UpdatedAt        dbtypes.Timestamp
+	RequestedAt      dbtypes.Timestamp
+	ApprovedAt       dbtypes.Timestamp
+	ApprovedByUserID sql.NullInt32
+	AdminNote        sql.NullString
+	SourceTrialID    sql.NullInt32
 }
 
 type MembershipActivity struct {
@@ -171,54 +169,53 @@ type MembershipConsent struct {
 	ConsentDefinitionID int32
 	Decision            string
 	GivenByPersonID     int32
-	RecordedAt          pgtype.Timestamptz
+	RecordedAt          dbtypes.Timestamp
 }
 
 type MembershipConsentRequirement struct {
 	MembershipID        int32
 	ConsentDefinitionID int32
-	PresentedAt         pgtype.Timestamptz
+	PresentedAt         dbtypes.Timestamp
 }
 
 type MembershipGroup struct {
 	ID           int32
 	MembershipID int32
 	GroupID      int32
-	JoinedAt     pgtype.Date
-	// First date no longer assigned; current interval is [joined_at, left_at)
-	LeftAt    pgtype.Date
-	CreatedAt pgtype.Timestamptz
+	JoinedAt     dbtypes.Date
+	LeftAt       dbtypes.Date
+	CreatedAt    dbtypes.Timestamp
 }
 
 type MembershipType struct {
 	ID          int32
 	Name        string
 	IsActive    bool
-	CreatedAt   pgtype.Timestamptz
-	AmountCents pgtype.Int4
+	CreatedAt   dbtypes.Timestamp
+	AmountCents sql.NullInt32
 	Currency    string
-	PublicNote  pgtype.Text
+	PublicNote  sql.NullString
 }
 
 type Organization struct {
 	ID                          int32
 	Name                        string
-	ShortName                   pgtype.Text
-	Description                 pgtype.Text
-	PublicEmail                 pgtype.Text
-	PublicPhone                 pgtype.Text
-	CorrespondenceAddress       pgtype.Text
-	WebsiteUrl                  pgtype.Text
+	ShortName                   sql.NullString
+	Description                 sql.NullString
+	PublicEmail                 sql.NullString
+	PublicPhone                 sql.NullString
+	CorrespondenceAddress       sql.NullString
+	WebsiteUrl                  sql.NullString
 	IsActive                    bool
-	CreatedAt                   pgtype.Timestamptz
-	UpdatedAt                   pgtype.Timestamptz
-	PublicPhoneLabel            pgtype.Text
-	TrialSessionDescription     pgtype.Text
-	TrialItemsToBring           []string
-	TrialEquipmentOffer         pgtype.Text
-	TrialEquipmentDetailPrompt  pgtype.Text
-	PublicRulesDescription      pgtype.Text
-	MaxTrialsPerPersonPerSeason pgtype.Int4
+	CreatedAt                   dbtypes.Timestamp
+	UpdatedAt                   dbtypes.Timestamp
+	PublicPhoneLabel            sql.NullString
+	TrialSessionDescription     sql.NullString
+	TrialItemsToBring           dbtypes.Strings
+	TrialEquipmentOffer         sql.NullString
+	TrialEquipmentDetailPrompt  sql.NullString
+	PublicRulesDescription      sql.NullString
+	MaxTrialsPerPersonPerSeason sql.NullInt32
 }
 
 type OrganizationLink struct {
@@ -229,8 +226,8 @@ type OrganizationLink struct {
 	Url            string
 	Position       int32
 	IsActive       bool
-	CreatedAt      pgtype.Timestamptz
-	UpdatedAt      pgtype.Timestamptz
+	CreatedAt      dbtypes.Timestamp
+	UpdatedAt      dbtypes.Timestamp
 }
 
 type OrganizationPublicImage struct {
@@ -247,24 +244,24 @@ type Person struct {
 	ID          int32
 	FirstName   string
 	LastName    string
-	BirthDate   pgtype.Date
-	PhoneNumber pgtype.Text
-	Email       pgtype.Text
-	Address     pgtype.Text
-	CreatedAt   pgtype.Timestamptz
-	ArchivedAt  pgtype.Timestamptz
-	Notes       pgtype.Text
-	UpdatedAt   pgtype.Timestamptz
+	BirthDate   dbtypes.Date
+	PhoneNumber sql.NullString
+	Email       sql.NullString
+	Address     sql.NullString
+	CreatedAt   dbtypes.Timestamp
+	ArchivedAt  dbtypes.Timestamp
+	Notes       sql.NullString
+	UpdatedAt   dbtypes.Timestamp
 }
 
 type PersonEmergencyContact struct {
 	ID                int32
 	PersonID          int32
 	ContactPersonID   int32
-	RelationshipLabel pgtype.Text
+	RelationshipLabel sql.NullString
 	Priority          int32
-	CreatedAt         pgtype.Timestamptz
-	UpdatedAt         pgtype.Timestamptz
+	CreatedAt         dbtypes.Timestamp
+	UpdatedAt         dbtypes.Timestamp
 }
 
 type PersonGuardian struct {
@@ -273,21 +270,22 @@ type PersonGuardian struct {
 	GuardianPersonID int32
 	RelationshipType string
 	IsPrimaryContact bool
-	CreatedAt        pgtype.Timestamptz
+	CreatedAt        dbtypes.Timestamp
 }
 
 type RegistrationApplication struct {
-	ID               int32
-	SubmissionID     int32
-	RequestKey       []byte
-	SeasonID         int32
-	MembershipTypeID int32
-	Status           string
-	MembershipID     pgtype.Int4
-	LastErrorCode    pgtype.Text
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
-	FinalizedAt      pgtype.Timestamptz
+	RequiredActivityID int32
+	ID                 int32
+	SubmissionID       int32
+	RequestKey         []byte
+	SeasonID           int32
+	MembershipTypeID   int32
+	Status             string
+	MembershipID       sql.NullInt32
+	LastErrorCode      sql.NullString
+	CreatedAt          dbtypes.Timestamp
+	UpdatedAt          dbtypes.Timestamp
+	FinalizedAt        dbtypes.Timestamp
 }
 
 type RegistrationApplicationActivity struct {
@@ -299,20 +297,20 @@ type RegistrationApplicationConsent struct {
 	ApplicationID       int32
 	ConsentDefinitionID int32
 	Decision            string
-	PresentedAt         pgtype.Timestamptz
+	PresentedAt         dbtypes.Timestamp
 }
 
 type RegistrationEmailVerification struct {
-	ID              int64
+	ID              int32
 	SubmissionID    int32
 	PersonID        int32
 	PublicReference string
 	CodeHash        []byte
 	RecipientHash   []byte
-	ExpiresAt       pgtype.Timestamptz
-	UsedAt          pgtype.Timestamptz
-	InvalidatedAt   pgtype.Timestamptz
-	CreatedAt       pgtype.Timestamptz
+	ExpiresAt       dbtypes.Timestamp
+	UsedAt          dbtypes.Timestamp
+	InvalidatedAt   dbtypes.Timestamp
+	CreatedAt       dbtypes.Timestamp
 }
 
 type RegistrationSubmission struct {
@@ -320,16 +318,16 @@ type RegistrationSubmission struct {
 	Status           string
 	FirstName        string
 	LastName         string
-	BirthDate        pgtype.Date
-	Email            pgtype.Text
-	PhoneNumber      pgtype.Text
-	Address          pgtype.Text
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
-	ResolvedPersonID pgtype.Int4
-	ResolutionType   pgtype.Text
-	ResolvedAt       pgtype.Timestamptz
-	ResolvedByUserID pgtype.Int4
+	BirthDate        dbtypes.Date
+	Email            sql.NullString
+	PhoneNumber      sql.NullString
+	Address          sql.NullString
+	CreatedAt        dbtypes.Timestamp
+	UpdatedAt        dbtypes.Timestamp
+	ResolvedPersonID sql.NullInt32
+	ResolutionType   sql.NullString
+	ResolvedAt       dbtypes.Timestamp
+	ResolvedByUserID sql.NullInt32
 }
 
 type RegistrationSubmissionCandidate struct {
@@ -340,22 +338,22 @@ type RegistrationSubmissionCandidate struct {
 	MatchedBirthDate bool
 	MatchedEmail     bool
 	MatchedPhone     bool
-	DetectedAt       pgtype.Timestamptz
+	DetectedAt       dbtypes.Timestamp
 }
 
 type RegistrationVerificationOutbox struct {
-	ID            int64
+	ID            int32
 	SubmissionID  int32
 	Status        string
 	AttemptCount  int32
-	AvailableAt   pgtype.Timestamptz
-	LeaseUntil    pgtype.Timestamptz
+	AvailableAt   dbtypes.Timestamp
+	LeaseUntil    dbtypes.Timestamp
 	LeaseVersion  int64
-	CreatedAt     pgtype.Timestamptz
-	UpdatedAt     pgtype.Timestamptz
-	SentAt        pgtype.Timestamptz
-	FinishedAt    pgtype.Timestamptz
-	LastErrorCode pgtype.Text
+	CreatedAt     dbtypes.Timestamp
+	UpdatedAt     dbtypes.Timestamp
+	SentAt        dbtypes.Timestamp
+	FinishedAt    dbtypes.Timestamp
+	LastErrorCode sql.NullString
 	RecipientHash []byte
 }
 
@@ -367,58 +365,58 @@ type Role struct {
 type Season struct {
 	ID        int32
 	Name      string
-	StartsAt  pgtype.Date
-	EndsAt    pgtype.Date
+	StartsAt  dbtypes.Date
+	EndsAt    dbtypes.Date
 	IsActive  bool
-	CreatedAt pgtype.Timestamptz
+	CreatedAt dbtypes.Timestamp
 }
 
 type TrialRegistration struct {
 	ID          int32
 	PersonID    int32
 	ActivityID  int32
-	TrialDate   pgtype.Date
+	TrialDate   dbtypes.Date
 	Status      string
-	CreatedAt   pgtype.Timestamptz
-	Notes       pgtype.Text
-	GroupID     pgtype.Int4
-	GroupSlotID pgtype.Int4
+	CreatedAt   dbtypes.Timestamp
+	Notes       sql.NullString
+	GroupID     sql.NullInt32
+	GroupSlotID sql.NullInt32
 	Revision    int32
 }
 
 type User struct {
 	ID           int32
 	PersonID     int32
-	LoginEmail   pgtype.Text
-	PasswordHash pgtype.Text
+	LoginEmail   sql.NullString
+	PasswordHash sql.NullString
 	IsActive     bool
-	CreatedAt    pgtype.Timestamptz
+	CreatedAt    dbtypes.Timestamp
 	Username     string
-	ActivatedAt  pgtype.Timestamptz
+	ActivatedAt  dbtypes.Timestamp
 }
 
 type UserActivationCode struct {
-	ID            int64
+	ID            int32
 	UserID        int32
 	CodeHash      []byte
-	ExpiresAt     pgtype.Timestamptz
-	UsedAt        pgtype.Timestamptz
-	InvalidatedAt pgtype.Timestamptz
-	CreatedAt     pgtype.Timestamptz
+	ExpiresAt     dbtypes.Timestamp
+	UsedAt        dbtypes.Timestamp
+	InvalidatedAt dbtypes.Timestamp
+	CreatedAt     dbtypes.Timestamp
 }
 
 type UserEmailChangeRequest struct {
-	ID                 int64
+	ID                 int32
 	UserID             int32
 	PersonID           int32
 	NewEmail           string
 	NewEmailNormalized string
 	NewEmailHash       []byte
 	CodeHash           []byte
-	ExpiresAt          pgtype.Timestamptz
-	UsedAt             pgtype.Timestamptz
-	InvalidatedAt      pgtype.Timestamptz
-	CreatedAt          pgtype.Timestamptz
+	ExpiresAt          dbtypes.Timestamp
+	UsedAt             dbtypes.Timestamp
+	InvalidatedAt      dbtypes.Timestamp
+	CreatedAt          dbtypes.Timestamp
 }
 
 type UserRole struct {

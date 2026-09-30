@@ -2,11 +2,12 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 )
 
 func TestPersonsIntegration(t *testing.T) {
@@ -14,13 +15,13 @@ func TestPersonsIntegration(t *testing.T) {
 
 	db := newTestDatabase(t)
 
-	tx, err := db.Begin(ctx)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatalf("impossible de démarrer la transaction : %v", err)
 	}
 
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
 
 	queries := dbsqlc.New(db)
@@ -29,19 +30,19 @@ func TestPersonsIntegration(t *testing.T) {
 	params := dbsqlc.CreatePersonParams{
 		FirstName: "Robin",
 		LastName:  "Des Bois",
-		BirthDate: pgtype.Date{
+		BirthDate: dbtypes.Date{
 			Time:  time.Date(1990, 5, 12, 0, 0, 0, 0, time.UTC),
 			Valid: true,
 		},
-		PhoneNumber: pgtype.Text{
+		PhoneNumber: sql.NullString{
 			String: "00 01 02 03 04",
 			Valid:  true,
 		},
-		Email: pgtype.Text{
+		Email: sql.NullString{
 			String: "robin.desbois@example.com",
 			Valid:  true,
 		},
-		Address: pgtype.Text{
+		Address: sql.NullString{
 			String: "forêt de Sherwood",
 			Valid:  true,
 		},

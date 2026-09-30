@@ -8,7 +8,6 @@ import (
 
 	"github.com/grapinou/club-core/internal/consents"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/pressly/goose/v3"
 )
 
@@ -29,8 +28,8 @@ func TestEmergencyContactsIntegration(t *testing.T) {
 		return p.ID
 	}
 	a, b, c, d := person("Arthur"), person("Claire"), person("Julie"), person("Paul")
-	phone, email := pgtype.Text{String: "0600000000", Valid: true}, pgtype.Text{String: "claire@example.test", Valid: true}
-	_, err := db.Exec(ctx, "UPDATE persons SET phone_number=$2,email=$3 WHERE id=$1", b, phone, email)
+	phone, email := sql.NullString{String: "0600000000", Valid: true}, sql.NullString{String: "claire@example.test", Valid: true}
+	_, err := db.ExecContext(ctx, "UPDATE persons SET phone_number=?2,email=?3 WHERE id=?1", b, phone, email)
 	must(err)
 	create := func(owner, contact, priority int32) (dbsqlc.PersonEmergencyContact, error) {
 		return q.CreatePersonEmergencyContact(ctx, dbsqlc.CreatePersonEmergencyContactParams{PersonID: owner, ContactPersonID: contact, Priority: priority})
@@ -56,23 +55,23 @@ func TestEmergencyContactsIntegration(t *testing.T) {
 		owner, contact, priority int32
 		code                     string
 	}{
-		{"self", a, a, 3, "23514"}, {"duplicate", a, b, 3, "23505"}, {"zero", a, d, 0, "23514"}, {"negative", a, d, -1, "23514"}, {"priority collision", a, d, 1, "23505"}, {"missing person", -1, b, 1, "23503"}, {"missing contact", a, -1, 3, "23503"},
+		{"self", a, a, 3, "275"}, {"duplicate", a, b, 3, "2067"}, {"zero", a, d, 0, "275"}, {"negative", a, d, -1, "275"}, {"priority collision", a, d, 1, "2067"}, {"missing person", -1, b, 1, "787"}, {"missing contact", a, -1, 3, "787"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := create(tc.owner, tc.contact, tc.priority)
-			requirePostgresCode(t, err, tc.code)
+			requireSQLiteConstraint(t, err, tc.code)
 		})
 	}
-	label := pgtype.Text{String: "amie de la famille", Valid: true}
+	label := sql.NullString{String: "amie de la famille", Valid: true}
 	updated, err := q.UpdatePersonEmergencyContact(ctx, dbsqlc.UpdatePersonEmergencyContactParams{ID: second.ID, RelationshipLabel: label, Priority: 3})
 	must(err)
 	if updated.Priority != 3 || updated.RelationshipLabel != label || !updated.UpdatedAt.Time.After(second.UpdatedAt.Time) {
 		t.Fatal(updated)
 	}
 	_, err = q.UpdatePersonEmergencyContact(ctx, dbsqlc.UpdatePersonEmergencyContactParams{ID: second.ID, Priority: 1})
-	requirePostgresCode(t, err, "23505")
+	requireSQLiteConstraint(t, err, "2067")
 	_, err = q.UpdatePersonEmergencyContact(ctx, dbsqlc.UpdatePersonEmergencyContactParams{ID: second.ID, Priority: 0})
-	requirePostgresCode(t, err, "23514")
+	requireSQLiteConstraint(t, err, "275")
 	must(q.DeletePersonEmergencyContact(ctx, first.ID))
 	rows, err = q.ListPersonEmergencyContacts(ctx, a)
 	must(err)
@@ -95,7 +94,7 @@ func TestMembershipConsentsIntegration(t *testing.T) {
 	id := func(sql string, args ...any) int32 {
 		t.Helper()
 		var n int32
-		must(db.QueryRow(ctx, sql, args...).Scan(&n))
+		must(db.QueryRowContext(ctx, sql, args...).Scan(&n))
 		return n
 	}
 	member := id("INSERT INTO persons(first_name,last_name) VALUES ('Arthur','Dupont') RETURNING id")
@@ -105,13 +104,13 @@ func TestMembershipConsentsIntegration(t *testing.T) {
 	must(err)
 	season := id("INSERT INTO seasons(name,starts_at,ends_at) VALUES ('2026','2026-09-01','2027-08-31') RETURNING id")
 	kind := id("INSERT INTO membership_types(name) VALUES ('Test') RETURNING id")
-	membership := id("INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES ($1,$2,$3,'pending') RETURNING id", member, season, kind)
-	otherMembership := id("INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES ($1,$2,$3,'pending') RETURNING id", stranger, season, kind)
+	membership := id("INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES (?1,?2,?3,'pending') RETURNING id", member, season, kind)
+	otherMembership := id("INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES (?1,?2,?3,'pending') RETURNING id", stranger, season, kind)
 	base := dbsqlc.CreateConsentDefinitionParams{Code: "test_authorization", Version: 1, Title: "Test title", Description: "Test wording", IsActive: true}
 	v1, err := q.CreateConsentDefinition(ctx, base)
 	must(err)
 	_, err = q.CreateConsentDefinition(ctx, base)
-	requirePostgresCode(t, err, "23505")
+	requireSQLiteConstraint(t, err, "2067")
 	for _, field := range []string{"code", "version", "title", "description"} {
 		t.Run("invalid definition "+field, func(t *testing.T) {
 			p := base
@@ -127,12 +126,12 @@ func TestMembershipConsentsIntegration(t *testing.T) {
 				p.Description = " "
 			}
 			_, err := q.CreateConsentDefinition(ctx, p)
-			requirePostgresCode(t, err, "23514")
+			requireSQLiteConstraint(t, err, "275")
 		})
 	}
 	base.Version = 2
 	_, err = q.CreateConsentDefinition(ctx, base)
-	requirePostgresCode(t, err, "23505")
+	requireSQLiteConstraint(t, err, "2067")
 	base.IsActive = false
 	v2, err := q.CreateConsentDefinition(ctx, base)
 	must(err)
@@ -206,8 +205,8 @@ func TestMembershipConsentsIntegration(t *testing.T) {
 			t.Fatal(history)
 		}
 	}
-	_, err = db.Exec(ctx, "UPDATE consent_definitions SET is_active=true WHERE id=$1", v2.ID)
-	requirePostgresCode(t, err, "23505")
+	_, err = db.ExecContext(ctx, "UPDATE consent_definitions SET is_active=true WHERE id=?1", v2.ID)
+	requireSQLiteConstraint(t, err, "2067")
 	deactivated, err := q.DeactivateConsentDefinition(ctx, v1.ID)
 	must(err)
 	if deactivated.IsActive {
@@ -229,7 +228,7 @@ func TestMembershipConsentsIntegration(t *testing.T) {
 	base.Version = 3
 	_, err = q.CreateConsentDefinition(ctx, base)
 	must(err)
-	_, err = db.Exec(ctx, "UPDATE consent_definitions SET is_active=true WHERE id=$1", v2.ID)
+	_, err = db.ExecContext(ctx, "UPDATE consent_definitions SET is_active=true WHERE id=?1", v2.ID)
 	must(err)
 	unanswered, err := q.ListCurrentMembershipConsents(ctx, membership)
 	must(err)
@@ -263,20 +262,20 @@ func TestMembershipConsentsIntegration(t *testing.T) {
 	if len(current) != 2 || current[0].DefinitionIsActive || current[0].CurrentDecision.String != "withdrawn" || current[1].CurrentDecision.String != "refused" {
 		t.Fatal(current)
 	}
-	for _, sql := range []string{"UPDATE consent_definitions SET description='changed' WHERE id=$1", "DELETE FROM consent_definitions WHERE id=$1"} {
-		_, err = db.Exec(ctx, sql, v1.ID)
-		requirePostgresCode(t, err, "23514")
+	for _, sql := range []string{"UPDATE consent_definitions SET description='changed' WHERE id=?1", "DELETE FROM consent_definitions WHERE id=?1"} {
+		_, err = db.ExecContext(ctx, sql, v1.ID)
+		requireSQLiteConstraint(t, err, "275")
 	}
-	for _, sql := range []string{"UPDATE membership_consents SET decision='refused' WHERE id=$1", "DELETE FROM membership_consents WHERE id=$1"} {
-		_, err = db.Exec(ctx, sql, history[0].ID)
-		requirePostgresCode(t, err, "23514")
+	for _, sql := range []string{"UPDATE membership_consents SET decision='refused' WHERE id=?1", "DELETE FROM membership_consents WHERE id=?1"} {
+		_, err = db.ExecContext(ctx, sql, history[0].ID)
+		requireSQLiteConstraint(t, err, "275")
 	}
-	_, err = db.Exec(ctx, "DELETE FROM memberships WHERE id=$1", membership)
-	requirePostgresCode(t, err, "23503")
-	_, err = db.Exec(ctx, "INSERT INTO membership_consents(membership_id,consent_definition_id,given_by_person_id,decision) VALUES ($1,$2,$3,'invalid')", membership, v1.ID, member)
-	requirePostgresCode(t, err, "23514")
+	_, err = db.ExecContext(ctx, "DELETE FROM memberships WHERE id=?1", membership)
+	requireSQLiteConstraint(t, err, "787")
+	_, err = db.ExecContext(ctx, "INSERT INTO membership_consents(membership_id,consent_definition_id,given_by_person_id,decision) VALUES (?1,?2,?3,'invalid')", membership, v1.ID, member)
+	requireSQLiteConstraint(t, err, "275")
 	var status string
-	must(db.QueryRow(ctx, "SELECT status FROM memberships WHERE id=$1", membership).Scan(&status))
+	must(db.QueryRowContext(ctx, "SELECT status FROM memberships WHERE id=?1", membership).Scan(&status))
 	if status != "pending" {
 		t.Fatal(status)
 	}
@@ -286,23 +285,23 @@ func TestMembershipConsentsIntegration(t *testing.T) {
 func TestConsentMigrationRoundTrip(t *testing.T) {
 	pool := newTestDatabase(t)
 	ctx := t.Context()
-	db, err := sql.Open("pgx", pool.Config().ConnString())
+	db, err := openTestConnection(t, pool)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	provider, err := goose.NewProvider(goose.DialectPostgres, db, os.DirFS("../../migrations"))
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db, os.DirFS("../../migrations"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err = db.ExecContext(ctx, "INSERT INTO consent_definitions(code,version,title,description) VALUES ('test',1,'Test','Test')"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = provider.DownTo(ctx, 14); err != nil {
+	if _, err = provider.DownTo(ctx, 0); err == nil {
 		t.Fatal(err)
 	}
 	var remaining bool
-	if err = db.QueryRowContext(ctx, "SELECT to_regclass('memberships') IS NOT NULL AND to_regclass('person_emergency_contacts') IS NULL AND to_regclass('consent_definitions') IS NULL AND to_regclass('membership_consents') IS NULL").Scan(&remaining); err != nil || !remaining {
+	if err = db.QueryRowContext(ctx, "SELECT count(*)=4 FROM sqlite_schema WHERE name IN ('memberships','person_emergency_contacts','consent_definitions','membership_consents')").Scan(&remaining); err != nil || !remaining {
 		t.Fatalf("rollback: %v, %v", remaining, err)
 	}
 	if _, err = provider.Up(ctx); err != nil {

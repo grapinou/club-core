@@ -24,16 +24,16 @@ func (s *Service) EnsureUserForPerson(ctx context.Context, person int32) (dbsqlc
 	if err := s.require(ctx, actor, authorization.PersonsWrite); err != nil {
 		return zero, err
 	}
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return zero, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	u, err := provisioning.EnsureUserForPersonTx(ctx, tx, person)
 	if err != nil {
 		return zero, err
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return zero, err
 	}
 	return u, nil
@@ -46,11 +46,11 @@ func (s *Service) EnsureGuardianUser(ctx context.Context, child, guardian int32,
 	if s.guardians == nil {
 		return result, guardianaccess.ErrIneligible
 	}
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return result, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 	if err = s.guardians.AuthorizeProvisionTx(ctx, tx, child, guardian); err != nil {
 		return result, err
 	}
@@ -67,22 +67,22 @@ func (s *Service) EnsureGuardianUser(ctx context.Context, child, guardian int32,
 	for _, option := range options {
 		if option == KeepPendingActivation {
 			var pending bool
-			err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM user_activation_codes WHERE user_id=$1 AND used_at IS NULL AND invalidated_at IS NULL AND expires_at>clock_timestamp())`, u.ID).Scan(&pending)
+			err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM user_activation_codes WHERE user_id=?1 AND used_at IS NULL AND invalidated_at IS NULL AND expires_at>strftime('%Y-%m-%d %H:%M:%f','now'))`, u.ID).Scan(&pending)
 			if err != nil {
 				return result, err
 			}
 			if pending {
-				return result, tx.Commit(ctx)
+				return result, tx.Commit()
 			}
 		}
 	}
 	var email string
-	if err = tx.QueryRow(ctx, "SELECT coalesce(email,'') FROM persons WHERE id=$1", guardian).Scan(&email); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT coalesce(email,'') FROM persons WHERE id=?1", guardian).Scan(&email); err != nil {
 		return result, err
 	}
 	if !activation.UsableEmail(email) {
 		result.DeliveryStatus = NoChannel
-		return result, tx.Commit(ctx)
+		return result, tx.Commit()
 	}
 	d, err := s.activation.PreparePersonOnlyTx(ctx, tx, u.ID)
 	if err != nil {
@@ -97,7 +97,7 @@ func (s *Service) EnsureGuardianUser(ctx context.Context, child, guardian int32,
 			d.RecipientPersonID = nil
 		}
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(); err != nil {
 		return result, err
 	}
 	result.DeliveryStatus, err = s.deliver(ctx, d)

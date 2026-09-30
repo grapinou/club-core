@@ -31,7 +31,7 @@ func TestUXDashboardScopeAndComposition(t *testing.T) {
 	f.request()
 	hash, err := bcrypt.GenerateFromPassword([]byte("a secure password"), bcrypt.DefaultCost)
 	f.must(err)
-	user := f.id(`INSERT INTO users(person_id,username,password_hash,activated_at) VALUES($1,'member',$2,now()) RETURNING id`, f.person, string(hash))
+	user := f.id(`INSERT INTO users(person_id,username,password_hash,activated_at) VALUES(?1,'member',?2,strftime('%Y-%m-%d %H:%M:%f','now')) RETURNING id`, f.person, string(hash))
 	member := f.loginBrowser("member")
 	page = member.call("GET", "/dashboard?person_id=999&user_id=999", nil)
 	if page.Code != 200 || !strings.Contains(page.Body.String(), "Practice") || !strings.Contains(page.Body.String(), "En attente") || strings.Contains(page.Body.String(), "Mon espace familial") {
@@ -50,7 +50,7 @@ func TestUXDashboardScopeAndComposition(t *testing.T) {
 	historical := f.id(`INSERT INTO persons(first_name,last_name,birth_date) VALUES('Enfant historique','Famille','2012-01-01') RETURNING id`)
 	stranger := f.id(`INSERT INTO persons(first_name,last_name,birth_date) VALUES('Enfant sans lien','Famille','2012-01-01') RETURNING id`)
 	for _, id := range []int32{child, historical} {
-		f.exec(`INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES($1,$2,'guardian')`, id, f.person)
+		f.exec(`INSERT INTO person_guardians(child_person_id,guardian_person_id,relationship_type) VALUES(?1,?2,'guardian')`, id, f.person)
 	}
 	ctx := f.authenticatedContext(f.approver)
 	_, err = f.app.GuardianAccess.Grant(ctx, child, f.person)
@@ -63,7 +63,7 @@ func TestUXDashboardScopeAndComposition(t *testing.T) {
 		t.Fatal("guardian scope")
 	}
 	// A member can also be guardian and administrator: all sections remain present.
-	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='secretary'`, user)
+	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='secretary'`, user)
 	page = member.call("GET", "/dashboard", nil)
 	body = html.UnescapeString(page.Body.String())
 	for _, value := range []string{"Practice", "Enfant autorisé", "Mon tableau de bord", `href="/memberships"`, `href="/registration-reviews"`, `href="/persons"`} {
@@ -71,17 +71,17 @@ func TestUXDashboardScopeAndComposition(t *testing.T) {
 			t.Fatal("composed sections", value)
 		}
 	}
-	f.exec(`DELETE FROM user_roles WHERE user_id=$1`, user)
+	f.exec(`DELETE FROM user_roles WHERE user_id=?1`, user)
 	page = member.call("GET", "/dashboard", nil)
 	if strings.Contains(page.Body.String(), `href="/registration-reviews"`) {
 		t.Fatal("revoked admin nav")
 	}
-	f.exec(`UPDATE persons SET birth_date='1990-01-01' WHERE id=$1`, child)
+	f.exec(`UPDATE persons SET birth_date='1990-01-01' WHERE id=?1`, child)
 	page = member.call("GET", "/dashboard", nil)
 	if strings.Contains(html.UnescapeString(page.Body.String()), "Enfant autorisé") {
 		t.Fatal("adult disclosed")
 	}
-	f.exec(`UPDATE persons SET birth_date='2012-01-01' WHERE id=$1`, child)
+	f.exec(`UPDATE persons SET birth_date='2012-01-01' WHERE id=?1`, child)
 	f.must(f.app.GuardianAccess.Revoke(ctx, child, f.person))
 	page = member.call("GET", "/dashboard", nil)
 	if strings.Contains(html.UnescapeString(page.Body.String()), "Enfant autorisé") {

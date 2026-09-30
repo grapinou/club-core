@@ -10,23 +10,24 @@ import (
 	"testing"
 	"time"
 
+	"database/sql"
+
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/database/dbtypes"
 	"github.com/grapinou/club-core/internal/demodata"
 	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/grapinou/club-core/internal/organization"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
-func TestBudokanSeedPostgres(t *testing.T) {
+func TestBudokanSeedSQLite(t *testing.T) {
 	db := newTestDatabaseNamed(t, "club_core_demo")
 	ctx := t.Context()
 	if err := demodata.SeedBudokan(ctx, db, false); !errors.Is(err, demodata.ErrGuard) {
 		t.Fatalf("guard: %v", err)
 	}
 	// Late failure must roll back identity, references, schedule and consent alike.
-	_, err := db.Exec(ctx, `CREATE FUNCTION reject_demo_consent() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected failure'; END $$;
- CREATE TRIGGER reject_demo BEFORE INSERT ON consent_definitions FOR EACH ROW EXECUTE FUNCTION reject_demo_consent();`)
+	_, err := db.ExecContext(ctx, `
+ CREATE TRIGGER reject_demo BEFORE INSERT ON consent_definitions BEGIN SELECT RAISE(ABORT, 'injected failure'); END;`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,17 +36,17 @@ func TestBudokanSeedPostgres(t *testing.T) {
 	}
 	for _, table := range []string{"organizations", "locations", "organization_links", "organization_public_images", "activities", "groups", "seasons", "group_slots", "membership_types", "consent_definitions"} {
 		var n int
-		if err = db.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != 0 {
+		if err = db.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != 0 {
 			t.Fatalf("rollback %s: %d %v", table, n, err)
 		}
 	}
-	if _, err = db.Exec(ctx, "DROP TRIGGER reject_demo ON consent_definitions; DROP FUNCTION reject_demo_consent()"); err != nil {
+	if _, err = db.ExecContext(ctx, "DROP TRIGGER reject_demo"); err != nil {
 		t.Fatal(err)
 	}
-	// Run the actual executable against the isolated, migrated PostgreSQL.
+	// Run the actual executable against the isolated, migrated SQLite.
 	run := func(flag string) (string, error) {
 		cmd := exec.CommandContext(ctx, "go", "run", "../../cmd/clubctl", "seed-budokan", flag)
-		cmd.Env = append(os.Environ(), "DATABASE_URL="+db.Config().ConnString())
+		cmd.Env = append(os.Environ(), "DATABASE_PATH="+testDatabasePath(t, db))
 		out, err := cmd.CombinedOutput()
 		return string(out), err
 	}
@@ -53,7 +54,7 @@ func TestBudokanSeedPostgres(t *testing.T) {
 		t.Fatalf("CLI: %s %v", out, err)
 	}
 	inspect := exec.CommandContext(ctx, "go", "run", "../../cmd/clubctl", "describe-club", "2026/2027")
-	inspect.Env = append(os.Environ(), "DATABASE_URL="+db.Config().ConnString())
+	inspect.Env = append(os.Environ(), "DATABASE_PATH="+testDatabasePath(t, db))
 	out, err := inspect.CombinedOutput()
 	if err != nil {
 		t.Fatalf("describe CLI: %s %v", out, err)
@@ -141,7 +142,7 @@ func TestBudokanSeedPostgres(t *testing.T) {
 	}
 	for table, want := range map[string]int{"activities": 3, "groups": 5, "organization_public_images": 5, "membership_types": 3, "consent_definitions": 1, "persons": 0, "users": 0} {
 		var n int
-		if err = db.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != want {
+		if err = db.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != want {
 			t.Fatalf("%s: %d %v", table, n, err)
 		}
 	}
@@ -152,49 +153,49 @@ func TestBudokanSeedPostgres(t *testing.T) {
 		t.Fatalf("CLI guard: %s %v", out, err)
 	}
 	var n int
-	db.QueryRow(ctx, "SELECT count(*) FROM group_slots").Scan(&n)
+	db.QueryRowContext(ctx, "SELECT count(*) FROM group_slots").Scan(&n)
 	if n != 16 {
 		t.Fatal(n)
 	}
 	// Exercise the existing assignment domain with children outside the named
 	// ranges. All synthetic personal data stays in this rolled-back transaction.
 	t.Run("pedagogical ages allow teacher discretion", func(t *testing.T) {
-		tx, err := db.Begin(ctx)
+		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer tx.Rollback(ctx)
+		defer tx.Rollback()
 		svc, err := memberships.New(db, 24*time.Hour, time.UTC)
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, child := range []struct{ birth, groupSuffix string }{{"2015-09-01", "7–10 ans"}, {"2017-09-01", "10–14 ans"}} {
 			var personID, membershipID int32
-			if err = tx.QueryRow(ctx, "INSERT INTO persons(first_name,last_name,birth_date) VALUES ('Enfant','Test pédagogique',$1) RETURNING id", child.birth).Scan(&personID); err != nil {
+			if err = tx.QueryRowContext(ctx, "INSERT INTO persons(first_name,last_name,birth_date) VALUES ('Enfant','Test pédagogique',?1) RETURNING id", child.birth).Scan(&personID); err != nil {
 				t.Fatal(err)
 			}
-			if err = tx.QueryRow(ctx, "INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES ($1,$2,(SELECT id FROM membership_types WHERE name='Enfant'),'pending') RETURNING id", personID, catalogue.Season.ID).Scan(&membershipID); err != nil {
+			if err = tx.QueryRowContext(ctx, "INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES (?1,?2,(SELECT id FROM membership_types WHERE name='Enfant'),'pending') RETURNING id", personID, catalogue.Season.ID).Scan(&membershipID); err != nil {
 				t.Fatal(err)
 			}
 			for _, g := range catalogue.Groups {
 				if !strings.HasSuffix(g.Name, child.groupSuffix) {
 					continue
 				}
-				if _, err = tx.Exec(ctx, "INSERT INTO membership_activities(membership_id,activity_id) VALUES ($1,$2)", membershipID, g.ActivityID); err != nil {
+				if _, err = tx.ExecContext(ctx, "INSERT INTO membership_activities(membership_id,activity_id) VALUES (?1,?2)", membershipID, g.ActivityID); err != nil {
 					t.Fatal(err)
 				}
-				if err = svc.AssignGroupTx(ctx, tx, dbsqlc.AssignMembershipGroupParams{MembershipID: membershipID, GroupID: g.ID, JoinedAt: pgtype.Date{Time: time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC), Valid: true}}); err != nil {
+				if err = svc.AssignGroupTx(ctx, tx, dbsqlc.AssignMembershipGroupParams{MembershipID: membershipID, GroupID: g.ID, JoinedAt: dbtypes.Date{Time: time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC), Valid: true}}); err != nil {
 					t.Fatalf("pedagogical assignment %s / %s: %v", child.birth, g.Name, err)
 				}
 			}
 		}
 		var count int
-		if err = tx.QueryRow(ctx, "SELECT count(*) FROM membership_groups").Scan(&count); err != nil || count != 4 {
+		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM membership_groups").Scan(&count); err != nil || count != 4 {
 			t.Fatalf("assignments: %d %v", count, err)
 		}
 	})
 	// Canonical location changes flow through existing administrative reads.
-	if _, err = db.Exec(ctx, "UPDATE locations SET name='Dojo renommé' WHERE id=$1", identity.Locations[0].ID); err != nil {
+	if _, err = db.ExecContext(ctx, "UPDATE locations SET name='Dojo renommé' WHERE id=?1", identity.Locations[0].ID); err != nil {
 		t.Fatal(err)
 	}
 	adminSlots, err := q.AdministrativeSlots(ctx)
@@ -205,17 +206,17 @@ func TestBudokanSeedPostgres(t *testing.T) {
 	if err != nil || slots[0].LocationName != "Dojo renommé" {
 		t.Fatalf("rename: %v", err)
 	}
-	if _, err = db.Exec(ctx, "UPDATE locations SET is_active=false"); err != nil {
+	if _, err = db.ExecContext(ctx, "UPDATE locations SET is_active=false"); err != nil {
 		t.Fatal(err)
 	}
 	slots, err = service.Schedule(ctx, seasons[0].ID)
 	if err != nil || len(slots) != 0 {
 		t.Fatalf("inactive location: %v %v", slots, err)
 	}
-	if _, err = db.Exec(ctx, "UPDATE organizations SET is_active=false"); err != nil {
+	if _, err = db.ExecContext(ctx, "UPDATE organizations SET is_active=false"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.Identity(ctx); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err = service.Identity(ctx); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("inactive org: %v", err)
 	}
 }
@@ -232,7 +233,7 @@ func TestOrganizationConstraintsAndSeedGuard(t *testing.T) {
 		"INSERT INTO organization_links(organization_id,kind,label,url) SELECT id,'social','Réseau','https://example.org/account' FROM organizations",
 	}
 	for _, sql := range valid {
-		if _, err := db.Exec(ctx, sql); err != nil {
+		if _, err := db.ExecContext(ctx, sql); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -250,11 +251,11 @@ func TestOrganizationConstraintsAndSeedGuard(t *testing.T) {
 		"DELETE FROM organizations",
 	}
 	for _, sql := range invalid {
-		if _, err := db.Exec(ctx, sql); err == nil {
+		if _, err := db.ExecContext(ctx, sql); err == nil {
 			t.Fatalf("accepted invalid write: %s", sql)
 		}
 	}
-	if _, err := db.Exec(ctx, "UPDATE organizations SET is_active=false; INSERT INTO organizations(name) VALUES ('Deuxième association')"); err != nil {
+	if _, err := db.ExecContext(ctx, "UPDATE organizations SET is_active=false; INSERT INTO organizations(name) VALUES ('Deuxième association')"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -263,18 +264,18 @@ func TestBudokanConcurrentSeedAndExistingReferences(t *testing.T) {
 	db := newTestDatabaseNamed(t, "concurrent_demo")
 	ctx := t.Context()
 	// A populated season alone prevents all mutations, even without an organization.
-	if _, err := db.Exec(ctx, "INSERT INTO seasons(name,starts_at,ends_at) VALUES ('2025/2026','2025-09-01','2026-08-31')"); err != nil {
+	if _, err := db.ExecContext(ctx, "INSERT INTO seasons(name,starts_at,ends_at) VALUES ('2025/2026','2025-09-01','2026-08-31')"); err != nil {
 		t.Fatal(err)
 	}
 	if err := demodata.SeedBudokan(ctx, db, true); !errors.Is(err, demodata.ErrNotEmpty) {
 		t.Fatalf("existing reference: %v", err)
 	}
 	var name string
-	if err := db.QueryRow(ctx, "SELECT name FROM seasons").Scan(&name); err != nil || name != "2025/2026" {
+	if err := db.QueryRowContext(ctx, "SELECT name FROM seasons").Scan(&name); err != nil || name != "2025/2026" {
 		t.Fatalf("preservation: %s %v", name, err)
 	}
 	// Remove only this test's own fixture before testing competing seeds.
-	if _, err := db.Exec(ctx, "DELETE FROM seasons"); err != nil {
+	if _, err := db.ExecContext(ctx, "DELETE FROM seasons"); err != nil {
 		t.Fatal(err)
 	}
 	results := make(chan error, 2)
@@ -296,19 +297,19 @@ func TestBudokanConcurrentSeedAndExistingReferences(t *testing.T) {
 		t.Fatalf("concurrency: %d / %d", successes, refused)
 	}
 	var slotID, locationID int32
-	if err := db.QueryRow(ctx, "SELECT id,location_id FROM group_slots LIMIT 1").Scan(&slotID, &locationID); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT id,location_id FROM group_slots LIMIT 1").Scan(&slotID, &locationID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(ctx, "UPDATE group_slots SET location='Duplicate text' WHERE id=$1", slotID); err == nil {
+	if _, err := db.ExecContext(ctx, "UPDATE group_slots SET location='Duplicate text' WHERE id=?1", slotID); err == nil {
 		t.Fatal("duplicate location accepted")
 	}
-	if _, err := db.Exec(ctx, "UPDATE group_slots SET location_id=999999 WHERE id=$1", slotID); err == nil {
+	if _, err := db.ExecContext(ctx, "UPDATE group_slots SET location_id=999999 WHERE id=?1", slotID); err == nil {
 		t.Fatal("missing location accepted")
 	}
-	if _, err := db.Exec(ctx, "DELETE FROM locations WHERE id=$1", locationID); err == nil {
+	if _, err := db.ExecContext(ctx, "DELETE FROM locations WHERE id=?1", locationID); err == nil {
 		t.Fatal("referenced location deleted")
 	}
-	if _, err := db.Exec(ctx, "UPDATE organization_links SET is_active=false"); err != nil {
+	if _, err := db.ExecContext(ctx, "UPDATE organization_links SET is_active=false"); err != nil {
 		t.Fatal(err)
 	}
 	links, err := dbsqlc.New(db).ListOrganizationLinks(ctx, 1)
@@ -317,7 +318,7 @@ func TestBudokanConcurrentSeedAndExistingReferences(t *testing.T) {
 	}
 }
 
-// Check both the real CLI JSON and direct PostgreSQL catalogue. A label alone
+// Check both the real CLI JSON and direct SQLite catalogue. A label alone
 // must not hide a regression in the group foreign key.
 func assertBudokanPracticeGroups(t *testing.T, c organization.Catalogue) {
 	t.Helper()
