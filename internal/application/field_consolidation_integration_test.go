@@ -153,13 +153,28 @@ func TestP432GroupChoicesAndFutureSeason(t *testing.T) {
 	other := f.id("INSERT INTO activities(name) VALUES('Autre activité') RETURNING id")
 	foreign := f.id("INSERT INTO groups(activity_id,name) VALUES(?1,'Hors activité') RETURNING id", other)
 	path := officePerson(f.person) + "/memberships/new"
-	body := officeOK(t, b, path, "Seul groupe disponible")
+	initial := recipeForm(t, officeOK(t, b, path), path)
+	initial.Set("type_id", fmt.Sprint(f.kind))
+	initial.Set("action", "choices")
+	refreshed := b.call("POST", path, initial)
+	if refreshed.Code != 200 {
+		t.Fatal("group refresh", refreshed.Code)
+	}
+	body := refreshed.Body.String()
+	if !strings.Contains(body, "Seul groupe compatible") {
+		t.Fatal("missing compatible prefill")
+	}
 	form := recipeForm(t, body, path)
 	if form.Get(fmt.Sprintf("group-%d", f.activity)) != fmt.Sprint(g) {
 		t.Fatal("unique default", form)
 	}
-	f.exec("INSERT INTO groups(activity_id,name) VALUES(?1,'Second groupe')", f.activity)
-	body = officeOK(t, b, path, "Choisir un groupe")
+	secondGroup := f.id("INSERT INTO groups(activity_id,name) VALUES(?1,'Second groupe') RETURNING id", f.activity)
+	f.exec("INSERT INTO membership_type_groups(membership_type_id,group_id) VALUES(?1,?2),(?1,?3)", f.kind, secondGroup, foreign)
+	refreshed = b.call("POST", path, initial)
+	body = refreshed.Body.String()
+	if !strings.Contains(body, "choisir explicitement") {
+		t.Fatal("multiple groups")
+	}
 	form = recipeForm(t, body, path)
 	if form.Get(fmt.Sprintf("group-%d", f.activity)) != "" {
 		t.Fatal("arbitrary choice")
@@ -217,7 +232,7 @@ func TestP432GroupChoicesAndFutureSeason(t *testing.T) {
 	empty := f.id("INSERT INTO activities(name) VALUES('Sans groupe disponible') RETURNING id")
 	p = f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES('Aucun','Groupe','1990-01-01') RETURNING id")
 	path = officePerson(p) + "/memberships/new"
-	form = recipeForm(t, officeOK(t, b, path, "Aucun groupe disponible"), path)
+	form = recipeForm(t, officeOK(t, b, path, "Aucun groupe compatible"), path)
 	form.Set("season_id", fmt.Sprint(f.season))
 	form.Set("type_id", fmt.Sprint(f.kind))
 	form.Set("activities", fmt.Sprint(empty))

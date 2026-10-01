@@ -6,12 +6,13 @@
 <section class="section-panel"><h2>Identité</h2><dl>
 <dt>Prénom</dt><dd>{{.FirstName}}</dd><dt>Nom</dt><dd>{{.LastName}}</dd>
 <dt>Date de naissance</dt><dd>{{if .BirthDate}}{{.BirthDate}}{{else}}Non renseignée{{end}}</dd>
-<dt>Nom d’utilisateur</dt><dd>{{.Username}}</dd></dl><p class="text-body-secondary">Pour corriger votre identité, <a href="/contact">contactez le club</a>.</p></section>
+<dt>Nom d’utilisateur</dt><dd>{{.Username}}</dd></dl><p class="text-body-secondary">Pour corriger votre date de naissance, <a href="/contact">contactez le club</a>.</p></section>
 <section class="section-panel"><h2>Coordonnées</h2><dl>
 <dt>Email</dt><dd>{{if .Email}}{{.Email}}{{else}}Non renseigné{{end}}</dd>
 <dt>Téléphone</dt><dd>{{if .Phone}}{{.Phone}}{{else}}Non renseigné{{end}}</dd>
 <dt>Adresse</dt><dd class="reading-text">{{if .Address}}{{.Address}}{{else}}Non renseignée{{end}}</dd></dl>
-<div class="actions"><a class="btn btn-primary" href="/me/account/profile">Modifier mes coordonnées</a><a href="/me/account/email">Changer mon email</a></div></section>
+<div class="actions"><a class="btn btn-primary" href="/me/account/profile">Modifier mes informations</a><a href="/me/account/email">Changer mon email</a></div></section>
+{{if .CanManageEmergency}}<section class="section-panel"><h2>Contacts d’urgence</h2><a href="/me/emergency">Gérer mes contacts d’urgence</a></section>{{end}}
 <section class="section-panel"><h2>Connexion et sécurité</h2><p>État du compte : Actif</p><a class="btn btn-outline-primary" href="/me/account/password">Changer mon mot de passe</a></section>
 {{if .Functions}}<section class="section-panel"><h2>Fonctions au club</h2><ul>{{range .Functions}}<li>{{.}}</li>{{end}}</ul></section>{{end}}
 {{end}}{{end}}
@@ -19,7 +20,8 @@
 <header class="page-header mt-3"><h1>{{.Name}}</h1><p>Le suivi de ses adhésions au club.</p></header>
 {{range .Actions}}<p>{{.Season}} · <a class="btn btn-primary" href="{{.URL}}">{{.Label}}</a></p>{{end}}
 <section class="section-panel"><h2>Informations de l’enfant</h2><dl><dt>Date de naissance</dt><dd>{{.BirthDate}}</dd></dl>
-<p>{{if .ViewerIsEmergency}}Vous êtes enregistré comme contact d’urgence.{{else if .HasEmergency}}Contact d’urgence enregistré.{{else}}Un contact d’urgence doit encore être enregistré par le club.{{end}}</p></section>
+<p>{{if .ViewerIsEmergency}}Vous êtes enregistré comme contact d’urgence.{{else if .HasEmergency}}Contact d’urgence enregistré.{{else}}Aucun contact d’urgence enregistré.{{end}}</p><a href="/me/children/{{.ID}}/emergency">Gérer les contacts d’urgence</a></section>
+<section class="section-panel"><h2>Contacts d’urgence</h2>{{range .EmergencyContacts}}<p>{{.FirstName}} {{.LastName}} · {{$.RelationLabel .RelationshipLabel.String}} · {{.PhoneNumber.String}} · Priorité {{.Priority}}</p>{{else}}<p>Aucun contact d’urgence enregistré.</p>{{end}}<a href="/me/children/{{.ID}}/emergency">Gérer les contacts d’urgence</a></section>
 <section class="section-panel"><h2>Ses adhésions</h2>
 {{$childID:=.ID}}{{range .Memberships}}<article class="card mb-3"><div class="card-body">
 <h3>{{.SeasonName}} <span class="badge {{$.StatusClassFor .Status}}">{{$.StatusLabel .Status}}</span></h3>
@@ -38,7 +40,7 @@
 {{range .Groups}}<article class="mb-3"><h3>{{.Name}}</h3><p>{{.Activity}}</p>
 {{range .Slots}}<p>{{.Day}} · {{.Start}} – {{.End}}{{if .Location}}<br>{{.Location}}{{end}}</p>{{else}}<p>Aucun créneau actuel renseigné.</p>{{end}}</article>
 {{else}}<div class="empty-state">Aucun groupe n’est actuellement associé à cette adhésion.</div>{{end}}</section>
-<section class="section-panel"><h2>Consentements de cette adhésion</h2>
+<section class="section-panel" id="consentements"><h2>Consentements de cette adhésion</h2>
 {{$membership:=.}}{{range .Consents}}<article class="card mb-3"><div class="card-body"><h3>{{.Title}} — version {{.Version}}</h3>
 <p class="reading-text">{{.Description}}</p><p><strong>{{if .Decision}}{{$.StatusLabel .Decision}}{{else}}Aucune décision enregistrée{{end}}</strong></p>
 {{if and $membership.CanDecide .Editable}}<p><a href="{{if $membership.ChildID}}/me/children/{{$membership.ChildID}}{{else}}/me{{end}}/memberships/{{$membership.ID}}/consents/{{.ID}}">Modifier ma décision</a></p>{{end}}{{if .RecordedAt}}<p>Le {{.RecordedAt}}</p><p>{{if .GivenByViewer}}Décision enregistrée par vous.{{else}}Décision enregistrée par un responsable.{{end}}</p>{{end}}

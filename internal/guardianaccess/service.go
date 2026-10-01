@@ -179,6 +179,9 @@ func (s *Service) revoke(ctx context.Context, child, guardian int32, remove bool
 		if err = q.DeletePersonGuardian(ctx, relation.ID); err != nil {
 			return err
 		}
+		if err = q.CreateAdministrativeEvent(ctx, dbsqlc.CreateAdministrativeEventParams{ActorUserID: actor, Action: "family_relation_removed", ResourceType: "person", ResourceID: child}); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

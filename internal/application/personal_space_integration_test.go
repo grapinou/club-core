@@ -45,7 +45,7 @@ func (f *fixture) personalOK(b *browser, path string, required ...string) string
 			f.t.Fatalf("%s missing %q", path, v)
 		}
 	}
-	for _, v := range []string{"SECRET_ADMIN_NOTE", "SECRET_PERSON_NOTE", "password_hash", "$2a$", "$2b$", "SECRET_CANDIDATE", "guardian_identity_review", "safe_error_code", "SECRET_OTHER_CONTACT", "SECRET_CHILD_CONTACT"} {
+	for _, v := range []string{"SECRET_ADMIN_NOTE", "SECRET_PERSON_NOTE", "password_hash", "$2a$", "$2b$", "SECRET_CANDIDATE", "guardian_identity_review", "safe_error_code", "SECRET_CHILD_CONTACT"} {
 		if strings.Contains(body, v) {
 			f.t.Fatalf("%s leaked %q", path, v)
 		}
@@ -67,7 +67,9 @@ func TestPersonalAccountOwnershipAndHistory(t *testing.T) {
 	f := newFixture(t)
 	f.exec(`UPDATE persons SET notes='SECRET_PERSON_NOTE',phone_number='0601020304' WHERE id=?1`, f.person)
 	user, b := f.personalBrowser(f.person, "member")
-	f.personalOK(b, "/dashboard", "Vous n’avez actuellement aucune adhésion")
+	if strings.Contains(f.personalOK(b, "/dashboard"), "<h2>Mon adhésion</h2>") {
+		t.Fatal("empty personal membership block")
+	}
 	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='secretary'`, user)
 	f.personalOK(b, "/me/account", "Fonctions au club", "Secrétariat")
 	f.exec(`DELETE FROM user_roles WHERE user_id=?1`, user)
@@ -154,7 +156,10 @@ func TestPersonalFamilyAuthorizationPrivacyAndSnapshots(t *testing.T) {
 		t.Fatal("XSS")
 	}
 	f.exec(`INSERT INTO person_emergency_contacts(person_id,contact_person_id,priority) VALUES(?1,?2,1)`, child, other)
-	f.personalOK(b, personalChild(child), "Contact d’urgence enregistré")
+	body = f.personalOK(b, personalChild(child), "Contact d’urgence enregistré", "SECRET_OTHER_CONTACT")
+	if strings.Contains(body, "SECRET_OTHER_CONTACT@example.test") {
+		t.Fatal("emergency summary discloses unnecessary email")
+	}
 	f.personalOK(b, familyMembership(child, m.ID), "Dossier complet", "Refusé")
 	f.exec(`INSERT INTO person_emergency_contacts(person_id,contact_person_id,priority) VALUES(?1,?2,2)`, child, parent)
 	f.personalOK(b, personalChild(child), "Vous êtes enregistré comme contact d’urgence")
@@ -263,7 +268,7 @@ func TestPersonalGroupsAndDashboardBatching(t *testing.T) {
 	f.must(err)
 	// Batched memberships, registration seasons and owned pending requests,
 	// independent of the number of accessible children.
-	if baseline != 3 || counter.queries != baseline || len(d.Children) != 4 || len(d.Memberships) != 1 {
+	if baseline != 4 || counter.queries != baseline || len(d.Children) != 4 || len(d.Memberships) != 1 {
 		t.Fatal("batching", baseline, counter.queries, d)
 	}
 	for i, c := range d.Children {

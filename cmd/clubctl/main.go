@@ -12,6 +12,7 @@ import (
 
 	"database/sql"
 
+	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/clubctl"
 	"github.com/grapinou/club-core/internal/database"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
@@ -31,6 +32,27 @@ func run() error {
 		return clubctl.ErrUsage
 	}
 	databasePath := os.Getenv("DATABASE_PATH")
+	// Guard all demo commands before opening or migrating any target.
+	demoFlag := ""
+	switch os.Args[1] {
+	case "seed-budokan":
+		demoFlag = "--confirm-empty-demo"
+	case "prepare-budokan-demo", "upgrade-budokan-demo", "prepare-demo-office", "verify-demo":
+		demoFlag = "--confirm-demo"
+	}
+	if demoFlag != "" {
+		if len(os.Args) != 3 || os.Args[2] != demoFlag {
+			return demodata.ErrGuard
+		}
+		if err := demodata.CheckDemoPath(databasePath); err != nil {
+			return err
+		}
+	}
+	if os.Args[1] == "prepare-demo-office" || os.Args[1] == "verify-demo" {
+		if !auth.ValidPassword(os.Getenv("CLUBCORE_DEMO_PASSWORD")) {
+			return fmt.Errorf("CLUBCORE_DEMO_PASSWORD requis : 12 à 72 octets")
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	db, err := database.New(ctx, databasePath)
@@ -102,8 +124,14 @@ func run() error {
 		if err := demodata.SeedBudokan(ctx, db, true); err != nil {
 			return err
 		}
-		fmt.Fprintln(os.Stdout, "Démonstration Budokan créée : 1 organisation, 1 lieu, 3 activités, 5 groupes, 16 créneaux.")
+		fmt.Fprintln(os.Stdout, "Démonstration Budokan créée : 1 organisation, 1 lieu, 2 activités, 5 groupes, 16 créneaux.")
 		return nil
+	}
+	if os.Args[1] == "prepare-demo-office" {
+		return demodata.PrepareDemoOffice(ctx, db, os.Getenv("CLUBCORE_DEMO_PASSWORD"))
+	}
+	if os.Args[1] == "verify-demo" {
+		return demodata.VerifyDemo(ctx, db, os.Getenv("CLUBCORE_DEMO_PASSWORD"))
 	}
 	if os.Args[1] == "grant-role" {
 		var output bytes.Buffer

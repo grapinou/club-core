@@ -5,7 +5,6 @@ import (
 	"context"
 	_ "embed"
 	"errors"
-	"path/filepath"
 	"strings"
 
 	"database/sql"
@@ -28,13 +27,8 @@ func SeedBudokan(ctx context.Context, db *sql.DB, confirmed bool) error {
 		return err
 	}
 	defer tx.Rollback()
-	var seq int
-	var alias, name string
-	if err = tx.QueryRowContext(ctx, "PRAGMA database_list").Scan(&seq, &alias, &name); err != nil {
+	if err = checkDemoDB(ctx, tx); err != nil {
 		return err
-	}
-	if !strings.HasSuffix(strings.TrimSuffix(filepath.Base(name), filepath.Ext(name)), "_demo") {
-		return ErrGuard
 	}
 	// BEGIN IMMEDIATE serializes the emptiness check and the complete seed.
 	rows, err := tx.QueryContext(ctx, "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('goose_db_version','roles','installation_setup') ORDER BY name")

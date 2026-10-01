@@ -259,6 +259,61 @@ func (q *Queries) ListPersonalConsents(ctx context.Context, arg ListPersonalCons
 	return items, nil
 }
 
+const listPersonalEmergencyContacts = `-- name: ListPersonalEmergencyContacts :many
+SELECT e.person_id,e.priority,e.relationship_label,p.first_name,p.last_name,p.phone_number
+FROM person_emergency_contacts e JOIN persons p ON p.id=e.contact_person_id
+WHERE e.person_id IN (/*SLICE:ids*/?) ORDER BY e.person_id,e.priority
+`
+
+type ListPersonalEmergencyContactsRow struct {
+	PersonID          int32
+	Priority          int32
+	RelationshipLabel sql.NullString
+	FirstName         string
+	LastName          string
+	PhoneNumber       sql.NullString
+}
+
+func (q *Queries) ListPersonalEmergencyContacts(ctx context.Context, ids []int32) ([]ListPersonalEmergencyContactsRow, error) {
+	query := listPersonalEmergencyContacts
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPersonalEmergencyContactsRow
+	for rows.Next() {
+		var i ListPersonalEmergencyContactsRow
+		if err := rows.Scan(
+			&i.PersonID,
+			&i.Priority,
+			&i.RelationshipLabel,
+			&i.FirstName,
+			&i.LastName,
+			&i.PhoneNumber,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPersonalGroups = `-- name: ListPersonalGroups :many
 SELECT g.name AS group_name,a.name AS activity_name,gs.weekday,
  CAST(COALESCE(CAST(substr(gs.start_time,1,5) AS TEXT),'') AS TEXT) AS start_time,
@@ -320,31 +375,44 @@ func (q *Queries) ListPersonalGroups(ctx context.Context, arg ListPersonalGroups
 }
 
 const listPersonalMembershipSummaries = `-- name: ListPersonalMembershipSummaries :many
-SELECT m.id,m.person_id,m.season_id,m.status,s.name AS season_name,t.name AS membership_type_name,
+SELECT m.id,m.person_id,m.season_id,m.status,m.requested_at,
+ CAST((SELECT json_group_array(value) FROM (SELECT g.name AS value FROM membership_groups mg JOIN groups g ON g.id=mg.group_id
+ WHERE mg.membership_id=m.id AND g.is_active AND mg.joined_at<=?1 AND (mg.left_at IS NULL OR mg.left_at>?1) ORDER BY g.name,g.id)) AS JSON_TEXT_STRINGS) AS group_names,
+ CAST((s.starts_at<=?1 AND s.ends_at>=?1) AS BOOLEAN) AS is_current,
+ s.name AS season_name,t.name AS membership_type_name,
  CAST((SELECT json_group_array(value) FROM (SELECT a.name AS value FROM activities a JOIN membership_activities ma ON ma.activity_id=a.id
  WHERE ma.membership_id=m.id ORDER BY a.name,a.id)) AS JSON_TEXT_STRINGS) AS activities
 FROM memberships m JOIN seasons s ON s.id=m.season_id JOIN membership_types t ON t.id=m.membership_type_id
-WHERE m.person_id IN (/*SLICE:ids*/?) ORDER BY s.starts_at DESC,m.id DESC
+WHERE m.person_id IN (/*SLICE:ids*/?) ORDER BY is_current DESC,s.starts_at DESC,m.id DESC
 `
+
+type ListPersonalMembershipSummariesParams struct {
+	Today dbtypes.Date
+	Ids   []int32
+}
 
 type ListPersonalMembershipSummariesRow struct {
 	ID                 int32
 	PersonID           int32
 	SeasonID           int32
 	Status             string
+	RequestedAt        dbtypes.Timestamp
+	GroupNames         dbtypes.Strings
+	IsCurrent          bool
 	SeasonName         string
 	MembershipTypeName string
 	Activities         dbtypes.Strings
 }
 
-func (q *Queries) ListPersonalMembershipSummaries(ctx context.Context, ids []int32) ([]ListPersonalMembershipSummariesRow, error) {
+func (q *Queries) ListPersonalMembershipSummaries(ctx context.Context, arg ListPersonalMembershipSummariesParams) ([]ListPersonalMembershipSummariesRow, error) {
 	query := listPersonalMembershipSummaries
 	var queryParams []interface{}
-	if len(ids) > 0 {
-		for _, v := range ids {
+	queryParams = append(queryParams, arg.Today)
+	if len(arg.Ids) > 0 {
+		for _, v := range arg.Ids {
 			queryParams = append(queryParams, v)
 		}
-		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(arg.Ids))[1:], 1)
 	} else {
 		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
 	}
@@ -361,6 +429,9 @@ func (q *Queries) ListPersonalMembershipSummaries(ctx context.Context, ids []int
 			&i.PersonID,
 			&i.SeasonID,
 			&i.Status,
+			&i.RequestedAt,
+			&i.GroupNames,
+			&i.IsCurrent,
 			&i.SeasonName,
 			&i.MembershipTypeName,
 			&i.Activities,

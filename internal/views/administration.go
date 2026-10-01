@@ -148,7 +148,7 @@ func (v *AdministrativeView) SetWeek(start time.Time) {
 func (v AdministrativeView) ActivityGroups(activity int32) []dbsqlc.ListActiveGroupsRow {
 	var out []dbsqlc.ListActiveGroupsRow
 	for _, g := range v.Choices.Groups {
-		if g.ActivityID == activity {
+		if g.ActivityID == activity && v.GroupCompatible(g.ID) {
 			out = append(out, g)
 		}
 	}
@@ -175,4 +175,42 @@ func (v AdministrativeView) PersonHasActivationEmail() bool {
 		}
 	}
 	return false
+}
+
+func (v AdministrativeView) GroupCompatible(group int32) bool {
+	kind := v.Membership.Info.MembershipTypeID
+	if v.Mode == "membership-new" {
+		n, _ := strconv.ParseInt(v.Form.Get("type_id"), 10, 32)
+		kind = int32(n)
+	}
+	for _, c := range v.Choices.Compatibility {
+		if c.MembershipTypeID == kind && c.GroupID == group {
+			return true
+		}
+	}
+	return false
+}
+
+func (v AdministrativeView) ActivityName(activity int32) string {
+	for _, a := range v.Choices.Activities {
+		if a.ID == activity {
+			return a.Name
+		}
+	}
+	return "Activité"
+}
+func (v AdministrativeView) HasCurrentActivityGroup(activity int32) bool {
+	for _, g := range v.Membership.History {
+		if g.ActivityID == activity && !g.LeftAt.Valid {
+			return true
+		}
+	}
+	return false
+}
+func (v AdministrativeView) ProposedMembershipGroup(activity, group int32) bool {
+	if _, ok := v.Form["group_id"]; ok {
+		return v.Selected("group_id", group)
+	}
+	groups := v.ActivityGroups(activity)
+	return !v.HasCurrentActivityGroup(activity) && len(groups) == 1 && groups[0].ID == group
 }

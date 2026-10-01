@@ -17,7 +17,7 @@ INSERT INTO organization_links (organization_id,kind,label,url)
 SELECT id,'instagram','Instagram','https://www.instagram.com/budokan_sud_oise/' FROM organizations;
 -- One Season confirmed for V1; course closures remain a calendar concern.
 INSERT INTO seasons (name,starts_at,ends_at) VALUES ('2026/2027','2026-09-01','2027-08-31');
-INSERT INTO activities (name) VALUES ('Jiu-Jitsu Brésilien'),('Jiu-Jitsu Traditionnel / Combat'),('Préparation physique');
+INSERT INTO activities (name) VALUES ('Jiu-Jitsu Brésilien'),('Jiu-Jitsu Traditionnel / Combat');
 -- Ages in children's names are pedagogical indications, never eligibility constraints.
 INSERT INTO groups (activity_id,name,description) SELECT id,'JJB enfants 7–10 ans',NULL FROM activities WHERE name='Jiu-Jitsu Brésilien';
 INSERT INTO groups (activity_id,name,description) SELECT id,'JJB enfants 10–14 ans',NULL FROM activities WHERE name='Jiu-Jitsu Brésilien';
@@ -40,8 +40,18 @@ INSERT INTO group_slots (group_id,season_id,weekday,start_time,end_time,location
 INSERT INTO group_slots (group_id,season_id,weekday,start_time,end_time,location_id,practice_label,valid_from,valid_until) SELECT g.id,s.id,6,'10:00','12:00',l.id,'JJB No-Gi',s.starts_at,s.ends_at FROM groups g CROSS JOIN seasons s CROSS JOIN locations l WHERE g.name='JJB Adolescents et Adultes';
 INSERT INTO group_slots (group_id,season_id,weekday,start_time,end_time,location_id,practice_label,valid_from,valid_until) SELECT g.id,s.id,6,'16:00','18:00',l.id,NULL,s.starts_at,s.ends_at FROM groups g CROSS JOIN seasons s CROSS JOIN locations l WHERE g.name='JJB Adolescents et Adultes';
 INSERT INTO group_slots (group_id,season_id,weekday,start_time,end_time,location_id,practice_label,valid_from,valid_until) SELECT g.id,s.id,7,'16:00','18:00',l.id,'JJB libre',s.starts_at,s.ends_at FROM groups g CROSS JOIN seasons s CROSS JOIN locations l WHERE g.name='JJB Adolescents et Adultes';
--- Names confirmed on /tarifs (2026/2027); the existing model has no price field.
-INSERT INTO membership_types (name) VALUES ('Adulte'),('Adolescent'),('Enfant');
+-- Fictitious local demo prices, stored in cents, never production tariffs.
+INSERT INTO membership_types (name,amount_cents,currency,public_note) VALUES
+ ('Adulte',30000,'EUR','Tarif fictif utilisé pour la démonstration.'),
+ ('Adolescent',25000,'EUR','Tarif fictif utilisé pour la démonstration.'),
+ ('Enfant',20000,'EUR','Tarif fictif utilisé pour la démonstration.');
 -- Demonstration wording, not a transcription or approved legal instrument.
 INSERT INTO consent_definitions (code,version,title,description) VALUES
  ('image_rights',1,'Droit à l’image','Démonstration : autoriser ou refuser les photographies et vidéos prises pendant les activités du club pour sa communication. Texte définitif à valider par le bureau.');
+
+-- Explicit pedagogical compatibility; never infer eligibility from group names.
+INSERT INTO membership_type_groups(membership_type_id,group_id)
+SELECT mt.id,g.id FROM membership_types mt JOIN groups g
+ON (mt.name IN ('Adulte','Adolescent') AND g.name='JJB Adolescents et Adultes')
+OR (mt.name='Enfant' AND g.name IN ('JJB enfants 7–10 ans','JJB enfants 10–14 ans','Jiu-Jitsu Traditionnel / Combat enfants 7–10 ans','Jiu-Jitsu Traditionnel / Combat enfants 10–14 ans'))
+WHERE true ON CONFLICT(membership_type_id,group_id) DO NOTHING;

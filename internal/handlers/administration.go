@@ -89,7 +89,7 @@ func (h *AdministrativeHandler) render(w http.ResponseWriter, r *http.Request, v
 			case "membership-new":
 				v.Error = "Vérifiez la date de naissance, la saison, le type, les activités et les décisions recueillies. L’essai d’origine doit être présent et correspondre à la personne et à une activité choisie."
 			case "membership-groups":
-				v.Error = "Le groupe doit être actif et correspondre à une activité de l’adhésion. Vérifiez les dates et l’absence de chevauchement avec l’historique."
+				v.Error = "Le groupe doit être actif, compatible avec le type d’adhésion et correspondre à une activité de l’adhésion. Vérifiez les dates et l’absence de chevauchement avec l’historique."
 			}
 		case errors.As(err, &dbErr) && (dbErr.Code() == 2067 || dbErr.Code() == 275 || dbErr.Code() == 787):
 			status = 422
@@ -462,7 +462,7 @@ func (h *AdministrativeHandler) requestMembership(w http.ResponseWriter, r *http
 			}
 		}
 	}
-	if e == nil && r.Method == "POST" {
+	if e == nil && r.Method == "POST" && r.PostForm.Get("action") != "choices" {
 		v.Form = r.PostForm
 		req := memberships.Request{PersonID: id}
 		// Recover the selected context before validating editable fields, so an
@@ -526,6 +526,17 @@ func (h *AdministrativeHandler) requestMembership(w http.ResponseWriter, r *http
 			}
 		}
 	}
+	if e == nil && r.Method == "POST" && r.PostForm.Get("action") == "choices" {
+		v.Form = r.PostForm
+		source, parseErr := formID(v.Form, "source_trial", true)
+		e = parseErr
+		if e == nil && source != 0 {
+			v.Trial, e = h.s.Trial(r.Context(), source)
+			if e == nil && v.Trial.PersonID != id {
+				e = sql.ErrNoRows
+			}
+		}
+	}
 	if e == nil && v.Trial.ID == 0 {
 		v.EligibleTrials, e = h.s.EligibleSourceTrials(r.Context(), id)
 	}
@@ -556,13 +567,14 @@ func (h *AdministrativeHandler) groups(w http.ResponseWriter, r *http.Request) {
 		filtered := v.Choices.Groups[:0]
 		for _, g := range v.Choices.Groups {
 			for _, activity := range v.Membership.ActivityIDs {
-				if activity == g.ActivityID {
+				if activity == g.ActivityID && v.GroupCompatible(g.ID) {
 					filtered = append(filtered, g)
 					break
 				}
 			}
 		}
 		v.Choices.Groups = filtered
+
 		if v.Membership.DefaultJoined.Valid {
 			v.Form.Set("joined_at", v.Membership.DefaultJoined.Time.Format("2006-01-02"))
 		}
@@ -581,12 +593,12 @@ func (h *AdministrativeHandler) groups(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			var g int32
-			g, e = formID(v.Form, "group_id", false)
+			g, e = formID(v.Form, "group_id", true)
 			var joined dbtypes.Date
 			if e == nil {
 				joined, e = formDate(v.Form.Get("joined_at"), false)
 			}
-			if e == nil {
+			if e == nil && g != 0 {
 				e = h.s.AssignGroup(r.Context(), dbsqlc.AssignMembershipGroupParams{MembershipID: id, GroupID: g, JoinedAt: joined})
 			}
 		}

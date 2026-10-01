@@ -81,6 +81,13 @@ func TestP431TrialHTTPDiagnostic(t *testing.T) {
 		form.Set("type_id", fmt.Sprint(f.kind))
 		if !fromTrial {
 			form.Set("activities", fmt.Sprint(f.activity))
+			form.Set("action", "choices")
+			refresh := b.call("POST", path, form)
+			if refresh.Code != 200 {
+				t.Fatal("refresh groups", refresh.Code)
+			}
+			form = recipeForm(t, refresh.Body.String(), path)
+			form.Del("action")
 		}
 		r := b.call("POST", path, form)
 		if r.Code != 303 {

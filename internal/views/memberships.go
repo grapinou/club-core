@@ -29,6 +29,7 @@ type MembershipRowView struct {
 	BlockingCount, WarningCount                                                             int
 }
 type ContactView struct {
+	PersonID                         int32
 	Name, Relationship, Phone, Email string
 	Primary                          bool
 	Priority                         int32
@@ -202,10 +203,10 @@ func MembershipDetail(d memberships.Details, loc *time.Location, approve, resend
 		v.Activities = append(v.Activities, a.Name)
 	}
 	for _, g := range d.Guardians {
-		v.Guardians = append(v.Guardians, ContactView{Name: g.FirstName + " " + g.LastName, Relationship: relationship(g.RelationshipType), Primary: g.IsPrimaryContact, Phone: textOrDash(g.PhoneNumber.String), Email: textOrDash(g.Email.String)})
+		v.Guardians = append(v.Guardians, ContactView{PersonID: g.GuardianPersonID, Name: g.FirstName + " " + g.LastName, Relationship: relationship(g.RelationshipType), Primary: g.IsPrimaryContact, Phone: textOrDash(g.PhoneNumber.String), Email: textOrDash(g.Email.String)})
 	}
 	for _, e := range d.EmergencyContacts {
-		v.EmergencyContacts = append(v.EmergencyContacts, ContactView{Name: e.FirstName + " " + e.LastName, Relationship: textOrDash(e.RelationshipLabel.String), Phone: textOrDash(e.PhoneNumber.String), Email: textOrDash(e.Email.String), Priority: e.Priority})
+		v.EmergencyContacts = append(v.EmergencyContacts, ContactView{Name: e.FirstName + " " + e.LastName, Relationship: relationship(e.RelationshipLabel.String), Phone: textOrDash(e.PhoneNumber.String), Email: textOrDash(e.Email.String), Priority: e.Priority})
 	}
 	for _, c := range d.ConsentRequirements {
 		status := DisplayStatus(c.Decision.String)

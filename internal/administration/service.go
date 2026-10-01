@@ -266,12 +266,13 @@ func (s *Service) Relations(ctx context.Context, personID int32) ([]dbsqlc.Admin
 }
 
 type Choices struct {
-	Activities []dbsqlc.AdministrativeActivitiesRow
-	Groups     []dbsqlc.ListActiveGroupsRow
-	Slots      []dbsqlc.AdministrativeSlotsRow
-	Seasons    []dbsqlc.AdministrativeSeasonsRow
-	Types      []dbsqlc.AdministrativeMembershipTypesRow
-	Consents   []dbsqlc.ConsentDefinition
+	Compatibility []dbsqlc.MembershipTypeGroup
+	Activities    []dbsqlc.AdministrativeActivitiesRow
+	Groups        []dbsqlc.ListActiveGroupsRow
+	Slots         []dbsqlc.AdministrativeSlotsRow
+	Seasons       []dbsqlc.AdministrativeSeasonsRow
+	Types         []dbsqlc.AdministrativeMembershipTypesRow
+	Consents      []dbsqlc.ConsentDefinition
 }
 
 func (s *Service) Choices(ctx context.Context) (Choices, error) {
@@ -281,6 +282,10 @@ func (s *Service) Choices(ctx context.Context) (Choices, error) {
 	}
 	var err error
 	c.Activities, err = s.q.AdministrativeActivities(ctx)
+	if err != nil {
+		return c, err
+	}
+	c.Compatibility, err = s.q.ListMembershipTypeGroups(ctx)
 	if err != nil {
 		return c, err
 	}

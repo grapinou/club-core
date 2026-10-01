@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/grapinou/club-core/internal/accounts"
+	"github.com/grapinou/club-core/internal/emergencycontacts"
 	"github.com/grapinou/club-core/internal/guardianaccess"
 
 	"database/sql"
@@ -140,6 +141,7 @@ func (s *Service) PresentedCatalog(ctx context.Context, c Catalog, token, csrf s
 }
 
 type Input struct {
+	Emergency                  emergencycontacts.Input
 	Child                      *ChildInput
 	Identity                   identityresolution.SubmissionInput
 	SeasonID, MembershipTypeID int32
@@ -168,6 +170,13 @@ func (s *Service) validate(ctx context.Context, q *dbsqlc.Queries, in Input, csr
 	if in.Child != nil {
 		s.validateChild(in, fields, family)
 	} else {
+		_, emergencyErr := emergencycontacts.Validate(in.Emergency)
+		var emergencyFields emergencycontacts.Fields
+		if errors.As(emergencyErr, &emergencyFields) {
+			for k, v := range emergencyFields {
+				fields["emergency_"+k] = v
+			}
+		}
 		if !in.Identity.BirthDate.Valid || !in.Identity.BirthDate.IsFinite() {
 			fields["birth_date"] = "Indiquez une date de naissance valide."
 		} else if !s.memberships.IsAdult(in.Identity.BirthDate) {
@@ -312,6 +321,16 @@ func (s *Service) submit(ctx context.Context, in Input, csrf string, family bool
 			return zero, err
 		}
 	}
+	if in.Child == nil {
+		contact, e := emergencycontacts.Validate(in.Emergency)
+		if e != nil {
+			return zero, e
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO registration_application_emergency_contacts(application_id,first_name,last_name,phone_number,relationship_label,email) VALUES(?1,?2,?3,?4,?5,?6)`, app.ID, contact.FirstName, contact.LastName, contact.Phone, contact.Relationship, sql.NullString{String: contact.Email, Valid: contact.Email != ""})
+		if err != nil {
+			return zero, err
+		}
+	}
 	for _, id := range in.ActivityIDs {
 		if err = q.CreateRegistrationApplicationActivity(ctx, dbsqlc.CreateRegistrationApplicationActivityParams{ApplicationID: app.ID, ActivityID: id}); err != nil {
 			return zero, err
@@ -446,6 +465,9 @@ func (s *Service) finalize(ctx context.Context, tx *sql.Tx, id int32, strict boo
 	var m dbsqlc.Membership
 	if err == nil && reason == "" {
 		m, err = s.memberships.CreateRequestWithPresentedConsentsTx(ctx, nested, r, presented)
+		if err == nil && !isChild {
+			err = finalizeEmergency(ctx, nested, a.ID, r.PersonID)
+		}
 		if err == nil {
 			err = dbsqlc.New(nested).MarkRegistrationApplicationCreated(ctx, dbsqlc.MarkRegistrationApplicationCreatedParams{ID: a.ID, MembershipID: sql.NullInt32{Int32: m.ID, Valid: true}})
 		}
@@ -482,5 +504,27 @@ func rollbackMembershipSavepoint(ctx context.Context, tx *sql.Tx) error {
 		return err
 	}
 	_, err := tx.ExecContext(ctx, "RELEASE membership_creation")
+	return err
+}
+
+// Legacy applications without staged emergency data remain finalizable.
+// The membership/application savepoint makes contact creation idempotent and atomic.
+func finalizeEmergency(ctx context.Context, tx *sql.Tx, application, owner int32) error {
+	var in emergencycontacts.Input
+	var email sql.NullString
+	var person sql.NullInt32
+	err := tx.QueryRowContext(ctx, `SELECT first_name,last_name,phone_number,relationship_label,email,contact_person_id FROM registration_application_emergency_contacts WHERE application_id=?1`, application).Scan(&in.FirstName, &in.LastName, &in.Phone, &in.Relationship, &email, &person)
+	if errors.Is(err, sql.ErrNoRows) || person.Valid {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	in.Email = email.String
+	id, err := emergencycontacts.CreateTx(ctx, tx, owner, in)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE registration_application_emergency_contacts SET contact_person_id=?2 WHERE application_id=?1`, application, id)
 	return err
 }

@@ -44,10 +44,31 @@ La commande affiche une fois le code et l’adresse `/setup`. Remettre le code a
 Prérequis : Go.
 
 ```bash
+./scripts/reset-demo.sh
 ./scripts/run-dev.sh
 ```
 
-Le script crée `data/clubcore_demo.db`, applique les migrations, charge le seed Budokan sur une base vide, puis lance le serveur sur `http://localhost:8080`. Les lancements suivants conservent les données et complètent seulement les informations publiques Budokan manquantes. `DATABASE_PATH`, `APP_BASE_URL` et `APP_TIMEZONE` peuvent être définis avant le lancement.
+La démo réinitialisable est l’environnement privilégié des recettes manuelles. Arrêter le serveur avant de relancer `reset-demo.sh` : cette commande efface uniquement la base locale `data/clubcore_demo.db` et ses fichiers WAL/SHM, applique les migrations, charge Budokan, crée les trois comptes du bureau puis vérifie le résultat. Les chemins non `_demo`, liens symboliques et fichiers non réguliers sont refusés avant suppression. Ne jamais utiliser ce mécanisme pour une base réelle, même renommée `_demo`.
+
+La base contient 1 organisation, 5 images publiques, 1 lieu, 1 lien Instagram, 1 saison 2026/2027, 2 activités, 5 groupes, 16 créneaux, 3 tarifs fictifs (Adulte 300 €, Adolescent 250 €, Enfant 200 €), 1 consentement droit à l’image et exactement 3 Person/User :
+
+| Identifiant | Personne | Seul rôle |
+| --- | --- | --- |
+| `president.demo` | Président Démo | `president` |
+| `secretary.demo` | Secrétaire Démo | `secretary` |
+| `treasurer.demo` | Trésorier Démo | `treasurer` |
+
+Ils sont actifs et activés, avec bcrypt. Aucune adhésion, aucun essai, membre, prospect, responsable familial, enfant ou inscription publique n’est précréé. Le trésorier peut se connecter mais conserve les permissions actuelles du rôle, sans capacité financière ajoutée. La préparation physique reste une pratique des créneaux JJB, pas une troisième activité.
+
+Le mot de passe local par défaut est `mon-mot-de-passe-de-test`, défini explicitement dans `scripts/reset-demo.sh` et affiché en fin de reset. Pour le remplacer (12 à 72 octets) :
+
+```bash
+CLUBCORE_DEMO_PASSWORD='autre-mot-de-passe-demo' ./scripts/reset-demo.sh
+```
+
+Pour une autre démo, définir le même `DATABASE_PATH` pour le reset et le démarrage. Le script nécessite Bash, Go et les utilitaires GNU habituels (`realpath`, `mktemp`, `wc`). Le bootstrap `clubctl prepare-demo-office --confirm-demo` exige `CLUBCORE_DEMO_PASSWORD` dans l’environnement et refuse explicitement toute réexécution ou base non conforme ; `clubctl verify-demo --confirm-demo` vérifie les références, l’absence de données métier et les authentifications. `/setup` reste réservé à la prise en main d’une vraie installation.
+
+`run-dev.sh` crée `data/clubcore_demo.db`, applique les migrations, charge le seed Budokan sur une base vide, puis lance le serveur sur `http://localhost:8080`. Les lancements suivants conservent les données et complètent les références Budokan sans effacement. Le script ne réinitialise jamais la base. `DATABASE_PATH`, `APP_BASE_URL` et `APP_TIMEZONE` peuvent être définis avant le lancement.
 
 Le transport email est désactivé par défaut et signale la non-distribution. Pour capturer les emails localement, Mailpit reste facultatif :
 
@@ -78,7 +99,7 @@ Le jeu Budokan se charge uniquement dans une base de démonstration vide dont le
 go run ./cmd/clubctl seed-budokan --confirm-empty-demo
 ```
 
-La commande utilise `DATABASE_PATH`. Le seed refuse une base non vide et exige un nom de fichier (sans extension) se terminant par `_demo`. La commande `go run ./cmd/clubctl upgrade-budokan-demo --confirm-demo` est réservée à une démonstration Budokan existante ; elle est idempotente. Le script utilise `prepare-budokan-demo --confirm-demo` pour enchaîner migrations et seed/complément sur une démonstration, y compris si un fichier vide existe déjà. Ne lancez pas ces commandes sur une base de production.
+La commande utilise `DATABASE_PATH`. Le seed refuse une base non vide et exige un nom de fichier (sans extension) se terminant par `_demo`. La commande `go run ./cmd/clubctl upgrade-budokan-demo --confirm-demo` est réservée à une démonstration Budokan existante ; elle est idempotente. Elle conserve les historiques et les créneaux anciens, désactive l’ancienne activité `Préparation physique` si elle existe, et complète uniquement les montants de démonstration absents. Une ancienne base peut donc garder trois lignes d’activités dont deux actives ; un reset neuf produit exactement deux lignes. Les montants et notes déjà configurés sont conservés. Le script utilise `prepare-budokan-demo --confirm-demo` pour enchaîner migrations et seed/complément sur une démonstration, y compris si un fichier vide existe déjà. Ne lancez pas ces commandes sur une base de production.
 
 Les textes pratiques de la première séance, les consignes de matériel, le libellé du téléphone et les images publiques sont des données SQLite de l’organisation. Le formulaire d’essai enregistre une demande de matériel dans les notes existantes de l’essai. Si SMTP est configuré, une confirmation simple est envoyée après l’enregistrement ; un échec d’envoi ne supprime pas la réservation.
 

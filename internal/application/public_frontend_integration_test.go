@@ -62,10 +62,13 @@ func TestPublicFrontendSQLite(t *testing.T) {
 	if strings.Contains(home, "Préparer sa venue") {
 		t.Fatal("first visit guidance belongs to trial page")
 	}
-	for _, want := range []string{"Budokan Sud Oise", "Jiu-Jitsu Brésilien", "Jiu-Jitsu Traditionnel / Combat", "Préparation physique", "Gymnase La Mardelle", "Rue des Marais, 60260 Lamorlaye", "budokansud.oise@gmail.com", "06 21 03 21 61"} {
+	for _, want := range []string{"Budokan Sud Oise", "Jiu-Jitsu Brésilien", "Jiu-Jitsu Traditionnel / Combat", "Gymnase La Mardelle", "Rue des Marais, 60260 Lamorlaye", "budokansud.oise@gmail.com", "06 21 03 21 61"} {
 		if !strings.Contains(home, want) {
 			t.Fatal("home", want)
 		}
+	}
+	if strings.Contains(home, "Préparation physique") || strings.Count(home, "<h3>Jiu-Jitsu") != 2 {
+		t.Fatal("home must advertise exactly two activities")
 	}
 	for _, want := range []string{`src="/static/images/budokan/hero/hero-bureau-mascots.png"`, `hero-bureau-mascots-800.webp 800w`, `src="/static/images/budokan/illustrations/training-jjb.png"`, `training-jjb-800.webp 800w`, `src="/static/images/budokan/illustrations/club-spirit.png"`, `club-spirit-800.webp 800w`} {
 		if !strings.Contains(home, want) {
@@ -99,8 +102,20 @@ func TestPublicFrontendSQLite(t *testing.T) {
 	if !strings.Contains(contact, "instagram.com/budokan_sud_oise/") || !strings.Contains(contact, "Seb Colosse") || strings.Contains(contact, "Site principal du club") {
 		t.Fatal("social link")
 	}
-	if prices := body("/tarifs"); !strings.Contains(prices, "Tarif sur demande") || strings.Contains(prices, "Demander les tarifs") || strings.Contains(prices, "Demander une adhésion") {
-		t.Fatal("pricing limitation")
+	prices := body("/tarifs")
+	for _, want := range []string{"<strong>Adulte</strong> · 300,00 EUR", "<strong>Adolescent</strong> · 250,00 EUR", "<strong>Enfant</strong> · 200,00 EUR", "Tarif fictif utilisé pour la démonstration."} {
+		if !strings.Contains(prices, want) {
+			t.Fatal("database demo prices missing", want)
+		}
+	}
+	// A changed DB amount must immediately appear; templates contain no prices.
+	exec("UPDATE membership_types SET amount_cents=12345 WHERE name='Adulte'")
+	if prices := body("/tarifs"); !strings.Contains(prices, "123,45 EUR") || strings.Contains(prices, "300,00 EUR") {
+		t.Fatal("price not read from database")
+	}
+	exec("UPDATE membership_types SET amount_cents=NULL WHERE name='Adulte'")
+	if !strings.Contains(body("/tarifs"), "Tarif sur demande") {
+		t.Fatal("missing amount fallback")
 	}
 	if strings.Contains(home, `class="btn btn-primary" href="/join"`) {
 		t.Fatal("membership link is too prominent")

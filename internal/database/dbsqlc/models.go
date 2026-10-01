@@ -197,6 +197,11 @@ type MembershipType struct {
 	PublicNote  sql.NullString
 }
 
+type MembershipTypeGroup struct {
+	MembershipTypeID int32
+	GroupID          int32
+}
+
 type Organization struct {
 	ID                          int32
 	Name                        string
@@ -298,6 +303,16 @@ type RegistrationApplicationConsent struct {
 	ConsentDefinitionID int32
 	Decision            string
 	PresentedAt         dbtypes.Timestamp
+}
+
+type RegistrationApplicationEmergencyContact struct {
+	ApplicationID     int32
+	FirstName         string
+	LastName          string
+	PhoneNumber       string
+	RelationshipLabel string
+	Email             sql.NullString
+	ContactPersonID   sql.NullInt32
 }
 
 type RegistrationEmailVerification struct {

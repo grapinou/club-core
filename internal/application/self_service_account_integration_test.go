@@ -22,6 +22,15 @@ import (
 func (f *fixture) accountPost(b *browser, path string, form url.Values, want int) string {
 	f.t.Helper()
 	form.Set("csrf_token", b.csrf(f.t, path))
+	if path == "/me/account/profile" {
+		current := b.call("GET", path, nil).Body.String()
+		if !form.Has("first_name") {
+			form.Set("first_name", recipeAttribute(regexp.MustCompile(`<input[^>]+name="first_name"[^>]*>`).FindString(current), "value"))
+		}
+		if !form.Has("last_name") {
+			form.Set("last_name", recipeAttribute(regexp.MustCompile(`<input[^>]+name="last_name"[^>]*>`).FindString(current), "value"))
+		}
+	}
 	r := b.call("POST", path, form)
 	if r.Code != want {
 		f.t.Fatalf("%s status %d want %d: %s", path, r.Code, want, r.Body.String())
@@ -98,13 +107,13 @@ func TestSelfServiceProfileAndHTTPBoundary(t *testing.T) {
 	f.personalOK(b, "/me/account/profile", "Ancienne adresse")
 	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='secretary'`, user)
 	foreign := f.id(`INSERT INTO persons(first_name,last_name,phone_number,address) VALUES('Autre','Personne','0123456789','Intacte') RETURNING id`)
-	form := url.Values{"phone_number": {" +33 (0)6 12 34 56 78 "}, "address": {"  12 rue du Club\nParis  "}, "person_id": {fmt.Sprint(foreign)}, "user_id": {fmt.Sprint(f.approver)}, "first_name": {"INJECTED"}, "username": {"INJECTED"}}
+	form := url.Values{"phone_number": {" +33 (0)6 12 34 56 78 "}, "address": {"  12 rue du Club\nParis  "}, "person_id": {fmt.Sprint(foreign)}, "user_id": {fmt.Sprint(f.approver)}, "first_name": {"Camille"}, "username": {"INJECTED"}}
 	// Use the exact existing normalization convention (French 06... -> 336...).
 	form.Set("phone_number", " 06 12 34 56 78 ")
 	f.accountPost(b, paths[0], form, 303)
 	var phone, address, name string
 	f.must(f.db.QueryRowContext(t.Context(), `SELECT phone_number,address,first_name FROM persons WHERE id=?1`, f.person).Scan(&phone, &address, &name))
-	if phone != "33612345678" || address != "12 rue du Club\nParis" || name != "Rémi" {
+	if phone != "33612345678" || address != "12 rue du Club\nParis" || name != "Camille" {
 		t.Fatal("contact update", phone, address, name)
 	}
 	var untouched string
@@ -112,7 +121,7 @@ func TestSelfServiceProfileAndHTTPBoundary(t *testing.T) {
 	if untouched != "Intacte" {
 		t.Fatal("admin IDOR")
 	}
-	f.personalOK(b, paths[0]+"?saved=1", "Vos coordonnées ont été mises à jour")
+	f.personalOK(b, paths[0]+"?saved=1", "Vos informations ont été mises à jour")
 	body := f.accountPost(b, paths[0], url.Values{"phone_number": {"invalid-phone"}, "address": {"adresse conservée"}}, 422)
 	if !strings.Contains(body, "invalid-phone") || !strings.Contains(body, "adresse conservée") || !strings.Contains(body, `aria-describedby="phone_number-error"`) {
 		t.Fatal("invalid values lost")
@@ -125,7 +134,7 @@ func TestSelfServiceProfileAndHTTPBoundary(t *testing.T) {
 	if f.count(`SELECT count(*) FROM account_security_events WHERE user_id=?1 AND event='profile_contact_updated'`, user) != 2 {
 		t.Fatal("audit")
 	}
-	for _, value := range []string{"first_name", "last_name", "birth_date", "username", "person_id", "user_id"} {
+	for _, value := range []string{"birth_date", "username", "person_id", "user_id"} {
 		if strings.Contains(f.personalOK(b, paths[0]), `name="`+value+`"`) {
 			t.Fatal("editable identity", value)
 		}

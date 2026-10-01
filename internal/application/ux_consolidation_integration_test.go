@@ -15,7 +15,7 @@ func TestP41FamilyVisibilityFollowsEffectiveAccess(t *testing.T) {
 	visible := func(want bool, children ...int32) {
 		t.Helper()
 		body := f.personalOK(b, "/dashboard")
-		if strings.Contains(body, "Mon espace familial") != want {
+		if strings.Contains(body, "<h2>Mes enfants</h2>") != want {
 			t.Fatalf("family section visible, want %v", want)
 		}
 		for _, child := range children {

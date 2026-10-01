@@ -8,6 +8,7 @@ import (
 
 type AccountFormView struct {
 	SecurityData
+	FirstName, LastName                                          string
 	SiteName, Title, Kind, Phone, Address, Email, Error, Message string
 	Errors                                                       map[string]string
 }

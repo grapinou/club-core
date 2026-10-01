@@ -14,11 +14,15 @@ SELECT p.first_name,p.last_name,p.birth_date,
 FROM persons p WHERE p.id=sqlc.arg(child_person_id) AND p.archived_at IS NULL;
 
 -- name: ListPersonalMembershipSummaries :many
-SELECT m.id,m.person_id,m.season_id,m.status,s.name AS season_name,t.name AS membership_type_name,
+SELECT m.id,m.person_id,m.season_id,m.status,m.requested_at,
+ CAST((SELECT json_group_array(value) FROM (SELECT g.name AS value FROM membership_groups mg JOIN groups g ON g.id=mg.group_id
+ WHERE mg.membership_id=m.id AND g.is_active AND mg.joined_at<=sqlc.arg(today) AND (mg.left_at IS NULL OR mg.left_at>sqlc.arg(today)) ORDER BY g.name,g.id)) AS JSON_TEXT_STRINGS) AS group_names,
+ CAST((s.starts_at<=sqlc.arg(today) AND s.ends_at>=sqlc.arg(today)) AS BOOLEAN) AS is_current,
+ s.name AS season_name,t.name AS membership_type_name,
  CAST((SELECT json_group_array(value) FROM (SELECT a.name AS value FROM activities a JOIN membership_activities ma ON ma.activity_id=a.id
  WHERE ma.membership_id=m.id ORDER BY a.name,a.id)) AS JSON_TEXT_STRINGS) AS activities
 FROM memberships m JOIN seasons s ON s.id=m.season_id JOIN membership_types t ON t.id=m.membership_type_id
-WHERE m.person_id IN (sqlc.slice(ids)) ORDER BY s.starts_at DESC,m.id DESC;
+WHERE m.person_id IN (sqlc.slice(ids)) ORDER BY is_current DESC,s.starts_at DESC,m.id DESC;
 
 -- name: GetPersonalMembership :one
 SELECT m.id,m.status,m.requested_at,m.joined_at,s.name AS season_name,t.name AS membership_type_name,
@@ -74,3 +78,8 @@ SELECT EXISTS(SELECT 1 FROM memberships WHERE person_id=p.id)
  AND a.status IN ('awaiting_identity','needs_review')) AS has_context
 FROM users u JOIN persons p ON p.id=u.person_id
 WHERE u.id=sqlc.arg(id) AND u.is_active AND u.activated_at IS NOT NULL AND u.password_hash IS NOT NULL AND p.archived_at IS NULL;
+
+-- name: ListPersonalEmergencyContacts :many
+SELECT e.person_id,e.priority,e.relationship_label,p.first_name,p.last_name,p.phone_number
+FROM person_emergency_contacts e JOIN persons p ON p.id=e.contact_person_id
+WHERE e.person_id IN (sqlc.slice(ids)) ORDER BY e.person_id,e.priority;

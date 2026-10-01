@@ -14,6 +14,7 @@ import (
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/database/dbtypes"
+	"github.com/grapinou/club-core/internal/emergencycontacts"
 	"github.com/grapinou/club-core/internal/identityresolution"
 	"github.com/grapinou/club-core/internal/memberships"
 	"github.com/grapinou/club-core/internal/registrationapplications"
@@ -123,6 +124,12 @@ func joinInput(form url.Values) (registrationapplications.Input, registrationapp
 		v := strings.TrimSpace(form.Get(key))
 		return sql.NullString{String: v, Valid: v != ""}
 	}
+	for _, key := range []string{"emergency_first_name", "emergency_last_name", "emergency_phone_number", "emergency_relationship", "emergency_email"} {
+		if len(form[key]) > 1 {
+			fields["form"] = "Chaque champ doit être renseigné une seule fois."
+		}
+	}
+	in.Emergency = emergencycontacts.Input{FirstName: form.Get("emergency_first_name"), LastName: form.Get("emergency_last_name"), Phone: form.Get("emergency_phone_number"), Relationship: form.Get("emergency_relationship"), Email: form.Get("emergency_email")}
 	in.Identity = identityresolution.SubmissionInput{FirstName: strings.TrimSpace(form.Get("first_name")), LastName: strings.TrimSpace(form.Get("last_name")), Email: text("email"), PhoneNumber: text("phone_number"), Address: text("address")}
 	if birth, err := time.Parse("2006-01-02", form.Get("birth_date")); err == nil {
 		in.Identity.BirthDate = dbtypes.Date{Time: birth, Valid: true}

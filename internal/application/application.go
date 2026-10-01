@@ -15,6 +15,7 @@ import (
 	"github.com/grapinou/club-core/internal/config"
 	"github.com/grapinou/club-core/internal/consents"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/emergencycontacts"
 	"github.com/grapinou/club-core/internal/guardianaccess"
 	"github.com/grapinou/club-core/internal/handlers"
 	"github.com/grapinou/club-core/internal/identityresolution"
@@ -107,7 +108,9 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *sql.DB, sender
 	accountService := accounts.New(db, m, a, sender, runtime.SMTP.From, runtime.BaseURL, permissions)
 	accountService.SetGuardianAccess(guardians)
 	officeHandler.RegisterFamilyDossier(mux, access, csrf, guardians, accountService)
+	officeHandler.RegisterFamilyRelations(mux, access, csrf, guardians)
 	applications.SetGuardianServices(guardians, accountService)
+	handlers.RegisterEmergencyContacts(mux, cfg.SiteName, emergencycontacts.New(db, guardians, runtime.Location), access, csrf)
 	personal := personalspace.New(queries, guardians, runtime.Location)
 	access.SetPersonalContext(personal)
 	handlers.RegisterConsents(mux, cfg.SiteName, queries, consents.New(db), personal, office, access, csrf, runtime.Location)

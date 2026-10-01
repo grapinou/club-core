@@ -63,7 +63,7 @@ func TestBudokanSeedSQLite(t *testing.T) {
 	if err = json.Unmarshal(out, &cliCatalogue); err != nil {
 		t.Fatalf("describe JSON: %v", err)
 	}
-	if cliCatalogue.Identity.Organization.Name != "Budokan Sud Oise" || len(cliCatalogue.Identity.Locations) != 1 || len(cliCatalogue.Identity.Images) != 5 || len(cliCatalogue.Activities) != 3 || len(cliCatalogue.Groups) != 5 || cliCatalogue.Season.Name != "2026/2027" || len(cliCatalogue.Schedule) != 16 || len(cliCatalogue.MembershipTypes) != 3 || len(cliCatalogue.Consents) != 1 {
+	if cliCatalogue.Identity.Organization.Name != "Budokan Sud Oise" || len(cliCatalogue.Identity.Locations) != 1 || len(cliCatalogue.Identity.Images) != 5 || len(cliCatalogue.Activities) != 2 || len(cliCatalogue.Groups) != 5 || cliCatalogue.Season.Name != "2026/2027" || len(cliCatalogue.Schedule) != 16 || len(cliCatalogue.MembershipTypes) != 3 || len(cliCatalogue.Consents) != 1 {
 		t.Fatalf("describe catalogue: %+v", cliCatalogue)
 	}
 	assertBudokanPracticeGroups(t, cliCatalogue)
@@ -91,7 +91,7 @@ func TestBudokanSeedSQLite(t *testing.T) {
 	for _, m := range catalogue.MembershipTypes {
 		typeNames = append(typeNames, m.Name)
 	}
-	if !reflect.DeepEqual(activityNames, []string{"Jiu-Jitsu Brésilien", "Jiu-Jitsu Traditionnel / Combat", "Préparation physique"}) {
+	if !reflect.DeepEqual(activityNames, []string{"Jiu-Jitsu Brésilien", "Jiu-Jitsu Traditionnel / Combat"}) {
 		t.Fatal(activityNames)
 	}
 	if !reflect.DeepEqual(typeNames, []string{"Adolescent", "Adulte", "Enfant"}) {
@@ -140,7 +140,7 @@ func TestBudokanSeedSQLite(t *testing.T) {
 	if !reflect.DeepEqual(expected, actual) || !reflect.DeepEqual(counts, []int{3, 3, 3, 3, 1, 2, 1}) {
 		t.Fatalf("schedule drift: %v / %v", actual, counts)
 	}
-	for table, want := range map[string]int{"activities": 3, "groups": 5, "organization_public_images": 5, "membership_types": 3, "consent_definitions": 1, "persons": 0, "users": 0} {
+	for table, want := range map[string]int{"activities": 2, "groups": 5, "organization_public_images": 5, "membership_types": 3, "consent_definitions": 1, "persons": 0, "users": 0} {
 		var n int
 		if err = db.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != want {
 			t.Fatalf("%s: %d %v", table, n, err)

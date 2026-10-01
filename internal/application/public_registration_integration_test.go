@@ -35,7 +35,7 @@ func (f *fixture) joinForm(b *browser) url.Values {
 	if response.Code != 200 {
 		f.t.Fatalf("join GET %d", response.Code)
 	}
-	form := url.Values{"csrf_token": {hiddenValue(f.t, response.Body.String(), "csrf_token")}, "presentation": {hiddenValue(f.t, response.Body.String(), "presentation")}, "first_name": {"Alice"}, "last_name": {"Nouveau"}, "birth_date": {"1990-01-01"}, "email": {"alice@example.test"}, "phone_number": {"0612345678"}, "address": {"1 rue du Club"}, "season_id": {fmt.Sprint(f.season)}, "membership_type_id": {fmt.Sprint(f.kind)}, "activity_id": {fmt.Sprint(f.activity)}, "action": {"submit"}}
+	form := url.Values{"csrf_token": {hiddenValue(f.t, response.Body.String(), "csrf_token")}, "presentation": {hiddenValue(f.t, response.Body.String(), "presentation")}, "first_name": {"Alice"}, "last_name": {"Nouveau"}, "birth_date": {"1990-01-01"}, "email": {"alice@example.test"}, "phone_number": {"0612345678"}, "address": {"1 rue du Club"}, "season_id": {fmt.Sprint(f.season)}, "membership_type_id": {fmt.Sprint(f.kind)}, "activity_id": {fmt.Sprint(f.activity)}, "action": {"submit"}, "emergency_first_name": {"Marie"}, "emergency_last_name": {"Urgence"}, "emergency_phone_number": {"0601020304"}, "emergency_relationship": {"Amie"}}
 	defs, err := dbsqlc.New(f.db).ListActiveConsentDefinitions(f.t.Context())
 	f.must(err)
 	for _, d := range defs {
@@ -129,7 +129,7 @@ func TestPublicJoinFormAndNewMembership(t *testing.T) {
 	if m.ConsentRequirements[0].ID != consent || m.ConsentRequirements[0].Decision.String != "refused" || m.ConsentRequirements[0].GivenByPersonID.Int32 != d.Submission.ResolvedPersonID.Int32 {
 		t.Fatal("wrong consent giver or snapshot")
 	}
-	if len(m.Completeness.BlockingIssues) != 0 || len(m.Completeness.Warnings) != 1 || m.Completeness.Warnings[0] != "adult_missing_emergency" {
+	if len(m.Completeness.BlockingIssues) != 0 || len(m.Completeness.Warnings) != 0 {
 		t.Fatal("adult emergency policy")
 	}
 	if n := f.id(`SELECT count(*) FROM users`); n != 1 || len(f.mail.messages) != 0 {

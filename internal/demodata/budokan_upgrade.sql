@@ -33,3 +33,21 @@ UPDATE group_slots AS old SET is_active=false,updated_at=strftime('%Y-%m-%d %H:%
 FROM groups technical WHERE old.group_id=technical.id AND technical.name='JJB pratiques spécifiques'
 AND old.weekday=1 AND old.start_time='20:15' AND old.end_time='22:00' AND old.practice_label='Préparation physique / Jiu-Jitsu Brésilien' AND old.is_active
 AND EXISTS (SELECT 1 FROM groups public_group JOIN group_slots new_slot ON new_slot.group_id=public_group.id WHERE public_group.activity_id=technical.activity_id AND public_group.name='JJB Adolescents et Adultes' AND new_slot.season_id=old.season_id AND new_slot.weekday=old.weekday AND new_slot.start_time=old.start_time AND new_slot.end_time=old.end_time AND new_slot.practice_label=old.practice_label AND new_slot.is_active);
+
+-- Keep the old technical activity and every FK/history; hide future offers.
+UPDATE activities SET is_active=false WHERE name='Préparation physique';
+
+-- Fill only missing demo prices. Preserve existing operator-configured amounts
+-- and notes, including an explicit zero amount.
+UPDATE membership_types SET
+ amount_cents=CASE name WHEN 'Adulte' THEN 30000 WHEN 'Adolescent' THEN 25000 WHEN 'Enfant' THEN 20000 END,
+ currency='EUR',
+ public_note=coalesce(public_note,'Tarif fictif utilisé pour la démonstration.')
+WHERE amount_cents IS NULL AND name IN ('Adulte','Adolescent','Enfant');
+
+-- Explicit pedagogical compatibility; never infer eligibility from group names.
+INSERT INTO membership_type_groups(membership_type_id,group_id)
+SELECT mt.id,g.id FROM membership_types mt JOIN groups g
+ON (mt.name IN ('Adulte','Adolescent') AND g.name='JJB Adolescents et Adultes')
+OR (mt.name='Enfant' AND g.name IN ('JJB enfants 7–10 ans','JJB enfants 10–14 ans','Jiu-Jitsu Traditionnel / Combat enfants 7–10 ans','Jiu-Jitsu Traditionnel / Combat enfants 10–14 ans'))
+WHERE true ON CONFLICT(membership_type_id,group_id) DO NOTHING;

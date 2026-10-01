@@ -50,6 +50,7 @@ func officeOK(t *testing.T, b *browser, path string, values ...string) string {
 }
 func (f *fixture) officeGroup() (int32, int32) {
 	g := f.id("INSERT INTO groups(activity_id,name) VALUES(?1,'Groupe adultes') RETURNING id", f.activity)
+	f.exec("INSERT INTO membership_type_groups(membership_type_id,group_id) VALUES(?1,?2)", f.kind, g)
 	slot := f.id("INSERT INTO group_slots(group_id,season_id,weekday,start_time,end_time,location,valid_from) VALUES(?1,?2,3,'18:30','20:00','Dojo municipal','2026-09-01') RETURNING id", g, f.season)
 	return g, slot
 }
@@ -264,7 +265,7 @@ func TestAdministrativeAttentionAndFamilyWorkflow(t *testing.T) {
 	futureTrial := f.id("INSERT INTO trial_registrations(person_id,activity_id,group_id,group_slot_id,trial_date,status) VALUES(?1,?2,?3,?4,?5,'registered') RETURNING id", f.person, f.activity, group, slot, future)
 	f.request()
 
-	home := officeOK(t, b, "/admin", "Essais passés sans résultat", "Aujourd’hui", "Demain", "Lina Parcours", "Note à consulter", "Séance découverte")
+	home := officeOK(t, b, "/admin", "Essais", "Aujourd’hui", "Demain", "Lina Parcours", "Note à consulter", "Séance découverte")
 	if !strings.Contains(home, officeTrial(pastTrial)) || !strings.Contains(home, officeTrial(todayTrial)) || !strings.Contains(home, officeTrial(futureTrial)) {
 		t.Fatal("dashboard trial navigation")
 	}

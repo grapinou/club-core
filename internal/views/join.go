@@ -48,5 +48,5 @@ func (v JoinView) Path() string {
 }
 
 func (v JoinView) RelationshipLabel() string {
-	return map[string]string{"mother": "Mère", "father": "Père", "guardian": "Responsable légal", "other": "Autre"}[v.Values.Get("relationship_type")]
+	return relationship(v.Values.Get("relationship_type"))
 }

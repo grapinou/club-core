@@ -42,3 +42,33 @@ func TestPrepareBudokanDemoWithExistingEmptySQLite(t *testing.T) {
 		t.Fatal("non-demo file accepted")
 	}
 }
+
+func TestOfficeCLIGuardsBeforeOpeningDatabase(t *testing.T) {
+	originalArgs := os.Args
+	t.Cleanup(func() { os.Args = originalArgs })
+	for _, command := range []string{"prepare-demo-office", "verify-demo"} {
+		for _, guard := range []string{"path", "confirmation", "password"} {
+			t.Run(command+"/"+guard, func(t *testing.T) {
+				path := filepath.Join(t.TempDir(), "clubcore_demo.db")
+				if guard == "path" {
+					path = filepath.Join(t.TempDir(), "clubcore.db")
+				}
+				t.Setenv("DATABASE_PATH", path)
+				t.Setenv("CLUBCORE_DEMO_PASSWORD", "mot-de-passe-demo-tests")
+				os.Args = []string{"clubctl", command, "--confirm-demo"}
+				if guard == "confirmation" {
+					os.Args = os.Args[:2]
+				}
+				if guard == "password" {
+					t.Setenv("CLUBCORE_DEMO_PASSWORD", "")
+				}
+				if err := run(); err == nil {
+					t.Fatal("guard accepted")
+				}
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Fatal("refusal created/migrated a database", err)
+				}
+			})
+		}
+	}
+}

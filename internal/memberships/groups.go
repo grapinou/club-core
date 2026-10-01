@@ -35,6 +35,13 @@ func (s *Service) AssignGroupTx(ctx context.Context, tx *sql.Tx, p dbsqlc.Assign
 	if !ok {
 		return ErrInvalidRequest
 	}
+	compatible, err := q.MembershipGroupCompatible(ctx, dbsqlc.MembershipGroupCompatibleParams{MembershipID: p.MembershipID, GroupID: p.GroupID})
+	if err != nil {
+		return err
+	}
+	if !compatible {
+		return ErrInvalidRequest
+	}
 	overlap, err := q.MembershipGroupOverlaps(ctx, dbsqlc.MembershipGroupOverlapsParams{MembershipID: p.MembershipID, GroupID: p.GroupID, JoinedAt: p.JoinedAt})
 	if err != nil {
 		return err

@@ -11,6 +11,7 @@ import (
 	"database/sql"
 
 	"github.com/grapinou/club-core/internal/auth"
+	"github.com/grapinou/club-core/internal/civildate"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 	"github.com/grapinou/club-core/internal/database/dbtypes"
 	"github.com/grapinou/club-core/internal/guardianaccess"
@@ -38,8 +39,10 @@ func New(q *dbsqlc.Queries, guardians GuardianAccess, location *time.Location) *
 }
 
 // DTOs intentionally exclude administrative notes, identity candidates, credentials,
-// other people's contact details and consent giver identity. IDs serve links only.
+// unrelated contact details and consent giver identity. Authorized emergency
+// contacts are projected minimally. IDs serve links only.
 type Account struct {
+	CanManageEmergency                                              bool
 	FirstName, LastName, Username, Email, Phone, Address, BirthDate string
 	Functions                                                       []string
 }
@@ -47,22 +50,27 @@ type Summary struct {
 	ID, SeasonID                           int32
 	SeasonName, MembershipTypeName, Status string
 	Activities                             []string
+	Groups                                 []string
+	RequestedAt                            string
 }
 type FamilyAction struct{ Season, Label, URL string }
 type ChildSummary struct {
-	Actions     []FamilyAction
-	ID          int32
-	Name        string
-	Memberships []Summary
+	EmergencyContacts []dbsqlc.ListPersonalEmergencyContactsRow
+	Actions           []FamilyAction
+	ID                int32
+	Name              string
+	Memberships       []Summary
 }
-type FamilyRequest struct{ Name, ReceivedAt string }
+type FamilyRequest struct{ Name, ReceivedAt, URL string }
 type Dashboard struct {
-	PendingRequests []FamilyRequest
-	Name            string
-	Memberships     []Summary
-	Children        []ChildSummary
+	CanManageEmergency bool
+	PendingRequests    []FamilyRequest
+	Name               string
+	Memberships        []Summary
+	Children           []ChildSummary
 }
 type Child struct {
+	EmergencyContacts               []dbsqlc.ListPersonEmergencyContactsRow
 	Actions                         []FamilyAction
 	ID                              int32
 	Name, BirthDate                 string
@@ -114,7 +122,7 @@ func (s *Service) GetMyAccount(ctx context.Context) (Account, error) {
 	if err != nil {
 		return Account{}, err
 	}
-	account := Account{FirstName: a.FirstName, LastName: a.LastName, Username: a.Username, Email: a.Email.String, Phone: a.PhoneNumber.String, Address: a.Address.String}
+	account := Account{CanManageEmergency: s.canManageOwnEmergency(a.BirthDate), FirstName: a.FirstName, LastName: a.LastName, Username: a.Username, Email: a.Email.String, Phone: a.PhoneNumber.String, Address: a.Address.String}
 	if a.BirthDate.Valid {
 		account.BirthDate = a.BirthDate.Time.Format("02/01/2006")
 	}
@@ -126,8 +134,8 @@ func (s *Service) GetMyAccount(ctx context.Context) (Account, error) {
 	}
 	return account, nil
 }
-func summary(r dbsqlc.ListPersonalMembershipSummariesRow) Summary {
-	return Summary{ID: r.ID, SeasonID: r.SeasonID, SeasonName: r.SeasonName, MembershipTypeName: r.MembershipTypeName, Status: r.Status, Activities: r.Activities}
+func (s *Service) summary(r dbsqlc.ListPersonalMembershipSummariesRow) Summary {
+	return Summary{ID: r.ID, SeasonID: r.SeasonID, SeasonName: r.SeasonName, MembershipTypeName: r.MembershipTypeName, Status: r.Status, Activities: r.Activities, Groups: r.GroupNames, RequestedAt: r.RequestedAt.Time.In(s.location).Format("02/01/2006")}
 }
 func (s *Service) GetDashboard(ctx context.Context) (Dashboard, error) {
 	a, err := s.identity(ctx)
@@ -143,19 +151,19 @@ func (s *Service) GetDashboard(ctx context.Context) (Dashboard, error) {
 		ids = append(ids, c.PersonID)
 	}
 	// Exactly one membership read for all authorized Persons, including no children.
-	rows, err := s.q.ListPersonalMembershipSummaries(ctx, ids)
+	rows, err := s.q.ListPersonalMembershipSummaries(ctx, dbsqlc.ListPersonalMembershipSummariesParams{Ids: ids, Today: s.today()})
 	if err != nil {
 		return Dashboard{}, err
 	}
 	byPerson := map[int32][]Summary{}
 	for _, r := range rows {
-		byPerson[r.PersonID] = append(byPerson[r.PersonID], summary(r))
+		byPerson[r.PersonID] = append(byPerson[r.PersonID], s.summary(r))
 	}
 	seasons, err := s.q.ListRegistrationSeasons(ctx)
 	if err != nil {
 		return Dashboard{}, err
 	}
-	d := Dashboard{Name: a.FirstName + " " + a.LastName, Memberships: byPerson[a.PersonID]}
+	d := Dashboard{CanManageEmergency: s.canManageOwnEmergency(a.BirthDate), Name: a.FirstName + " " + a.LastName, Memberships: byPerson[a.PersonID]}
 	actor, _ := auth.UserID(ctx)
 	managed := make([]int32, 0, len(children))
 	for _, c := range children {
@@ -169,8 +177,26 @@ func (s *Service) GetDashboard(ctx context.Context) (Dashboard, error) {
 		d.PendingRequests = append(d.PendingRequests, FamilyRequest{Name: r.FirstName + " " + r.LastName, ReceivedAt: r.CreatedAt.Time.In(s.location).Format("02/01/2006")})
 	}
 
+	emergency, err := s.q.ListPersonalEmergencyContacts(ctx, ids)
+	if err != nil {
+		return Dashboard{}, err
+	}
+	byEmergency := map[int32][]dbsqlc.ListPersonalEmergencyContactsRow{}
+	for _, c := range emergency {
+		byEmergency[c.PersonID] = append(byEmergency[c.PersonID], c)
+	}
+	for _, m := range d.Memberships {
+		if m.Status == "pending" {
+			d.PendingRequests = append(d.PendingRequests, FamilyRequest{Name: d.Name, ReceivedAt: m.RequestedAt, URL: fmt.Sprintf("/me/memberships/%d", m.ID)})
+		}
+	}
 	for _, c := range children {
-		d.Children = append(d.Children, ChildSummary{ID: c.PersonID, Name: c.FirstName + " " + c.LastName, Memberships: byPerson[c.PersonID], Actions: familyActions(c.PersonID, byPerson[c.PersonID], seasons)})
+		for _, m := range byPerson[c.PersonID] {
+			if m.Status == "pending" {
+				d.PendingRequests = append(d.PendingRequests, FamilyRequest{Name: c.FirstName + " " + c.LastName, ReceivedAt: m.RequestedAt, URL: fmt.Sprintf("/me/children/%d/memberships/%d", c.PersonID, m.ID)})
+			}
+		}
+		d.Children = append(d.Children, ChildSummary{EmergencyContacts: byEmergency[c.PersonID], ID: c.PersonID, Name: c.FirstName + " " + c.LastName, Memberships: byPerson[c.PersonID], Actions: familyActions(c.PersonID, byPerson[c.PersonID], seasons)})
 	}
 	return d, nil
 }
@@ -197,20 +223,21 @@ func (s *Service) GetManagedChild(ctx context.Context, child int32) (Child, erro
 	if err != nil {
 		return Child{}, unavailable(err)
 	}
-	rows, err := s.q.ListPersonalMembershipSummaries(ctx, []int32{child})
+	rows, err := s.q.ListPersonalMembershipSummaries(ctx, dbsqlc.ListPersonalMembershipSummariesParams{Ids: []int32{child}, Today: s.today()})
 	if err != nil {
 		return Child{}, err
 	}
 	c := Child{ID: child, Name: p.FirstName + " " + p.LastName, BirthDate: p.BirthDate.Time.Format("02/01/2006"), HasEmergency: p.HasEmergency, ViewerIsEmergency: p.ViewerIsEmergency}
 	for _, r := range rows {
-		c.Memberships = append(c.Memberships, summary(r))
+		c.Memberships = append(c.Memberships, s.summary(r))
 	}
 	seasons, err := s.q.ListRegistrationSeasons(ctx)
 	if err != nil {
 		return Child{}, err
 	}
 	c.Actions = familyActions(child, c.Memberships, seasons)
-	return c, nil
+	c.EmergencyContacts, err = s.q.ListPersonEmergencyContacts(ctx, child)
+	return c, err
 }
 func (s *Service) GetMyMembership(ctx context.Context, id int32) (Membership, error) {
 	a, err := s.identity(ctx)
@@ -323,4 +350,13 @@ func nullableIDs(ids []int32) []sql.NullInt32 {
 		result[i] = sql.NullInt32{Int32: id, Valid: true}
 	}
 	return result
+}
+
+func (s *Service) today() dbtypes.Date {
+	now := time.Now().In(s.location)
+	return dbtypes.Date{Time: time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC), Valid: true}
+}
+
+func (s *Service) canManageOwnEmergency(birth dbtypes.Date) bool {
+	return !birth.Valid || !civildate.IsMinor(birth.Time, time.Now().In(s.location))
 }
