@@ -26,7 +26,7 @@ func NewAttemptLimiter() *AttemptLimiter {
 	return &AttemptLimiter{ips: map[string]attemptWindow{}, now: time.Now, perIP: 10, globalLimit: 120}
 }
 
-// NewRegistrationSubmissionLimiter prepares a separate future public submission
+// NewRegistrationSubmissionLimiter prepares the shared public durable submission
 // budget: 5 per IP / 15 minutes and 60 globally / minute, per process.
 func NewRegistrationSubmissionLimiter() *AttemptLimiter {
 	return &AttemptLimiter{ips: map[string]attemptWindow{}, now: time.Now, perIP: 5, globalLimit: 60}

@@ -189,7 +189,7 @@ func TestPublicTrialBooking(t *testing.T) {
 	if get.Code != 200 || !strings.Contains(get.Body.String(), "Continuer vers les coordonnées") || !strings.Contains(get.Body.String(), `id="choix-date"`) {
 		t.Fatalf("form: %d %s", get.Code, get.Body.String())
 	}
-	values := url.Values{"activity": {fmt.Sprint(chosen.ActivityID)}, "slot": {fmt.Sprint(chosen.SlotID)}, "date": {chosen.Dates[0]}, "first_name": {"Bruno"}, "last_name": {"Visiteur"}, "birth_date": {birth}, "email": {"bruno@example.test"}, "phone": {"0612345678"}, "minor": {"no"}, "equipment_needed": {"no"}}
+	values := url.Values{"activity": {fmt.Sprint(chosen.ActivityID)}, "slot": {fmt.Sprint(chosen.SlotID)}, "date": {chosen.Dates[0]}, "first_name": {"Bruno"}, "last_name": {"Visiteur"}, "birth_date": {birth}, "email": {"bruno@example.test"}, "phone": {"0612345678"}, "minor": {"no"}, "equipment_needed": {"no"}, "step": {"book"}}
 	var cookie *http.Cookie
 	for _, c := range get.Result().Cookies() {
 		if c.Name == "club_csrf" {
@@ -224,7 +224,7 @@ func TestPublicTrialBooking(t *testing.T) {
 		t.Fatalf("no equipment should leave notes empty: %v %v", adultNotes, err)
 	}
 	mail.err = errors.New("relay unavailable")
-	minorValues := url.Values{"activity": {fmt.Sprint(chosen.ActivityID)}, "slot": {fmt.Sprint(chosen.SlotID)}, "date": {chosen.Dates[0]}, "first_name": {"Lina"}, "last_name": {"Visiteur"}, "birth_date": {now.AddDate(-9, 0, 0).Format("2006-01-02")}, "minor": {"yes"}, "guardian_first_name": {"Nora"}, "guardian_last_name": {"Visiteur"}, "guardian_email": {"nora@example.test"}, "guardian_phone": {"0600000000"}, "relationship": {"mother"}, "equipment_needed": {"yes"}, "equipment_details": {"1,40 m"}, "csrf_token": {cookie.Value}}
+	minorValues := url.Values{"activity": {fmt.Sprint(chosen.ActivityID)}, "slot": {fmt.Sprint(chosen.SlotID)}, "date": {chosen.Dates[0]}, "first_name": {"Lina"}, "last_name": {"Visiteur"}, "birth_date": {now.AddDate(-9, 0, 0).Format("2006-01-02")}, "minor": {"yes"}, "guardian_first_name": {"Nora"}, "guardian_last_name": {"Visiteur"}, "guardian_email": {"nora@example.test"}, "guardian_phone": {"0600000000"}, "relationship": {"mother"}, "equipment_needed": {"yes"}, "equipment_details": {"1,40 m"}, "csrf_token": {cookie.Value}, "step": {"book"}}
 	minorRequest := httptest.NewRequest(http.MethodPost, "/essai", strings.NewReader(minorValues.Encode()))
 	minorRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	minorRequest.AddCookie(cookie)

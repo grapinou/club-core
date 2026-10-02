@@ -102,7 +102,7 @@ func TestP31QuotaConfigurationAndPublic(t *testing.T) {
 	for range 2 {
 		public := newBrowser(f.app.Handler)
 		bookingPath := fmt.Sprintf("/essai?activity=%d&slot=%d", f.activity, offer.SlotID)
-		booking := url.Values{"csrf_token": {public.csrf(t, bookingPath)}, "activity": {fmt.Sprint(f.activity)}, "slot": {fmt.Sprint(offer.SlotID)}, "date": {offer.Dates[0]}, "first_name": {"Alice"}, "last_name": {"Public"}, "birth_date": {"1990-01-01"}, "email": {"alice@example.test"}, "phone": {"0601020304"}, "minor": {"no"}}
+		booking := url.Values{"csrf_token": {public.csrf(t, bookingPath)}, "activity": {fmt.Sprint(f.activity)}, "slot": {fmt.Sprint(offer.SlotID)}, "date": {offer.Dates[0]}, "first_name": {"Alice"}, "last_name": {"Public"}, "birth_date": {"1990-01-01"}, "email": {"alice@example.test"}, "phone": {"0601020304"}, "minor": {"no"}, "step": {"book"}}
 		if r := public.call("POST", "/essai", booking); r.Code != 200 || !strings.Contains(r.Body.String(), "Votre demande d’essai est enregistrée") {
 			t.Fatalf("public booking %d %s", r.Code, r.Body.String())
 		}

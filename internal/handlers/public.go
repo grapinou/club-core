@@ -43,12 +43,6 @@ func NewPublicHandler(s *organization.Service, loc *time.Location, rules string,
 	return h
 }
 func (h *PublicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost && h.limiter != nil && !h.limiter.AllowRequest(r) {
-		w.Header().Set("Retry-After", "900")
-		http.Error(w, "Trop de demandes ont été effectuées. Réessayez plus tard.", http.StatusTooManyRequests)
-		return
-	}
-
 	titles := map[string]string{"/": "Accueil", "/horaires": "Horaires", "/tarifs": "Adhésions et tarifs", "/contact": "Contact", "/essai": "Réserver un essai", "/rules": "Règlement intérieur"}
 	title, ok := titles[r.URL.Path]
 	if !ok {
@@ -56,6 +50,24 @@ func (h *PublicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
+	if r.Method == http.MethodPost && r.URL.Path == "/essai" {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "Requête invalide.", http.StatusBadRequest)
+			return
+		}
+		step := r.PostForm.Get("step")
+		// Only these two actions are dispatched below. Missing, ambiguous or
+		// unknown actions cannot fall through to an unmetered durable write.
+		if len(r.PostForm["step"]) != 1 || (step != "contacts" && step != "book") {
+			http.Error(w, "Choisissez une étape valide du formulaire.", http.StatusBadRequest)
+			return
+		}
+		if step == "book" && h.limiter != nil && !h.limiter.AllowRequest(r) {
+			w.Header().Set("Retry-After", "900")
+			http.Error(w, "Trop de demandes ont été effectuées. Réessayez plus tard.", http.StatusTooManyRequests)
+			return
+		}
+	}
 	c, err := h.service.PublicIdentity(r.Context())
 	if err != nil {
 		http.Error(w, "Les informations du club sont momentanément indisponibles.", 503)

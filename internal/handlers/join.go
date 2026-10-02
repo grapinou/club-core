@@ -37,17 +37,8 @@ func (h *JoinHandler) Register(mux *http.ServeMux, csrf *websecurity.CSRF) {
 	mux.Handle("GET /join", csrf.Protect(http.HandlerFunc(h.get)))
 	mux.Handle("GET /join/submitted", csrf.Protect(http.HandlerFunc(h.submitted)))
 	protected := csrf.Protect(http.HandlerFunc(h.post))
-	post := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !h.limiter.AllowRequest(r) {
-			w.Header().Set("Cache-Control", "no-store")
-			w.Header().Set("Retry-After", "900")
-			http.Error(w, "Trop de demandes ont été effectuées. Réessayez plus tard.", http.StatusTooManyRequests)
-			return
-		}
-		protected.ServeHTTP(w, r)
-	})
-	mux.Handle("POST /join", post)
-	mux.Handle("POST /join/child", post)
+	mux.Handle("POST /join", protected)
+	mux.Handle("POST /join/child", protected)
 	for _, path := range []string{"/me/children/new", "/me/children/{childID}/join"} {
 		mux.Handle("GET "+path, RequireAuthenticated(csrf.Protect(http.HandlerFunc(h.get))))
 		mux.Handle("POST "+path, RequireAuthenticated(csrf.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -158,11 +149,19 @@ func joinInput(form url.Values) (registrationapplications.Input, registrationapp
 	return in, fields
 }
 func (h *JoinHandler) post(w http.ResponseWriter, r *http.Request) {
+	family := strings.HasPrefix(r.URL.Path, "/me/children/")
+	action := r.PostForm.Get("action")
+	// CSRF has parsed the POST body. The same action controls the only submit
+	// branch below; review/edit never write, and duplicate actions are invalid.
+	if !family && action == "submit" && !h.limiter.AllowRequest(r) {
+		w.Header().Set("Retry-After", "900")
+		http.Error(w, "Trop de demandes ont été effectuées. Réessayez plus tard.", http.StatusTooManyRequests)
+		return
+	}
 	if err := h.familyValues(r, r.PostForm); err != nil {
 		membershipError(w, r, err)
 		return
 	}
-	family := strings.HasPrefix(r.URL.Path, "/me/children/")
 	child, _ := parseID(r.PathValue("childID"))
 	in, fields := joinInput(r.PostForm)
 	if r.URL.Path == "/join/child" || family {
@@ -188,7 +187,6 @@ func (h *JoinHandler) post(w http.ResponseWriter, r *http.Request) {
 		}
 		in.Child = &registrationapplications.ChildInput{Guardian: guardian.Identity, RelationshipType: r.PostForm.Get("relationship_type"), EmergencyContactRequested: emergency == "yes"}
 	}
-	action := r.PostForm.Get("action")
 	if action != "review" && action != "edit" && action != "submit" {
 		fields["form"] = "Vérifiez votre demande avant de l'enregistrer."
 	}

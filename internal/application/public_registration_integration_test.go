@@ -507,7 +507,7 @@ func TestPublicJoinHTTPSecurityAndLimits(t *testing.T) {
 			t.Fatal("unsafe POST", kind, response.Code)
 		}
 	}
-	// The sixth POST from one peer is limited, even with changing spoofed XFF.
+	// The sixth final submission from one peer is limited, even with spoofed XFF.
 	for i := 0; i < 6; i++ {
 		request := httptest.NewRequest("POST", "https://club.example.test/join", strings.NewReader(form.Encode()))
 		request.RemoteAddr = "203.0.113.1:1"
@@ -525,19 +525,28 @@ func TestPublicJoinHTTPSecurityAndLimits(t *testing.T) {
 			t.Fatal("IP limiter bypass")
 		}
 	}
-	// Budget is the Application.SubmissionLimiter instance, also used before parsing.
+	// Durable submissions use the Application.SubmissionLimiter instance.
 	if f.app.SubmissionLimiter.Allow("203.0.113.1:123") {
 		t.Fatal("different limiter instance")
 	}
-	for i := 0; i < 52; i++ {
-		request := httptest.NewRequest("POST", "https://club.example.test/join", nil)
-		request.RemoteAddr = fmt.Sprintf("10.1.0.%d:1", i)
-		response := httptest.NewRecorder()
-		f.app.Handler.ServeHTTP(response, request)
-		if i == 51 && response.Code != 429 {
-			t.Fatal("global budget not enforced before CSRF")
+	t.Run("global durable submissions", func(t *testing.T) {
+		f := newFixture(t)
+		b := newBrowser(f.app.Handler)
+		form := f.joinForm(b)
+		// A signed final POST is an attempt even when presentation replay is
+		// idempotent. CSRF failures and preparation do not enter this budget.
+		for i := 0; i < 61; i++ {
+			b.ip = fmt.Sprintf("10.1.0.%d:1", i)
+			response := b.call("POST", "/join", form)
+			want := 303
+			if i == 60 {
+				want = 429
+			}
+			if response.Code != want {
+				t.Fatal("global submission limit", i, response.Code)
+			}
 		}
-	}
+	})
 }
 
 func TestPublicJoinConcurrency(t *testing.T) {
