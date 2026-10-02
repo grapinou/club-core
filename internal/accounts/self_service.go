@@ -77,21 +77,10 @@ func checkCurrent(u dbsqlc.LockSelfServiceAccountRow, password string) error {
 	return nil
 }
 func (s *SelfService) UpdateContact(ctx context.Context, phone, address string) error {
-	return s.updateProfile(ctx, "", "", phone, address, false)
-}
-func (s *SelfService) UpdateProfile(ctx context.Context, firstName, lastName, phone, address string) error {
-	return s.updateProfile(ctx, firstName, lastName, phone, address, true)
-}
-func (s *SelfService) updateProfile(ctx context.Context, firstName, lastName, phone, address string, identity bool) error {
-	firstName, lastName = strings.TrimSpace(firstName), strings.TrimSpace(lastName)
 	p, a := optionalContact(phone), optionalContact(address)
 	fields := AccountFields{}
 	// Reuse the existing contact size/encoding validation and phone normalization.
-	input := identityresolution.SubmissionInput{FirstName: firstName, LastName: lastName, PhoneNumber: p, Address: a}
-	if !identity {
-		input.FirstName, input.LastName = "valid", "valid"
-	}
-	for _, key := range identityresolution.InvalidInputFields(input) {
+	for _, key := range identityresolution.InvalidInputFields(identityresolution.SubmissionInput{FirstName: "valid", LastName: "valid", PhoneNumber: p, Address: a}) {
 		fields[key] = "Cette valeur est invalide ou trop longue."
 	}
 	if p.Valid {
@@ -108,11 +97,7 @@ func (s *SelfService) updateProfile(ctx context.Context, firstName, lastName, ph
 		return err
 	}
 	defer tx.Rollback()
-	if identity {
-		err = q.UpdateSelfServiceProfile(ctx, dbsqlc.UpdateSelfServiceProfileParams{ID: u.PersonID, FirstName: firstName, LastName: lastName, PhoneNumber: p, Address: a})
-	} else {
-		err = q.UpdateSelfServiceContact(ctx, dbsqlc.UpdateSelfServiceContactParams{ID: u.PersonID, PhoneNumber: p, Address: a})
-	}
+	err = q.UpdateSelfServiceContact(ctx, dbsqlc.UpdateSelfServiceContactParams{ID: u.PersonID, PhoneNumber: p, Address: a})
 	if err != nil {
 		return err
 	}

@@ -35,19 +35,21 @@
 <header class="site-header">
 <nav class="container site-nav" aria-label="Navigation principale">
 <a class="site-brand" href="/">{{.SiteName}}</a>
-{{if and .AdministrativeRoles (not (or .CanReadPersons .CanReadMemberships .CanReviewRegistrations .CanReadUsers .CanConfigureClub))}}<span class="administrative-roles" aria-label="Vos rôles administratifs">{{range .AdministrativeRoles}}<span class="badge text-bg-secondary">{{.}}</span>{{end}}</span>{{end}}
 <div class="public-nav">
-{{if .Authenticated}}{{if .HasPersonalContext}}<a class="personal-space-link" href="/dashboard" {{if or (.InSection "/dashboard") (.InSection "/me/children") (.InSection "/me/memberships")}}aria-current="page"{{end}}>Mon espace</a>{{end}}<a href="/me/account" {{if .InSection "/me/account"}}aria-current="page"{{end}}>Mon compte</a>{{end}}
-{{if .Authenticated}}<details class="site-links"><summary>Site du club</summary><div class="site-links-menu">{{end}}
+{{if .Authenticated}}
+<a href="/">Site du club</a>
+{{if not (or .CanReadPersons .CanReadMemberships .CanReviewRegistrations .CanReadUsers .CanConfigureClub)}}{{template "personal-navigation" .}}{{end}}
+<form class="nav-logout" method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button type="submit">Se déconnecter</button></form>
+{{else}}
 <a href="/" {{if eq .CurrentPath "/"}}aria-current="page"{{end}}>Accueil</a>
 <a href="/horaires" {{if eq .CurrentPath "/horaires"}}aria-current="page"{{end}}>Horaires</a>
 <a href="/tarifs" {{if eq .CurrentPath "/tarifs"}}aria-current="page"{{end}}>Adhésions et tarifs</a>
 <a href="/essai" {{if eq .CurrentPath "/essai"}}aria-current="page"{{end}}>Essayer</a>
 <a href="/join">Adhérer</a><a href="/contact" {{if eq .CurrentPath "/contact"}}aria-current="page"{{end}}>Contact</a>
-{{if .Authenticated}}</div></details>{{else}}<a href="/login" {{if eq .CurrentPath "/login"}}aria-current="page"{{end}}>Connexion</a>{{end}}
+<a href="/login" {{if eq .CurrentPath "/login"}}aria-current="page"{{end}}>Connexion</a>{{end}}
 </div></nav>
 {{if or .CanReadPersons .CanReadMemberships .CanReviewRegistrations .CanReadUsers .CanConfigureClub}}<nav class="admin-nav" aria-label="Bureau"><div class="container">
-{{if .AdministrativeRoles}}<span class="administrative-roles" aria-label="Vos rôles administratifs">{{range .AdministrativeRoles}}<span class="badge text-bg-secondary">{{.}}</span>{{end}}</span>{{end}}
+{{template "personal-navigation" .}}
 {{if .CanReadPersons}}<a href="/admin" {{if eq .CurrentPath "/admin"}}aria-current="page"{{end}}>Mon tableau de bord</a>{{end}}
 {{if .CanReadMemberships}}<a href="/memberships" {{if .InSection "/memberships"}}aria-current="page"{{end}}>Adhésions</a>{{end}}
 {{if .CanReviewRegistrations}}<a href="/registration-reviews" {{if .InSection "/registration-reviews"}}aria-current="page"{{end}}>Inscriptions à vérifier ({{.RegistrationReviewCount}})</a>{{end}}
@@ -83,3 +85,8 @@
 </html>
 
 {{ end }}
+
+{{define "personal-navigation"}}
+{{if .AdministrativeRoles}}<span class="administrative-roles" aria-label="Vos rôles administratifs">{{range .AdministrativeRoles}}<span class="badge text-bg-secondary">{{.}}</span>{{end}}</span>{{end}}
+<a class="personal-space-link" href="/dashboard" {{if or (.InSection "/dashboard") (.InSection "/me")}}aria-current="page"{{end}}>Mon espace</a>
+{{end}}

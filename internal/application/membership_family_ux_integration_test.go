@@ -35,8 +35,8 @@ func TestP442DashboardAndConfirmation(t *testing.T) {
 	if strings.Contains(body, "Ouvrir l’Annuaire") || strings.Contains(body, "Essais passés sans résultat") {
 		t.Fatal("dashboard duplicates menu")
 	}
-	if strings.Contains(body, `class="personal-space-link"`) {
-		t.Fatal("administrative secretary personal context")
+	if strings.Count(body, `class="personal-space-link"`) != 1 {
+		t.Fatal("secretary must have a single personal destination")
 	}
 	for _, path := range []string{"/join/submitted", "/join/child/submitted"} {
 		body := newBrowser(f.app.Handler).call("GET", path, nil).Body.String()
@@ -250,7 +250,7 @@ func TestP442ProfileAndFamilyDashboard(t *testing.T) {
 	user, b := f.personalBrowser(parent, "parent")
 	form := url.Values{"first_name": {"Marie"}, "last_name": {"Dupont"}, "phone_number": {"0612345678"}, "address": {"12 rue de Paris"}, "email": {"forged@example.test"}, "birth_date": {"2015-01-01"}, "person_id": {fmt.Sprint(f.person)}}
 	f.accountPost(b, "/me/account/profile", form, 303)
-	if f.count(`SELECT count(*) FROM persons WHERE id=?1 AND first_name='Marie' AND last_name='Dupont' AND phone_number='33612345678' AND address='12 rue de Paris' AND email='claire@example.test' AND birth_date='1980-01-01'`, parent) != 1 {
+	if f.count(`SELECT count(*) FROM persons WHERE id=?1 AND first_name='Claire' AND last_name='Famille' AND phone_number='33612345678' AND address='12 rue de Paris' AND email='claire@example.test' AND birth_date='1980-01-01'`, parent) != 1 {
 		t.Fatal("profile scope/secure fields")
 	}
 	if f.count(`SELECT count(*) FROM persons WHERE id=?1 AND first_name='Rémi'`, f.person) != 1 {
@@ -259,8 +259,8 @@ func TestP442ProfileAndFamilyDashboard(t *testing.T) {
 	if f.count(`SELECT count(*) FROM account_security_events WHERE user_id=?1 AND event='profile_contact_updated'`, user) != 1 {
 		t.Fatal("profile audit")
 	}
-	body := f.personalOK(b, "/me/account/profile", "Modifier mes informations", "date de naissance")
-	if strings.Contains(body, `name="birth_date"`) || strings.Contains(body, `name="email"`) {
+	body := f.personalOK(b, "/me/account/profile", "Modifier mes coordonnées", "date de naissance")
+	if strings.Contains(body, `name="first_name"`) || strings.Contains(body, `name="last_name"`) || strings.Contains(body, `name="birth_date"`) || strings.Contains(body, `name="email"`) {
 		t.Fatal("unsafe profile fields")
 	}
 	ctx := f.authenticatedContext(f.approver)

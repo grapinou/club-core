@@ -7,7 +7,6 @@ package dbsqlc
 
 import (
 	"context"
-	"database/sql"
 )
 
 const listMembershipTypeGroups = `-- name: ListMembershipTypeGroups :many
@@ -52,29 +51,4 @@ func (q *Queries) MembershipGroupCompatible(ctx context.Context, arg MembershipG
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
-}
-
-const updateSelfServiceProfile = `-- name: UpdateSelfServiceProfile :exec
-UPDATE persons SET first_name=?1,last_name=?2,
-phone_number=?3,address=?4,updated_at=strftime('%Y-%m-%d %H:%M:%f','now')
-WHERE id=?5 AND archived_at IS NULL
-`
-
-type UpdateSelfServiceProfileParams struct {
-	FirstName   string
-	LastName    string
-	PhoneNumber sql.NullString
-	Address     sql.NullString
-	ID          int32
-}
-
-func (q *Queries) UpdateSelfServiceProfile(ctx context.Context, arg UpdateSelfServiceProfileParams) error {
-	_, err := q.db.ExecContext(ctx, updateSelfServiceProfile,
-		arg.FirstName,
-		arg.LastName,
-		arg.PhoneNumber,
-		arg.Address,
-		arg.ID,
-	)
-	return err
 }

@@ -63,6 +63,7 @@ type ChildSummary struct {
 }
 type FamilyRequest struct{ Name, ReceivedAt, URL string }
 type Dashboard struct {
+	EmergencyContacts  []dbsqlc.ListPersonalEmergencyContactsRow
 	CanManageEmergency bool
 	PendingRequests    []FamilyRequest
 	Name               string
@@ -184,6 +185,9 @@ func (s *Service) GetDashboard(ctx context.Context) (Dashboard, error) {
 	byEmergency := map[int32][]dbsqlc.ListPersonalEmergencyContactsRow{}
 	for _, c := range emergency {
 		byEmergency[c.PersonID] = append(byEmergency[c.PersonID], c)
+	}
+	if d.CanManageEmergency {
+		d.EmergencyContacts = byEmergency[a.PersonID]
 	}
 	for _, m := range d.Memberships {
 		if m.Status == "pending" {

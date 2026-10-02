@@ -32,8 +32,7 @@ func RegisterSelfServiceAccount(mux *http.ServeMux, site string, s *accounts.Sel
 				case "profile":
 					v.Phone = r.PostForm.Get("phone_number")
 					v.Address = r.PostForm.Get("address")
-					v.FirstName, v.LastName = r.PostForm.Get("first_name"), r.PostForm.Get("last_name")
-					err = s.UpdateProfile(r.Context(), v.FirstName, v.LastName, v.Phone, v.Address)
+					err = s.UpdateContact(r.Context(), v.Phone, v.Address)
 				case "email":
 					v.Email = r.PostForm.Get("new_email")
 					err = s.RequestEmail(r.Context(), v.Email, r.PostForm.Get("current_password"))
@@ -84,12 +83,11 @@ func RegisterSelfServiceAccount(mux *http.ServeMux, site string, s *accounts.Sel
 						personalError(w, r, err)
 						return
 					}
-					v.FirstName, v.LastName = a.FirstName, a.LastName
 					v.Phone = a.Phone
 					v.Address = a.Address
 				}
 				if r.URL.Query().Get("saved") == "1" {
-					v.Message = map[string]string{"profile": "Vos informations ont été mises à jour.", "email/verify": "Votre nouvelle adresse email a été vérifiée.", "password": "Votre mot de passe a été modifié."}[kind]
+					v.Message = map[string]string{"profile": "Vos coordonnées ont été mises à jour.", "email/verify": "Votre nouvelle adresse email a été vérifiée.", "password": "Votre mot de passe a été modifié."}[kind]
 				}
 				if kind == "email/verify" && r.URL.Query().Get("sent") == "1" {
 					v.Message = "Un code de vérification a été envoyé à la nouvelle adresse."

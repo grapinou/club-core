@@ -37,6 +37,9 @@ func RegisterPersonalSpace(mux *http.ServeMux, site string, s *personalspace.Ser
 			v.SecurityData = pageSecurity(r)
 			v.SiteName = site
 			v.Title = "Mon espace - " + site
+			if v.Account != nil {
+				v.Title = "Mon compte - " + site
+			}
 			var body bytes.Buffer
 			if err = views.RenderPersonal(&body, v); err != nil {
 				personalError(w, r, err)

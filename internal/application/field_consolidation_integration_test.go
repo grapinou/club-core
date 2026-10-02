@@ -103,7 +103,7 @@ func TestP432DashboardDirectoryAndPersonalContext(t *testing.T) {
 		f.exec("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES(?1,?2,date(CURRENT_DATE,?3||' days'),'registered')", p, f.activity, i-1)
 	}
 	body := officeOK(t, b, "/admin", "Aujourdhui", "Demain", "HierSansResultat")
-	if strings.Contains(body, "PlusDeux") || strings.Contains(body, "href=\"/trials?pending=1\"") || strings.Contains(body, "class=\"personal-space-link\"") {
+	if strings.Contains(body, "PlusDeux") || strings.Contains(body, "href=\"/trials?pending=1\"") || strings.Count(body, "class=\"personal-space-link\"") != 1 {
 		t.Fatal("dashboard scope/duplicate/personal link")
 	}
 	body = officeOK(t, b, "/trials", "Semaine précédente", "Lundi", "Dimanche")
@@ -300,8 +300,9 @@ func TestP432ConsentChangesAndAuthorization(t *testing.T) {
 	if guardian.call("POST", childPath, url.Values{"csrf_token": {token}, "decision": {"granted"}}).Code != 404 {
 		t.Fatal("revoked grant")
 	}
-	if strings.Contains(officeOK(t, guardian, "/dashboard"), "class=\"personal-space-link\"") {
-		t.Fatal("revoked guardian navigation")
+	body := officeOK(t, guardian, "/dashboard")
+	if !strings.Contains(body, "class=\"personal-space-link\"") || strings.Contains(body, personalChild(child)) {
+		t.Fatal("revoked child must disappear while personal navigation remains")
 	}
 	if f.count("SELECT count(*) FROM membership_consents WHERE membership_id=?1", cm.ID) != 3 {
 		t.Fatal("child history")
