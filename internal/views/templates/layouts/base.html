@@ -39,7 +39,7 @@
 {{if .Authenticated}}
 <a href="/">Site du club</a>
 {{if not (or .CanReadPersons .CanReadMemberships .CanReviewRegistrations .CanReadUsers .CanConfigureClub)}}{{template "personal-navigation" .}}{{end}}
-<form class="nav-logout" method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button type="submit">Se déconnecter</button></form>
+<form class="nav-logout" method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button class="nav-action" type="submit">Se déconnecter</button></form>
 {{else}}
 <a href="/" {{if eq .CurrentPath "/"}}aria-current="page"{{end}}>Accueil</a>
 <a href="/horaires" {{if eq .CurrentPath "/horaires"}}aria-current="page"{{end}}>Horaires</a>
@@ -88,5 +88,5 @@
 
 {{define "personal-navigation"}}
 {{if .AdministrativeRoles}}<span class="administrative-roles" aria-label="Vos rôles administratifs">{{range .AdministrativeRoles}}<span class="badge text-bg-secondary">{{.}}</span>{{end}}</span>{{end}}
-<a class="personal-space-link" href="/dashboard" {{if or (.InSection "/dashboard") (.InSection "/me")}}aria-current="page"{{end}}>Mon espace</a>
+<a href="/dashboard" {{if or (.InSection "/dashboard") (.InSection "/me")}}aria-current="page"{{end}}>Mon espace</a>
 {{end}}

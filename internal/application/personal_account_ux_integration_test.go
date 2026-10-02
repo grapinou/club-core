@@ -95,11 +95,11 @@ func TestPersonalAccountUXHeaderAndEditing(t *testing.T) {
 		t.Fatal("duplicate functions")
 	}
 	identity := pagePart(t, content, "<h2>Identité", "</section>")
-	if !strings.Contains(identity, `href="/contact"`) || !strings.Contains(identity, "vérifiées par le club") || !strings.Contains(identity, "nom d’utilisateur reste fixe") {
+	if !strings.Contains(identity, `href="/me/account/identity"`) || !strings.Contains(identity, "vérifiées par le club") || !strings.Contains(identity, "nom d’utilisateur reste fixe") {
 		t.Fatal("identity correction explanation")
 	}
 	coordinates := pagePart(t, content, "<h2>Coordonnées", "</section>")
-	if !strings.Contains(coordinates, `href="/me/account/profile"`) || !strings.Contains(coordinates, ">Éditer</a>") || !strings.Contains(coordinates, `href="/me/account/email"`) || strings.Contains(coordinates, "Modifier mes coordonnées") {
+	if !strings.Contains(coordinates, `href="/me/account/profile"`) || !strings.Contains(coordinates, ">Éditer</a>") || strings.Contains(coordinates, `href="/me/account/email"`) || strings.Contains(coordinates, "Modifier mes coordonnées") {
 		t.Fatal("coordinate actions")
 	}
 }

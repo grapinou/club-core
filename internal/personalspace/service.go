@@ -42,6 +42,7 @@ func New(q *dbsqlc.Queries, guardians GuardianAccess, location *time.Location) *
 // unrelated contact details and consent giver identity. Authorized emergency
 // contacts are projected minimally. IDs serve links only.
 type Account struct {
+	IdentityCorrectionPending                                       bool
 	CanManageEmergency                                              bool
 	FirstName, LastName, Username, Email, Phone, Address, BirthDate string
 	Functions                                                       []string
@@ -123,7 +124,7 @@ func (s *Service) GetMyAccount(ctx context.Context) (Account, error) {
 	if err != nil {
 		return Account{}, err
 	}
-	account := Account{CanManageEmergency: s.canManageOwnEmergency(a.BirthDate), FirstName: a.FirstName, LastName: a.LastName, Username: a.Username, Email: a.Email.String, Phone: a.PhoneNumber.String, Address: a.Address.String}
+	account := Account{IdentityCorrectionPending: a.IdentityCorrectionPending, CanManageEmergency: s.canManageOwnEmergency(a.BirthDate), FirstName: a.FirstName, LastName: a.LastName, Username: a.Username, Email: a.Email.String, Phone: a.PhoneNumber.String, Address: a.Address.String}
 	if a.BirthDate.Valid {
 		account.BirthDate = a.BirthDate.Time.Format("02/01/2006")
 	}

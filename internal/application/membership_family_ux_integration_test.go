@@ -31,11 +31,11 @@ func visibleText(body string) string {
 func TestP442DashboardAndConfirmation(t *testing.T) {
 	f := newFixture(t)
 	b := p43Secretary(f)
-	body := officeOK(t, b, "/admin", "<h2>Essais</h2>")
+	body := officeOK(t, b, "/admin", "Adhésions en attente")
 	if strings.Contains(body, "Ouvrir l’Annuaire") || strings.Contains(body, "Essais passés sans résultat") {
 		t.Fatal("dashboard duplicates menu")
 	}
-	if strings.Count(body, `class="personal-space-link"`) != 1 {
+	if strings.Count(body, `href="/dashboard"`) != 1 {
 		t.Fatal("secretary must have a single personal destination")
 	}
 	for _, path := range []string{"/join/submitted", "/join/child/submitted"} {
@@ -259,7 +259,7 @@ func TestP442ProfileAndFamilyDashboard(t *testing.T) {
 	if f.count(`SELECT count(*) FROM account_security_events WHERE user_id=?1 AND event='profile_contact_updated'`, user) != 1 {
 		t.Fatal("profile audit")
 	}
-	body := f.personalOK(b, "/me/account/profile", "Modifier mes coordonnées", "date de naissance")
+	body := f.personalOK(b, "/me/account/profile", "Modifier mes coordonnées", "Un nouvel email ne sera utilisé")
 	if strings.Contains(body, `name="first_name"`) || strings.Contains(body, `name="last_name"`) || strings.Contains(body, `name="birth_date"`) || strings.Contains(body, `name="email"`) {
 		t.Fatal("unsafe profile fields")
 	}

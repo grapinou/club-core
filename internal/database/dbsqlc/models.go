@@ -122,6 +122,22 @@ type GuardianIdentityClaimCandidate struct {
 	DetectedAt       dbtypes.Timestamp
 }
 
+type IdentityCorrectionRequest struct {
+	ID                int32
+	PersonID          int32
+	RequestingUserID  int32
+	OriginalFirstName string
+	OriginalLastName  string
+	OriginalBirthDate dbtypes.Date
+	ProposedFirstName string
+	ProposedLastName  string
+	ProposedBirthDate dbtypes.Date
+	Status            string
+	CreatedAt         dbtypes.Timestamp
+	ReviewedAt        dbtypes.Timestamp
+	ReviewedByUserID  sql.NullInt32
+}
+
 type InstallationSetup struct {
 	ID               bool
 	InitializedAt    dbtypes.Timestamp

@@ -94,7 +94,7 @@ type Home struct {
 	Counts                      dbsqlc.AdministrativeCountsRow
 	Upcoming                    []dbsqlc.AdministrativeTrialsRow
 	TodayTrials, TomorrowTrials []dbsqlc.AdministrativeTrialsRow
-	PastPending                 []dbsqlc.AdministrativeTrialsRow
+	IdentityCorrections         int64
 	Memberships                 []memberships.ListEntry
 }
 
@@ -123,12 +123,16 @@ func (s *Service) Dashboard(ctx context.Context) (Home, error) {
 			d.TomorrowTrials = append(d.TomorrowTrials, t)
 		}
 	}
-	d.PastPending, err = s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{BeforeDate: today, Today: today})
+	actor, _ := auth.UserID(ctx)
+	allowed, err := s.permissions.HasPermission(ctx, actor, authorization.RegistrationsReview)
 	if err != nil {
 		return d, err
 	}
-	if len(d.PastPending) > 8 {
-		d.PastPending = d.PastPending[:8]
+	if allowed {
+		d.IdentityCorrections, err = s.q.CountPendingIdentityCorrections(ctx)
+		if err != nil {
+			return d, err
+		}
 	}
 	// Reuse the same completeness snapshot as the membership list. No new
 	// task state is stored, and both read permissions have been checked above.

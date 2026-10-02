@@ -18,6 +18,7 @@ import (
 	"github.com/grapinou/club-core/internal/emergencycontacts"
 	"github.com/grapinou/club-core/internal/guardianaccess"
 	"github.com/grapinou/club-core/internal/handlers"
+	"github.com/grapinou/club-core/internal/identitycorrections"
 	"github.com/grapinou/club-core/internal/identityresolution"
 	"github.com/grapinou/club-core/internal/initialsetup"
 	"github.com/grapinou/club-core/internal/mailer"
@@ -37,6 +38,7 @@ type Application struct {
 	Organization             *organization.Service
 	Administration           *administration.Service
 	SelfService              *accounts.SelfService
+	IdentityCorrections      *identitycorrections.Service
 	GuardianAccess           *guardianaccess.Service
 	MinorSafety              *minorsafety.Service
 	Handler                  http.Handler
@@ -123,7 +125,9 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *sql.DB, sender
 	selfService := accounts.NewSelfService(db, sender, runtime.SMTP.From, ttl)
 	handlers.RegisterSelfServiceAccount(mux, cfg.SiteName, selfService, personal, sessions, csrf)
 	handlers.NewMembershipHandler(cfg.SiteName, runtime.Location, m, accountService, queries, permissions).Register(mux, access, csrf)
-	handlers.NewRegistrationHandler(cfg.SiteName, runtime.Location, reviews, applications, m, permissions).Register(mux, access, csrf)
+	corrections := identitycorrections.New(db, runtime.Location)
+	handlers.RegisterIdentityCorrections(mux, cfg.SiteName, corrections, runtime.Location, access, csrf)
+	handlers.NewRegistrationHandler(cfg.SiteName, runtime.Location, reviews, applications, m, permissions, corrections).Register(mux, access, csrf)
 	authHandler := handlers.NewAuthHandler(cfg.SiteName, a, login, sessions, runtime.SecureCookies)
 	authHandler.Register(mux)
 	authHandler.RegisterRegistrationVerification(mux, verification)
@@ -131,6 +135,7 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *sql.DB, sender
 		Organization:             publicClub,
 		Administration:           office,
 		SelfService:              selfService,
+		IdentityCorrections:      corrections,
 		GuardianAccess:           guardians,
 		MinorSafety:              minorsafety.New(db, runtime.Location),
 		Handler:                  sessions.Middleware(login, access.Navigation(mux)),

@@ -76,7 +76,7 @@ func checkCurrent(u dbsqlc.LockSelfServiceAccountRow, password string) error {
 	}
 	return nil
 }
-func (s *SelfService) UpdateContact(ctx context.Context, phone, address string) error {
+func validatedContact(phone, address string) (sql.NullString, sql.NullString, error) {
 	p, a := optionalContact(phone), optionalContact(address)
 	fields := AccountFields{}
 	// Reuse the existing contact size/encoding validation and phone normalization.
@@ -90,67 +90,109 @@ func (s *SelfService) UpdateContact(ctx context.Context, phone, address string) 
 		}
 	}
 	if len(fields) > 0 {
-		return fields
+		return p, a, fields
+	}
+	return p, a, nil
+}
+func (s *SelfService) UpdateContact(ctx context.Context, phone, address string) error {
+	_, err := s.updateCoordinates(ctx, phone, address, "", "", false)
+	return err
+}
+
+// UpdateCoordinates commits contacts and the verification request together.
+// A delivery failure occurs after commit: contacts remain saved, email unchanged.
+func (s *SelfService) UpdateCoordinates(ctx context.Context, email, phone, address, password string) (bool, error) {
+	return s.updateCoordinates(ctx, phone, address, email, password, true)
+}
+func (s *SelfService) updateCoordinates(ctx context.Context, phone, address, email, password string, checkEmail bool) (bool, error) {
+	p, a, err := validatedContact(phone, address)
+	if err != nil {
+		return false, err
 	}
 	tx, q, u, err := s.locked(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback()
-	err = q.UpdateSelfServiceContact(ctx, dbsqlc.UpdateSelfServiceContactParams{ID: u.PersonID, PhoneNumber: p, Address: a})
-	if err != nil {
-		return err
+	email = strings.TrimSpace(email)
+	changed := checkEmail && !strings.EqualFold(strings.TrimSpace(u.Email.String), email)
+	code := ""
+	if changed {
+		code, err = s.prepareEmail(ctx, q, u, email, password)
+		if err != nil {
+			return false, err
+		}
+	}
+	if err = q.UpdateSelfServiceContact(ctx, dbsqlc.UpdateSelfServiceContactParams{ID: u.PersonID, PhoneNumber: p, Address: a}); err != nil {
+		return false, err
 	}
 	if err = accountEvent(ctx, q, u, "profile_contact_updated"); err != nil {
-		return err
+		return false, err
 	}
-	return tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return false, err
+	}
+	if changed {
+		return true, s.deliverEmailCode(ctx, email, code)
+	}
+	return false, nil
 }
 func (s *SelfService) RequestEmail(ctx context.Context, email, password string) error {
 	email = strings.TrimSpace(email)
-	address, err := mail.ParseAddress(email)
-	if err != nil || address.Address != email || strings.ContainsAny(email, "\r\n") || len(email) > 254 {
-		return AccountFields{"new_email": "Saisissez une adresse email valide."}
-	}
 	tx, q, u, err := s.locked(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if err = checkCurrent(u, password); err != nil {
-		return err
-	}
-	if strings.EqualFold(strings.TrimSpace(u.Email.String), email) {
-		return AccountFields{"new_email": "Saisissez une adresse différente de votre adresse actuelle."}
-	}
-	count, err := q.CountRecentEmailChanges(ctx, u.ID)
+	code, err := s.prepareEmail(ctx, q, u, email, password)
 	if err != nil {
-		return err
-	}
-	if count >= 3 {
-		return ErrEmailChangeLimited
-	}
-	code, err := activation.GenerateCode()
-	if err != nil {
-		return err
-	}
-	digest := sha256.Sum256([]byte(code))
-	normalized := strings.ToLower(email)
-	emailHash := sha256.Sum256([]byte(normalized))
-	if err = q.InvalidateEmailChanges(ctx, u.ID); err != nil {
-		return err
-	}
-	if err = q.CreateEmailChange(ctx, dbsqlc.CreateEmailChangeParams{UserID: u.ID, PersonID: u.PersonID, NewEmail: email, NewEmailNormalized: normalized, NewEmailHash: emailHash[:], CodeHash: digest[:], TtlSeconds: s.ttl.Seconds()}); err != nil {
-		return err
-	}
-	if err = accountEvent(ctx, q, u, "email_change_requested"); err != nil {
 		return err
 	}
 	if err = tx.Commit(); err != nil {
 		return err
 	}
-	// Delivery follows commit. Never expose its error, recipient or plaintext code.
-	if err = s.mail.Send(ctx, mailer.Message{From: s.from, To: email, Subject: "Vérifiez votre nouvelle adresse email", Text: "Code de vérification : " + code + "\nSaisissez ce code dans votre espace personnel Club Core. Si vous n’êtes pas à l’origine de cette demande, ignorez ce message."}); err != nil {
+	return s.deliverEmailCode(ctx, email, code)
+}
+func (s *SelfService) prepareEmail(ctx context.Context, q *dbsqlc.Queries, u dbsqlc.LockSelfServiceAccountRow, email, password string) (string, error) {
+	email = strings.TrimSpace(email)
+	address, err := mail.ParseAddress(email)
+	if err != nil || address.Address != email || strings.ContainsAny(email, "\r\n") || len(email) > 254 {
+		return "", AccountFields{"new_email": "Saisissez une adresse email valide."}
+	}
+	if err = checkCurrent(u, password); err != nil {
+		return "", err
+	}
+	if strings.EqualFold(strings.TrimSpace(u.Email.String), email) {
+		return "", AccountFields{"new_email": "Saisissez une adresse différente de votre adresse actuelle."}
+	}
+	count, err := q.CountRecentEmailChanges(ctx, u.ID)
+	if err != nil {
+		return "", err
+	}
+	if count >= 3 {
+		return "", ErrEmailChangeLimited
+	}
+	code, err := activation.GenerateCode()
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256([]byte(code))
+	normalized := strings.ToLower(email)
+	emailHash := sha256.Sum256([]byte(normalized))
+	if err = q.InvalidateEmailChanges(ctx, u.ID); err != nil {
+		return "", err
+	}
+	if err = q.CreateEmailChange(ctx, dbsqlc.CreateEmailChangeParams{UserID: u.ID, PersonID: u.PersonID, NewEmail: email, NewEmailNormalized: normalized, NewEmailHash: emailHash[:], CodeHash: digest[:], TtlSeconds: s.ttl.Seconds()}); err != nil {
+		return "", err
+	}
+	if err = accountEvent(ctx, q, u, "email_change_requested"); err != nil {
+		return "", err
+	}
+	return code, nil
+}
+func (s *SelfService) deliverEmailCode(ctx context.Context, email, code string) error {
+	// Delivery follows commit; no recipient or plaintext code reaches HTML.
+	if err := s.mail.Send(ctx, mailer.Message{From: s.from, To: email, Subject: "Vérifiez votre nouvelle adresse email", Text: "Code de vérification : " + code + "\nSaisissez ce code dans votre espace personnel Club Core. Si vous n’êtes pas à l’origine de cette demande, ignorez ce message."}); err != nil {
 		return ErrEmailChangeDelivery
 	}
 	return nil

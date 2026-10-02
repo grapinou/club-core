@@ -1,7 +1,8 @@
 -- Safe read projections only. Resource ownership is supplied by personalspace
 -- after deriving the caller's Person or checking GuardianAccess.
 -- name: GetPersonalAccount :one
-SELECT p.id AS person_id, p.first_name, p.last_name, p.email, p.phone_number, p.address, p.birth_date, u.username
+SELECT p.id AS person_id, p.first_name, p.last_name, p.email, p.phone_number, p.address, p.birth_date, u.username,
+ CAST(EXISTS(SELECT 1 FROM identity_correction_requests c WHERE c.person_id=p.id AND c.status='pending') AS BOOLEAN) AS identity_correction_pending
 FROM users u JOIN persons p ON p.id=u.person_id
 WHERE u.id=sqlc.arg(id) AND u.is_active AND u.activated_at IS NOT NULL
  AND u.password_hash IS NOT NULL AND p.archived_at IS NULL;

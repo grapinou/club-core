@@ -265,8 +265,8 @@ func TestAdministrativeAttentionAndFamilyWorkflow(t *testing.T) {
 	futureTrial := f.id("INSERT INTO trial_registrations(person_id,activity_id,group_id,group_slot_id,trial_date,status) VALUES(?1,?2,?3,?4,?5,'registered') RETURNING id", f.person, f.activity, group, slot, future)
 	f.request()
 
-	home := officeOK(t, b, "/admin", "Essais", "Aujourd’hui", "Demain", "Lina Parcours", "Note à consulter", "Séance découverte")
-	if !strings.Contains(home, officeTrial(pastTrial)) || !strings.Contains(home, officeTrial(todayTrial)) || !strings.Contains(home, officeTrial(futureTrial)) {
+	home := officeOK(t, b, "/admin", "Essais d’aujourd’hui", "Essais de demain", "Séance découverte")
+	if strings.Contains(home, officeTrial(pastTrial)) || !strings.Contains(home, officeTrial(todayTrial)) || !strings.Contains(home, officeTrial(futureTrial)) {
 		t.Fatal("dashboard trial navigation")
 	}
 	pending := officeOK(t, b, "/trials?pending=1", "Lina Parcours", "Résultat à renseigner")

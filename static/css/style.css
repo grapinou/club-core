@@ -10,7 +10,7 @@ a { color: var(--club-blue); text-underline-offset: .16em; }
 .site-nav { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem 1.5rem; padding-block: .8rem; }
 .site-brand { color: var(--club-ink); font-weight: 750; letter-spacing: .02em; text-decoration: none; display: flex; gap: .6rem; align-items: center; }
 .public-nav { display: flex; align-items: center; flex-wrap: wrap; gap: .2rem .4rem; margin-left: auto; }
-.public-nav a { padding: .55rem .7rem; text-decoration: none; }
+.public-nav a, .public-nav .nav-action { padding: .55rem .7rem; text-decoration: none; }
 .public-nav a[aria-current=page]:not(.btn) { font-weight: 700; background: var(--club-surface); border-radius: .375rem; }
 .admin-nav { background: var(--club-surface); border-top: 1px solid var(--club-border); }
 .admin-nav .container { display: flex; gap: .5rem 1.2rem; flex-wrap: wrap; align-items: center; padding-block: .6rem; }
@@ -57,7 +57,7 @@ footer { background: white; margin-top: 2rem; }
 @media (max-width: 767px) {
  .site-nav { gap: .5rem; }
  .public-nav { margin-left: 0; width: 100%; gap: .1rem; }
- .public-nav a { padding: .5rem .65rem; }
+ .public-nav a, .public-nav .nav-action { padding: .5rem .65rem; }
  .choice-grid { grid-template-columns: 1fr; gap: .65rem; }
  .choice-card { padding: 1rem; }
  .data-list, .data-list tbody, .data-list tr, .data-list td { display: block; width: 100%; }
@@ -140,7 +140,6 @@ footer { background: white; margin-top: 2rem; }
 .dossier-decision { margin-block: 1rem; }
 @media(max-width:767px) { .dossier-primary { grid-template-columns: 1fr; gap: 0; } }
 
-.personal-space-link { font-weight: 750; border: 1px solid var(--club-blue); border-radius: .375rem; }
 @media(max-width:767px) { .admin-nav .container { gap: .2rem 1rem; } .administrative-roles { flex-basis: 100%; } }
 
 .section-heading { display:flex; align-items:baseline; justify-content:space-between; gap:1rem; }
@@ -159,8 +158,8 @@ footer { background: white; margin-top: 2rem; }
 
 /* Shared connected navigation and compact account actions. */
 .nav-logout { margin: 0; }
-.nav-logout button { border: 0; background: transparent; color: var(--club-blue); font: inherit; padding: .55rem .7rem; min-height: 2.75rem; }
-.nav-logout button:hover { text-decoration: underline; }
+.public-nav .nav-action { border: 0; background: transparent; color: var(--club-blue); font: inherit; cursor: pointer; }
+.public-nav a:hover, .public-nav .nav-action:hover { color: var(--bs-link-hover-color, var(--club-blue)); text-decoration: underline; }
 .account-section-heading { flex-wrap: wrap; gap: .5rem 1rem; margin-bottom: .75rem; }
 .account-section-heading h2 { margin-bottom: 0; }
 .account-name { font-size: 1.2rem; font-weight: 600; margin-bottom: .35rem; }

@@ -14,6 +14,8 @@ import (
 )
 
 type RegistrationListView struct {
+	Corrections        []IdentityCorrectionRow
+	PendingCorrections int
 	SecurityData
 	SiteName, Title string
 	Rows            []RegistrationRowView

@@ -1,0 +1,24 @@
+{{define "content"}}<div class="content-readable">
+{{if eq .Mode "personal"}}<a href="/me/account">Retour à mon compte</a>
+<header class="page-header mt-3"><h1>Demander une correction d’identité</h1><p>Le club vérifiera votre demande. Votre identité actuelle reste utilisée jusqu’à sa validation. Votre nom d’utilisateur reste fixe.</p></header>
+{{if .Message}}<p class="alert alert-success" role="status">{{.Message}}</p>{{end}}
+{{if .Error}}<p class="alert alert-danger" role="alert">{{.Error}}</p>{{end}}
+{{if .Pending}}<p class="section-panel" role="status">Une demande de correction est en cours de vérification.</p>{{else}}
+<section class="section-panel"><p class="form-text">Les champs marqués * sont obligatoires.</p><form method="post" action="/me/account/identity">
+<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+<label class="form-label" for="first_name">Prénom *</label><input class="form-control mb-2" id="first_name" name="first_name" required maxlength="200" autocomplete="given-name" value="{{.FirstName}}" {{if index .Errors "first_name"}}aria-invalid="true" aria-describedby="first_name-error"{{end}}>{{with index .Errors "first_name"}}<p class="text-danger" id="first_name-error">{{.}}</p>{{end}}
+<label class="form-label" for="last_name">Nom *</label><input class="form-control mb-2" id="last_name" name="last_name" required maxlength="200" autocomplete="family-name" value="{{.LastName}}" {{if index .Errors "last_name"}}aria-invalid="true" aria-describedby="last_name-error"{{end}}>{{with index .Errors "last_name"}}<p class="text-danger" id="last_name-error">{{.}}</p>{{end}}
+<label class="form-label" for="birth_date">Date de naissance (facultative)</label><input class="form-control mb-3" id="birth_date" name="birth_date" type="date" autocomplete="bday" value="{{.BirthDate}}" {{if index .Errors "birth_date"}}aria-invalid="true" aria-describedby="birth_date-error"{{end}}>{{with index .Errors "birth_date"}}<p class="text-danger" id="birth_date-error">{{.}}</p>{{end}}
+<div class="actions"><button class="btn btn-primary" type="submit">Envoyer la demande</button><a href="/me/account">Annuler</a></div>
+</form></section>{{end}}
+{{else}}
+<a href="/registration-reviews">Retour aux vérifications</a>
+<header class="page-header mt-3"><h1>Corrections d’identité</h1><p>Vérifier les propositions avant de modifier les fiches du club.</p></header>
+{{if .Error}}<p class="alert alert-danger" role="alert">{{.Error}}</p>{{end}}
+{{if eq .Mode "list"}}
+{{range .Rows}}<article class="section-panel"><h2><a href="/identity-corrections/{{.ID}}">{{.Name}}</a></h2><p>Compte : {{.Username}} · {{.Status}}</p><p>Demande du {{.CreatedAt}}</p><a href="/identity-corrections/{{.ID}}">Examiner la correction</a></article>{{else}}<p>Aucune demande de correction.</p>{{end}}
+{{else}}
+<section class="section-panel"><h2>Demande du {{.CreatedAt}}</h2><p>Compte : {{.Username}} · Utilisateur {{.RequestingUserID}} · <a href="/persons/{{.PersonID}}">Personne {{.PersonID}}</a></p><p>État : {{.Status}}{{if .ReviewedAt}} · Traitée le {{.ReviewedAt}}{{end}}</p>
+<h3>Identité actuelle et proposée</h3><table class="table data-list"><caption class="visually-hidden">Comparaison des champs d’identité</caption><thead><tr><th scope="col">Champ</th><th scope="col">Actuelle</th><th scope="col">Proposée</th></tr></thead><tbody>{{range .Fields}}<tr><th scope="row">{{.Label}}</th><td data-label="Actuelle">{{.Existing}}</td><td data-label="Proposée">{{if .Different}}<strong>{{.Declared}}</strong>{{else}}{{.Declared}}{{end}}</td></tr>{{end}}</tbody></table>
+{{if .Open}}<p>Vérifiez aussi les conséquences d’une date de naissance corrigée sur la majorité et les accès familiaux.</p><form method="post" action="/identity-corrections/{{.ID}}"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><div class="actions"><button class="btn btn-primary" type="submit" name="decision" value="approved">Valider</button><button class="btn btn-outline-secondary" type="submit" name="decision" value="rejected">Refuser</button></div></form>{{end}}</section>
+{{end}}{{end}}</div>{{end}}

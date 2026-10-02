@@ -10,6 +10,7 @@ import (
 	"github.com/grapinou/club-core/internal/accounts"
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/authorization"
+	"github.com/grapinou/club-core/internal/identitycorrections"
 	"github.com/grapinou/club-core/internal/identityresolution"
 	"github.com/grapinou/club-core/internal/registrationapplications"
 	"github.com/grapinou/club-core/internal/views"
@@ -17,6 +18,7 @@ import (
 )
 
 type RegistrationHandler struct {
+	corrections  *identitycorrections.Service
 	memberships  MembershipReader
 	permissions  PermissionChecker
 	applications *registrationapplications.Service
@@ -25,8 +27,12 @@ type RegistrationHandler struct {
 	reviews      *identityresolution.ReviewService
 }
 
-func NewRegistrationHandler(site string, loc *time.Location, reviews *identityresolution.ReviewService, applications *registrationapplications.Service, memberships MembershipReader, permissions PermissionChecker) *RegistrationHandler {
-	return &RegistrationHandler{memberships, permissions, applications, site, loc, reviews}
+func NewRegistrationHandler(site string, loc *time.Location, reviews *identityresolution.ReviewService, applications *registrationapplications.Service, memberships MembershipReader, permissions PermissionChecker, corrections ...*identitycorrections.Service) *RegistrationHandler {
+	h := &RegistrationHandler{memberships: memberships, permissions: permissions, applications: applications, site: site, loc: loc, reviews: reviews}
+	if len(corrections) > 0 {
+		h.corrections = corrections[0]
+	}
+	return h
 }
 func (h *RegistrationHandler) Register(mux *http.ServeMux, access *Access, csrf *websecurity.CSRF) {
 	for _, route := range []struct {
@@ -46,6 +52,19 @@ func (h *RegistrationHandler) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := views.RegistrationListView{SecurityData: pageSecurity(r), SiteName: h.site, Title: "Vérifications - " + h.site, Rows: views.RegistrationRows(rows, h.loc)}
+	if h.corrections != nil {
+		corrections, e := h.corrections.List(r.Context())
+		if e != nil {
+			correctionError(w, r, e)
+			return
+		}
+		v.Corrections = views.CorrectionRows(corrections, h.loc)
+		for _, c := range corrections {
+			if c.Status == "pending" {
+				v.PendingCorrections++
+			}
+		}
+	}
 	var buf bytes.Buffer
 	err = views.RenderRegistrationList(&buf, v)
 	writeMembershipPage(w, &buf, err)

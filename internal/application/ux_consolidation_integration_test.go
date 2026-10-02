@@ -77,7 +77,10 @@ func TestP41OfficeAttentionAndNextActions(t *testing.T) {
 	f.exec(`DELETE FROM user_roles WHERE user_id=?1`, f.approver)
 	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='secretary'`, f.approver)
 	b := f.membershipAdminBrowser()
-	body := officeOK(t, b, "/admin", "Prête à valider", "Compléter le dossier", dossierPath(ready.ID), dossierPath(incomplete.ID), dossierPath(active.ID)+"#compte", officeTrial(past))
+	body := officeOK(t, b, "/admin", "Prête à valider", "Compléter le dossier", dossierPath(ready.ID), dossierPath(incomplete.ID), dossierPath(active.ID)+"#compte", officeTrial(future))
+	if strings.Contains(body, officeTrial(past)) {
+		t.Fatal("past trial on immediate dashboard")
+	}
 	for _, path := range []string{`href="/admin/users"`, `href="/admin/config"`} {
 		if strings.Contains(body, path) {
 			t.Fatal("secretary sees unavailable function")

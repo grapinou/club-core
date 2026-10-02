@@ -102,10 +102,11 @@ func TestP432DashboardDirectoryAndPersonalContext(t *testing.T) {
 		p := f.id("INSERT INTO persons(first_name,last_name,birth_date) VALUES(?1,'Recette','1990-01-01') RETURNING id", name)
 		f.exec("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES(?1,?2,date(CURRENT_DATE,?3||' days'),'registered')", p, f.activity, i-1)
 	}
-	body := officeOK(t, b, "/admin", "Aujourdhui", "Demain", "HierSansResultat")
-	if strings.Contains(body, "PlusDeux") || strings.Contains(body, "href=\"/trials?pending=1\"") || strings.Count(body, "class=\"personal-space-link\"") != 1 {
+	body := officeOK(t, b, "/admin", "Aujourdhui", "Demain")
+	if strings.Contains(body, "PlusDeux") || strings.Contains(body, "HierSansResultat") || strings.Contains(body, "href=\"/trials?pending=1\"") || strings.Count(body, "href=\"/dashboard\"") != 1 {
 		t.Fatal("dashboard scope/duplicate/personal link")
 	}
+	officeOK(t, b, "/trials?pending=1", "HierSansResultat")
 	body = officeOK(t, b, "/trials", "Semaine précédente", "Lundi", "Dimanche")
 	if !strings.Contains(body, "PlusDeux") {
 		t.Fatal("week missing J+2")
@@ -124,7 +125,7 @@ func TestP432DashboardDirectoryAndPersonalContext(t *testing.T) {
 	adminPerson := f.id("SELECT person_id AS id FROM users WHERE id=?1", f.approver)
 	f.exec("INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES(?1,?2,?3,'active')", adminPerson, f.season, f.kind)
 	body = officeOK(t, b, "/admin")
-	if !strings.Contains(body, "class=\"personal-space-link\"") {
+	if !strings.Contains(body, "href=\"/dashboard\"") {
 		t.Fatal("member secretary personal context")
 	}
 	body = officeOK(t, b, "/dashboard")
@@ -281,7 +282,7 @@ func TestP432ConsentChangesAndAuthorization(t *testing.T) {
 		t.Fatal("relation alone allowed")
 	}
 	f.exec("INSERT INTO guardian_access_grants(child_person_id,guardian_person_id,granted_by_user_id) VALUES(?1,?2,?3)", child, parent, f.approver)
-	if !strings.Contains(officeOK(t, guardian, "/dashboard"), "class=\"personal-space-link\"") {
+	if !strings.Contains(officeOK(t, guardian, "/dashboard"), "href=\"/dashboard\"") {
 		t.Fatal("guardian personal context")
 	}
 	post(guardian, childPath, "granted", f.person, 303)
@@ -301,7 +302,7 @@ func TestP432ConsentChangesAndAuthorization(t *testing.T) {
 		t.Fatal("revoked grant")
 	}
 	body := officeOK(t, guardian, "/dashboard")
-	if !strings.Contains(body, "class=\"personal-space-link\"") || strings.Contains(body, personalChild(child)) {
+	if !strings.Contains(body, "href=\"/dashboard\"") || strings.Contains(body, personalChild(child)) {
 		t.Fatal("revoked child must disappear while personal navigation remains")
 	}
 	if f.count("SELECT count(*) FROM membership_consents WHERE membership_id=?1", cm.ID) != 3 {

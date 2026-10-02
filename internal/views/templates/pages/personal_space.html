@@ -4,15 +4,15 @@
 {{if .Account}}{{with .Account}}
 <header class="page-header mt-3"><h1>Mon compte</h1><p class="account-name">{{.FirstName}} {{.LastName}}</p>
 {{if .Functions}}<p class="account-functions"><span class="visually-hidden">Fonctions au club : </span>{{range $i,$function:=.Functions}}{{if $i}} · {{end}}{{$function}}{{end}}</p>{{end}}</header>
-<section class="section-panel"><div class="section-heading account-section-heading"><h2>Identité</h2><a class="btn btn-sm btn-outline-primary" href="/contact" aria-label="Éditer l’identité avec le club">Éditer</a></div><dl>
+<section class="section-panel"><div class="section-heading account-section-heading"><h2>Identité</h2><a class="btn btn-sm btn-outline-primary" href="/me/account/identity" aria-label="Éditer l’identité">Éditer</a></div><dl>
 <dt>Prénom</dt><dd>{{.FirstName}}</dd><dt>Nom</dt><dd>{{.LastName}}</dd>
 <dt>Date de naissance</dt><dd>{{if .BirthDate}}{{.BirthDate}}{{else}}Non renseignée{{end}}</dd>
-<dt>Nom d’utilisateur</dt><dd>{{.Username}}</dd></dl><p class="text-body-secondary">Les corrections de prénom, nom et date de naissance sont vérifiées par le club pour préserver le suivi de votre dossier. Le nom d’utilisateur reste fixe.</p></section>
+<dt>Nom d’utilisateur</dt><dd>{{.Username}}</dd></dl><p class="text-body-secondary">Les corrections de prénom, nom et date de naissance sont vérifiées par le club pour préserver le suivi de votre dossier. Le nom d’utilisateur reste fixe.</p>{{if .IdentityCorrectionPending}}<p role="status">Une demande de correction est en cours de vérification.</p>{{end}}</section>
 <section class="section-panel"><div class="section-heading account-section-heading"><h2>Coordonnées</h2><a class="btn btn-sm btn-outline-primary" href="/me/account/profile" aria-label="Éditer les coordonnées">Éditer</a></div><dl>
 <dt>Email</dt><dd>{{if .Email}}{{.Email}}{{else}}Non renseigné{{end}}</dd>
 <dt>Téléphone</dt><dd>{{if .Phone}}{{.Phone}}{{else}}Non renseigné{{end}}</dd>
 <dt>Adresse</dt><dd class="reading-text">{{if .Address}}{{.Address}}{{else}}Non renseignée{{end}}</dd></dl>
-<p><a href="/me/account/email">Changer mon email</a></p></section>
+</section>
 {{if .CanManageEmergency}}<section class="section-panel"><h2>Contacts d’urgence</h2><a href="/me/emergency">Gérer mes contacts d’urgence</a></section>{{end}}
 <section class="section-panel"><h2>Connexion et sécurité</h2><p>État du compte : Actif</p><a class="btn btn-outline-primary" href="/me/account/password">Changer mon mot de passe</a></section>
 

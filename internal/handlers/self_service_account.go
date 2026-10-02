@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/grapinou/club-core/internal/accounts"
 	"github.com/grapinou/club-core/internal/auth"
@@ -28,11 +29,26 @@ func RegisterSelfServiceAccount(mux *http.ServeMux, site string, s *accounts.Sel
 					return
 				}
 				var err error
+				emailChanged := false
 				switch kind {
 				case "profile":
 					v.Phone = r.PostForm.Get("phone_number")
 					v.Address = r.PostForm.Get("address")
-					err = s.UpdateContact(r.Context(), v.Phone, v.Address)
+					a, e := personal.GetMyAccount(r.Context())
+					if e != nil {
+						personalError(w, r, e)
+						return
+					}
+					v.Email = a.Email
+					if r.PostForm.Has("new_email") {
+						v.Email = r.PostForm.Get("new_email")
+					}
+					if !strings.EqualFold(strings.TrimSpace(v.Email), strings.TrimSpace(a.Email)) && !limiter.Allow(fmt.Sprintf("account-%d-email", id)) {
+						w.Header().Set("Retry-After", "900")
+						http.Error(w, "Trop de tentatives. Réessayez plus tard.", 429)
+						return
+					}
+					emailChanged, err = s.UpdateCoordinates(r.Context(), v.Email, v.Phone, v.Address, r.PostForm.Get("current_password"))
 				case "email":
 					v.Email = r.PostForm.Get("new_email")
 					err = s.RequestEmail(r.Context(), v.Email, r.PostForm.Get("current_password"))
@@ -51,8 +67,11 @@ func RegisterSelfServiceAccount(mux *http.ServeMux, site string, s *accounts.Sel
 				}
 				if err == nil {
 					target := "/me/account/" + kind + "?saved=1"
-					if kind == "email" {
+					if kind == "email" || emailChanged {
 						target = "/me/account/email/verify?sent=1"
+						if kind == "profile" {
+							target += "&contacts_saved=1"
+						}
 					}
 					http.Redirect(w, r, target, http.StatusSeeOther)
 					return
@@ -68,6 +87,9 @@ func RegisterSelfServiceAccount(mux *http.ServeMux, site string, s *accounts.Sel
 					w.Header().Set("Retry-After", "3600")
 				case errors.Is(err, accounts.ErrEmailChangeDelivery):
 					v.Error = "L’envoi du code est temporairement indisponible. Votre adresse actuelle reste inchangée."
+					if kind == "profile" && emailChanged {
+						v.Message = "Vos téléphone et adresse ont été enregistrés. Réessayez l’envoi du code pour vérifier le nouvel email."
+					}
 					status = 503
 				case errors.Is(err, accounts.ErrSelfServiceUnavailable):
 					http.NotFound(w, r)
@@ -83,6 +105,7 @@ func RegisterSelfServiceAccount(mux *http.ServeMux, site string, s *accounts.Sel
 						personalError(w, r, err)
 						return
 					}
+					v.Email = a.Email
 					v.Phone = a.Phone
 					v.Address = a.Address
 				}
@@ -90,7 +113,10 @@ func RegisterSelfServiceAccount(mux *http.ServeMux, site string, s *accounts.Sel
 					v.Message = map[string]string{"profile": "Vos coordonnées ont été mises à jour.", "email/verify": "Votre nouvelle adresse email a été vérifiée.", "password": "Votre mot de passe a été modifié."}[kind]
 				}
 				if kind == "email/verify" && r.URL.Query().Get("sent") == "1" {
-					v.Message = "Un code de vérification a été envoyé à la nouvelle adresse."
+					v.Message = "Un code de vérification a été envoyé à la nouvelle adresse. Votre adresse actuelle reste utilisée jusqu’à validation."
+					if r.URL.Query().Get("contacts_saved") == "1" {
+						v.Message = "Vos téléphone et adresse ont été enregistrés. " + v.Message
+					}
 				}
 			}
 			var body bytes.Buffer

@@ -27,7 +27,7 @@ func TestFamilyUXMigrationPreservesAdministrativeAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = provider.Up(t.Context()); err != nil {
+	if _, err = provider.UpTo(t.Context(), 2); err != nil {
 		t.Fatal(err)
 	}
 	var n int
