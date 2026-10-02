@@ -26,10 +26,21 @@ type PublicHandler struct {
 	limiter  *AttemptLimiter
 	sender   mailer.Mailer
 	mailFrom string
+	now      func() time.Time
 }
 
-func NewPublicHandler(s *organization.Service, loc *time.Location, rules string, trialService *trials.PublicService, limiter *AttemptLimiter, sender mailer.Mailer, mailFrom string) *PublicHandler {
-	return &PublicHandler{service: s, location: loc, rules: rules, trials: trialService, limiter: limiter, sender: sender, mailFrom: mailFrom}
+type PublicHandlerOption func(*PublicHandler)
+
+// WithPublicClock keeps civil date/hour tests independent of the machine clock.
+func WithPublicClock(now func() time.Time) PublicHandlerOption {
+	return func(h *PublicHandler) { h.now = now }
+}
+func NewPublicHandler(s *organization.Service, loc *time.Location, rules string, trialService *trials.PublicService, limiter *AttemptLimiter, sender mailer.Mailer, mailFrom string, options ...PublicHandlerOption) *PublicHandler {
+	h := &PublicHandler{service: s, location: loc, rules: rules, trials: trialService, limiter: limiter, sender: sender, mailFrom: mailFrom, now: time.Now}
+	for _, option := range options {
+		option(h)
+	}
+	return h
 }
 func (h *PublicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost && h.limiter != nil && !h.limiter.AllowRequest(r) {
@@ -91,7 +102,7 @@ func (h *PublicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			data.Prices, err = h.service.PublicPrices(r.Context())
 		case "/horaires":
 			var schedule organization.PublicTimetable
-			schedule, err = h.service.PublicSchedule(r.Context(), time.Now().In(h.location))
+			schedule, err = h.service.PublicSchedule(r.Context(), h.now().In(h.location))
 			data.Season = schedule.Season
 			data.HasSlots = len(schedule.Slots) > 0
 			days := []string{"Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"}
@@ -127,7 +138,8 @@ func (h *PublicHandler) trialPage(r *http.Request, data *views.PublicPage, club 
 	} else {
 		data.Form = r.URL.Query()
 	}
-	offerings, err := h.trials.Offerings(r.Context(), time.Now().In(h.location))
+	now := h.now()
+	offerings, err := h.trials.Offerings(r.Context(), now)
 	if err != nil {
 		return err
 	}
@@ -153,6 +165,10 @@ func (h *PublicHandler) trialPage(r *http.Request, data *views.PublicPage, club 
 		return nil
 	}
 	data.Errors = map[string]string{}
+	if data.Form.Get("equipment_needed") != "yes" {
+		data.Form.Set("equipment_details", "")
+	}
+
 	b := trials.PublicBooking{Offering: trials.PublicOffering{ActivityID: data.SelectedActivity, SlotID: data.SelectedSlot}, Date: data.Form.Get("date"), FirstName: data.Form.Get("first_name"), LastName: data.Form.Get("last_name"), BirthDate: data.Form.Get("birth_date"), Email: data.Form.Get("email"), Phone: data.Form.Get("phone"), GuardianFirstName: data.Form.Get("guardian_first_name"), GuardianLastName: data.Form.Get("guardian_last_name"), GuardianEmail: data.Form.Get("guardian_email"), GuardianPhone: data.Form.Get("guardian_phone"), Relationship: data.Form.Get("relationship"), EquipmentNeeded: data.Form.Get("equipment_needed") == "yes", EquipmentDetails: data.Form.Get("equipment_details")}
 	for _, o := range offerings {
 		if o.ActivityID == b.Offering.ActivityID && o.SlotID == b.Offering.SlotID {
@@ -177,7 +193,7 @@ func (h *PublicHandler) trialPage(r *http.Request, data *views.PublicPage, club 
 	if club.TrialEquipmentOffer != "" && data.Form.Get("equipment_needed") != "yes" && data.Form.Get("equipment_needed") != "no" {
 		data.Errors["equipment_needed"] = "Indiquez si du matériel est nécessaire."
 	}
-	if data.Form.Get("step") != "contacts" && b.EquipmentNeeded && club.TrialEquipmentDetailPrompt != "" && strings.TrimSpace(b.EquipmentDetails) == "" {
+	if b.EquipmentNeeded && club.TrialEquipmentDetailPrompt != "" && strings.TrimSpace(b.EquipmentDetails) == "" {
 		data.Errors["equipment_details"] = "Ajoutez la précision demandée par le club."
 	}
 	if len(b.EquipmentDetails) > 500 {
@@ -189,15 +205,19 @@ func (h *PublicHandler) trialPage(r *http.Request, data *views.PublicPage, club 
 		}
 	}
 	birth, birthErr := time.Parse("2006-01-02", b.BirthDate)
-	if birthErr != nil || birth.After(time.Now().In(h.location)) {
+	civilToday, _ := trials.PublicWindow(now, h.location)
+	if birthErr != nil || birth.After(civilToday) || birth.Before(civilToday.AddDate(-120, 0, 0)) {
 		data.Errors["birth_date"] = "Indiquez une date de naissance valide."
 	} else {
-		today := time.Now().In(h.location)
+		today := now.In(h.location)
 		b.Minor = civildate.IsMinor(birth, today)
 		data.BookingMinor = b.Minor
 		data.ContactStep = true
 	}
 	if data.Form.Get("step") == "contacts" {
+		if len(data.Errors) > 0 {
+			data.ContactStep = false
+		}
 		return nil
 	}
 	checkEmail := func(field string) {
@@ -228,7 +248,7 @@ func (h *PublicHandler) trialPage(r *http.Request, data *views.PublicPage, club 
 	if len(data.Errors) > 0 {
 		return nil
 	}
-	confirmation, err := h.trials.Book(r.Context(), b, time.Now().In(h.location))
+	confirmation, err := h.trials.Book(r.Context(), b, h.now().In(h.location))
 	if errors.Is(err, trials.ErrInvalidPublicBooking) || errors.Is(err, trials.ErrInvalidSchedule) {
 		data.Errors["form"] = "Vérifiez les informations et la séance choisie. Le créneau a peut-être changé."
 		return nil

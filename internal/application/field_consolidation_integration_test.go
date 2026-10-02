@@ -25,8 +25,12 @@ func TestP432PublicWindowAndProgressiveForm(t *testing.T) {
 		first, last := trials.PublicWindow(now, loc)
 		offers, err := svc.Offerings(t.Context(), now)
 		f.must(err)
-		if len(offers) != 1 || offers[0].Dates[0] != first.Format("2006-01-02") {
-			t.Fatal("next Monday", offers)
+		nextMonday := first
+		for nextMonday.Weekday() != time.Monday {
+			nextMonday = nextMonday.AddDate(0, 0, 1)
+		}
+		if len(offers) != 1 || offers[0].Dates[0] != nextMonday.Format("2006-01-02") {
+			t.Fatal("first available Monday", offers)
 		}
 		for _, raw := range offers[0].Dates {
 			d, _ := time.Parse("2006-01-02", raw)
@@ -52,13 +56,13 @@ func TestP432PublicWindowAndProgressiveForm(t *testing.T) {
 	}
 	offers, err := svc.Offerings(t.Context(), time.Now())
 	f.must(err)
-	form := url.Values{"csrf_token": {hiddenValue(t, body, "csrf_token")}, "activity": {fmt.Sprint(f.activity)}, "slot": {fmt.Sprint(slot)}, "date": {offers[0].Dates[0]}, "first_name": {"Enfant"}, "last_name": {"Essai"}, "birth_date": {"2015-01-01"}, "equipment_needed": {"yes"}, "step": {"contacts"}}
+	form := url.Values{"csrf_token": {hiddenValue(t, body, "csrf_token")}, "activity": {fmt.Sprint(f.activity)}, "slot": {fmt.Sprint(slot)}, "date": {offers[0].Dates[0]}, "first_name": {"Enfant"}, "last_name": {"Essai"}, "birth_date": {"2015-01-01"}, "equipment_needed": {"yes"}, "equipment_details": {"140 cm"}, "step": {"contacts"}}
 	before := f.count("SELECT count(*) FROM persons")
 	r := b.call("POST", "/essai", form)
 	if r.Code != 200 || f.count("SELECT count(*) FROM persons") != before {
 		t.Fatal("intermediate step writes", r.Code)
 	}
-	for _, field := range []string{"guardian_first_name", "guardian_last_name", "guardian_email", "guardian_phone", "relationship", "equipment_details"} {
+	for _, field := range []string{"guardian_first_name", "guardian_last_name", "guardian_email", "guardian_phone", "relationship"} {
 		body = r.Body.String()
 		tag := regexp.MustCompile("<(?:input|select)[^>]*name=\"" + field + "\"[^>]*>").FindString(body)
 		if !strings.Contains(tag, "required") {
@@ -89,7 +93,7 @@ func TestP432PublicWindowAndProgressiveForm(t *testing.T) {
 	if r.Code != 200 || !strings.Contains(r.Body.String(), "Votre demande d’essai est enregistrée") {
 		t.Fatal("minor booking", r.Code, r.Body.String())
 	}
-	form.Set("date", time.Now().Format("2006-01-02"))
+	form.Set("date", time.Now().AddDate(0, 0, -1).Format("2006-01-02"))
 	if b.call("POST", "/essai", form).Code != 422 {
 		t.Fatal("forged date")
 	}

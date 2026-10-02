@@ -1,5 +1,5 @@
 {{define "content"}}
-<header class="page-header"><h1>Vérifications</h1><p>{{.RegistrationReviewCount}} dossier(s) d’inscription à traiter. Les dossiers à traiter apparaissent en premier. Les vérifications email en cours restent consultables, sans être comptées parmi les interventions nécessaires.</p></header>
+<header class="page-header"><h1>Vérifications</h1><p>{{.RegistrationReviewCount}} vérification(s) à traiter. Les dossiers à traiter apparaissent en premier. Les vérifications email en cours restent consultables, sans être comptées parmi les interventions nécessaires.</p></header>
 <section class="section-panel"><h2>Corrections d’identité · {{.PendingCorrections}} en attente</h2><a href="/identity-corrections">Consulter les corrections</a>{{range .Corrections}}{{if eq .Status "En attente"}}<p><a href="/identity-corrections/{{.ID}}">{{.Name}}</a> · Demande du {{.CreatedAt}}</p>{{end}}{{end}}</section>
 {{if and (eq .RegistrationReviewCount 0) (eq .PendingCorrections 0)}}<p class="empty-state">Aucune vérification ne nécessite votre intervention.</p>{{end}}
 {{if .Rows}}<table class="table align-middle data-list"><caption class="visually-hidden">Demandes et raisons de vérification</caption><thead><tr><th scope="col">Personne concernée</th><th scope="col">Pourquoi vérifier ?</th><th scope="col">Action</th></tr></thead><tbody>

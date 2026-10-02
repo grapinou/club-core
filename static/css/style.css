@@ -115,7 +115,14 @@ footer { background: white; margin-top: 2rem; }
 .booking-confirmation dl {display:grid;grid-template-columns:minmax(7rem,10rem) 1fr;gap:.4rem 1rem}
 .booking-confirmation dt {font-weight:700}
 
-#choix-seance, #choix-date {scroll-margin-top:1rem}
+html {scroll-behavior:smooth}
+@media(prefers-reduced-motion:reduce) {html {scroll-behavior:auto}}
+#choix-seance, #choix-date, #coordonnees {scroll-margin-top:1rem}
+/* Without :has support, the optional field stays visible; server enforces Yes. */
+@supports selector(:has(*)) {
+ .booking-equipment:not(:has(input[name="equipment_needed"][value="yes"]:checked)) .booking-equipment-details,
+ .booking-equipment:not(:has(input[name="equipment_needed"][value="yes"]:checked)) .equipment-required {display:none}
+}
 .public-hero:not(:has(.public-hero__visual)),.public-feature:not(:has(.public-picture)) {display:block}
 .public-picture--compact img {max-height:11rem;object-position:center 58%}
 .schedule-intro__visual img {max-height:9.5rem;object-position:center 34%}

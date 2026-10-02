@@ -9,7 +9,7 @@
 <a href="/memberships">Toutes les adhésions</a></section>{{end}}
 {{if .Home.TodayTrials}}<section class="section-panel"><h2>Essais d’aujourd’hui</h2>{{range .Home.TodayTrials}}{{template "attention-trial" .}}{{end}}</section>{{end}}
 {{if .Home.TomorrowTrials}}<section class="section-panel"><h2>Essais de demain</h2>{{range .Home.TomorrowTrials}}{{template "attention-trial" .}}{{end}}</section>{{end}}
-{{if .CanReviewRegistrations}}{{if .RegistrationReviewCount}}<p class="section-panel"><a href="/registration-reviews">{{.RegistrationReviewCount}} demande(s) d’inscription à vérifier</a></p>{{end}}{{end}}
+{{if .CanReviewRegistrations}}{{if .Home.RegistrationReviews}}<p class="section-panel"><a href="/registration-reviews">{{.Home.RegistrationReviews}} demande(s) d’inscription à vérifier</a></p>{{end}}{{end}}
 {{if and .CanReviewRegistrations .Home.IdentityCorrections}}<p class="section-panel"><a href="/identity-corrections">{{.Home.IdentityCorrections}} correction{{if gt .Home.IdentityCorrections 1}}s{{end}} d’identité à vérifier</a></p>{{end}}
 {{if .ActivationMemberships}}<section class="section-panel"><h2>Adhésions validées · compte à activer</h2>
 {{range .Preview .ActivationMemberships}}<p><a href="/memberships/{{.ID}}#compte">{{.Name}}</a> · {{.Season}} · {{.ActionLabel}}</p>{{end}}<a href="/memberships">Toutes les adhésions</a></section>{{end}}

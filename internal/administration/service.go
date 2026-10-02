@@ -95,6 +95,7 @@ type Home struct {
 	Upcoming                    []dbsqlc.AdministrativeTrialsRow
 	TodayTrials, TomorrowTrials []dbsqlc.AdministrativeTrialsRow
 	IdentityCorrections         int64
+	RegistrationReviews         int64
 	Memberships                 []memberships.ListEntry
 }
 
@@ -129,6 +130,10 @@ func (s *Service) Dashboard(ctx context.Context) (Home, error) {
 		return d, err
 	}
 	if allowed {
+		d.RegistrationReviews, err = s.q.CountOpenRegistrationReviews(ctx)
+		if err != nil {
+			return d, err
+		}
 		d.IdentityCorrections, err = s.q.CountPendingIdentityCorrections(ctx)
 		if err != nil {
 			return d, err

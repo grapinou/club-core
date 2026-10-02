@@ -142,7 +142,7 @@ func TestPublicTrialBooking(t *testing.T) {
 		{"inactive group", nil, "UPDATE groups SET is_active=false WHERE id=?1"},
 		{"inactive activity", nil, "UPDATE activities SET is_active=false WHERE id=?1"},
 		{"inactive season", nil, "UPDATE seasons SET is_active=false"},
-		{"outside period", nil, "UPDATE group_slots SET valid_until=CURRENT_DATE WHERE id=?1"},
+		{"outside period", nil, "UPDATE group_slots SET valid_until=date('now','-1 days') WHERE id=?1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -297,8 +297,12 @@ func TestPublicTrialInclusiveCalendarBoundary(t *testing.T) {
 			if err := demodata.SeedBudokan(t.Context(), db, true); err != nil {
 				t.Fatal(err)
 			}
-			now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
-			first, last := trials.PublicWindow(now, time.UTC)
+			loc, err := time.LoadLocation("Europe/Paris")
+			if err != nil {
+				t.Fatal(err)
+			}
+			now := time.Date(2026, 10, 5, 12, 0, 0, 0, loc)
+			first, last := trials.PublicWindow(now, loc)
 			seasonEnd, slotEnd := last, last
 			if boundary == "season_end" {
 				seasonEnd = first
@@ -311,7 +315,7 @@ func TestPublicTrialInclusiveCalendarBoundary(t *testing.T) {
 			if _, err := db.ExecContext(t.Context(), "UPDATE group_slots SET valid_from=?1,valid_until=?2", first.Format("2006-01-02"), slotEnd.Format("2006-01-02")); err != nil {
 				t.Fatal(err)
 			}
-			service := trials.NewPublic(db, time.UTC)
+			service := trials.NewPublic(db, loc)
 			offers, err := service.Offerings(t.Context(), now)
 			if err != nil || len(offers) != 3 {
 				t.Fatal("inclusive Monday boundary offerings", len(offers), err)

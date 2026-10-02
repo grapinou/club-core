@@ -31,6 +31,7 @@ import (
 	"github.com/grapinou/club-core/internal/router"
 	"github.com/grapinou/club-core/internal/trials"
 	"github.com/grapinou/club-core/internal/useraccess"
+	"github.com/grapinou/club-core/internal/verifications"
 	"github.com/grapinou/club-core/internal/websecurity"
 )
 
@@ -95,7 +96,7 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *sql.DB, sender
 	access.SetRoleReader(queries)
 	reviews := identityresolution.NewReviewService(db, permissions)
 	reviews.SetFinalizer(applications)
-	access.SetRegistrationCounter(reviews)
+	access.SetRegistrationCounter(verifications.New(reviews, queries))
 	csrf := websecurity.NewCSRF(runtime.SecureCookies)
 	office := administration.New(db, permissions, m, runtime.Location)
 	officeHandler := handlers.NewAdministrativeHandler(cfg.SiteName, office, permissions)
