@@ -53,7 +53,7 @@
 {{if .CanReadPersons}}<a href="/admin" {{if eq .CurrentPath "/admin"}}aria-current="page"{{end}}>Mon tableau de bord</a>{{end}}
 {{if .CanReadMemberships}}<a href="/memberships" {{if .InSection "/memberships"}}aria-current="page"{{end}}>Adhésions</a>{{end}}
 {{if .CanReviewRegistrations}}<a href="/registration-reviews" {{if .InSection "/registration-reviews"}}aria-current="page"{{end}}>Inscriptions à vérifier ({{.RegistrationReviewCount}})</a>{{end}}
-{{if .CanReadPersons}}<a href="/trials" {{if .InSection "/trials"}}aria-current="page"{{end}}>Essais</a><a href="/members" {{if .InSection "/members"}}aria-current="page"{{end}}>Membres</a><a href="/guardians" {{if .InSection "/guardians"}}aria-current="page"{{end}}>Responsables</a><a href="/prospects" {{if .InSection "/prospects"}}aria-current="page"{{end}}>Prospects</a><a href="/persons" {{if .InSection "/persons"}}aria-current="page"{{end}}>Annuaire</a>{{end}}
+{{if .CanReadPersons}}<a href="/trials" {{if .InSection "/trials"}}aria-current="page"{{end}}>Essais ({{.TodayTrialCount}})</a><a href="/members" {{if .InSection "/members"}}aria-current="page"{{end}}>Membres</a><a href="/guardians" {{if .InSection "/guardians"}}aria-current="page"{{end}}>Responsables</a><a href="/prospects" {{if .InSection "/prospects"}}aria-current="page"{{end}}>Prospects</a><a href="/persons" {{if .InSection "/persons"}}aria-current="page"{{end}}>Annuaire</a>{{end}}
 {{if .CanReadUsers}}<a href="/admin/users" {{if .InSection "/admin/users"}}aria-current="page"{{end}}>Utilisateurs</a>{{end}}
 {{if .CanConfigureClub}}<a href="/admin/config" {{if .InSection "/admin/config"}}aria-current="page"{{end}}>Configurer le club</a>{{end}}
 </div></nav>{{end}}</header>

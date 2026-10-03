@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/grapinou/club-core/internal/administration"
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/authorization"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
@@ -22,6 +23,9 @@ type Access struct {
 	counter interface {
 		CountOpen(context.Context, int32) (int64, error)
 	}
+	trialCounter interface {
+		Counts(context.Context) (dbsqlc.AdministrativeCountsRow, error)
+	}
 	roles    authorization.RoleReader
 	checker  PermissionChecker
 	siteName string
@@ -36,6 +40,12 @@ func (a *Access) SetRegistrationCounter(counter interface {
 	CountOpen(context.Context, int32) (int64, error)
 }) {
 	a.counter = counter
+}
+
+func (a *Access) SetTrialCounter(counter interface {
+	Counts(context.Context) (dbsqlc.AdministrativeCountsRow, error)
+}) {
+	a.trialCounter = counter
 }
 
 func RequireAuthenticated(next http.Handler) http.Handler {
@@ -86,6 +96,7 @@ func (a *Access) RequireMembershipContinuation(next http.Handler) http.Handler {
 
 type administrativeRolesKey struct{}
 type navigationKey struct{}
+type trialCountNavigationKey struct{}
 type personalNavigationKey struct{}
 
 func (a *Access) SetPersonalContext(s interface {
@@ -126,6 +137,12 @@ func (a *Access) Navigation(next http.Handler) http.Handler {
 			allowed, err := a.checker.HasPermission(r.Context(), id, authorization.PersonsRead)
 			if err == nil {
 				r = r.WithContext(context.WithValue(r.Context(), navigationKey{}, allowed))
+				if allowed && a.trialCounter != nil {
+					counts, countErr := a.trialCounter.Counts(r.Context())
+					if countErr == nil {
+						r = r.WithContext(context.WithValue(administration.WithCounts(r.Context(), counts), trialCountNavigationKey{}, counts.TodayTrials))
+					}
+				}
 			}
 			membershipRead, membershipErr := a.checker.HasPermission(r.Context(), id, authorization.MembershipsRead)
 			if membershipErr == nil {
@@ -158,6 +175,7 @@ func (a *Access) Navigation(next http.Handler) http.Handler {
 }
 func pageSecurity(r *http.Request) views.SecurityData {
 	hasPersonal, _ := r.Context().Value(personalNavigationKey{}).(bool)
+	todayTrials, _ := r.Context().Value(trialCountNavigationKey{}).(int64)
 	canRead, _ := r.Context().Value(navigationKey{}).(bool)
 	canReadMemberships, _ := r.Context().Value(membershipNavigationKey{}).(bool)
 	review, _ := r.Context().Value(registrationNavigationKey{}).(registrationNavigation)
@@ -167,7 +185,7 @@ func pageSecurity(r *http.Request) views.SecurityData {
 	canManageRoles, _ := r.Context().Value(roleManagementNavigationKey{}).(bool)
 	canConfigureClub, _ := r.Context().Value(clubConfigurationNavigationKey{}).(bool)
 	labels, _ := r.Context().Value(administrativeRolesKey{}).([]string)
-	return views.SecurityData{HasPersonalContext: hasPersonal, AdministrativeRoles: labels, Authenticated: authenticated, CanWritePersons: canWrite, CurrentPath: r.URL.Path, CanReviewRegistrations: review.allowed, RegistrationReviewCount: review.count, CanReadMemberships: canReadMemberships, CanReadPersons: canRead, CanReadUsers: canReadUsers, CanManageRoles: canManageRoles, CanConfigureClub: canConfigureClub, CSRFToken: websecurity.Token(r.Context())}
+	return views.SecurityData{HasPersonalContext: hasPersonal, AdministrativeRoles: labels, Authenticated: authenticated, CanWritePersons: canWrite, CurrentPath: r.URL.Path, CanReviewRegistrations: review.allowed, RegistrationReviewCount: review.count, TodayTrialCount: todayTrials, CanReadMemberships: canReadMemberships, CanReadPersons: canRead, CanReadUsers: canReadUsers, CanManageRoles: canManageRoles, CanConfigureClub: canConfigureClub, CSRFToken: websecurity.Token(r.Context())}
 }
 
 // Display only: permissions remain exclusively controlled by authorization.Service.

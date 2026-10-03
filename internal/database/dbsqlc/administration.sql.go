@@ -682,6 +682,57 @@ func (q *Queries) RecentAdministrativePersons(ctx context.Context) ([]RecentAdmi
 	return items, nil
 }
 
+const repeatTrialPersons = `-- name: RepeatTrialPersons :many
+SELECT p.id,p.first_name,p.last_name,t.trial_date AS last_trial_date
+FROM persons p
+JOIN trial_registrations t ON t.id=(SELECT latest.id FROM trial_registrations latest
+ WHERE latest.person_id=p.id ORDER BY latest.trial_date DESC,latest.id DESC LIMIT 1)
+WHERE p.archived_at IS NULL
+ AND (?1='' OR instr(unicode_lower(p.first_name||' '||p.last_name),unicode_lower(?1))>0)
+ORDER BY t.trial_date DESC,p.last_name,p.first_name,p.id
+LIMIT 51 OFFSET ?2
+`
+
+type RepeatTrialPersonsParams struct {
+	Search     interface{}
+	PageOffset int32
+}
+
+type RepeatTrialPersonsRow struct {
+	ID            int32
+	FirstName     string
+	LastName      string
+	LastTrialDate dbtypes.Date
+}
+
+func (q *Queries) RepeatTrialPersons(ctx context.Context, arg RepeatTrialPersonsParams) ([]RepeatTrialPersonsRow, error) {
+	rows, err := q.db.QueryContext(ctx, repeatTrialPersons, arg.Search, arg.PageOffset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RepeatTrialPersonsRow
+	for rows.Next() {
+		var i RepeatTrialPersonsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.FirstName,
+			&i.LastName,
+			&i.LastTrialDate,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchAdministrativePersons = `-- name: SearchAdministrativePersons :many
 SELECT CAST(coalesce(lm.id,0) AS INTEGER) AS membership_id, coalesce(lm_season.name,'') AS membership_season, coalesce(lm.status,'') AS membership_status,
  coalesce(lt.id,0) AS trial_id, lt.trial_date AS last_trial_date,

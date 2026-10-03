@@ -116,3 +116,13 @@ ORDER BY t.trial_date DESC,t.id DESC;
 
 -- name: GetSeason :one
 SELECT * FROM seasons WHERE id=sqlc.arg(id);
+
+-- name: RepeatTrialPersons :many
+SELECT p.id,p.first_name,p.last_name,t.trial_date AS last_trial_date
+FROM persons p
+JOIN trial_registrations t ON t.id=(SELECT latest.id FROM trial_registrations latest
+ WHERE latest.person_id=p.id ORDER BY latest.trial_date DESC,latest.id DESC LIMIT 1)
+WHERE p.archived_at IS NULL
+ AND (sqlc.arg(search)='' OR instr(unicode_lower(p.first_name||' '||p.last_name),unicode_lower(sqlc.arg(search)))>0)
+ORDER BY t.trial_date DESC,p.last_name,p.first_name,p.id
+LIMIT 51 OFFSET sqlc.arg(page_offset);

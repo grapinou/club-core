@@ -36,6 +36,7 @@ type AdministrativeView struct {
 	More, CanManageMemberships           bool
 	Home                                 administration.Home
 	People                               []dbsqlc.SearchAdministrativePersonsRow
+	RepeatPeople                         []dbsqlc.RepeatTrialPersonsRow
 	Person                               administration.Person
 	Trials                               []dbsqlc.AdministrativeTrialsRow
 	Trial                                dbsqlc.AdministrativeTrialsRow
@@ -81,7 +82,7 @@ func (v AdministrativeView) Past(d dbtypes.Date) bool {
 
 //go:embed templates/layouts/base.html templates/pages/administration.html
 var administrativeFiles embed.FS
-var administrativeTemplate = template.Must(template.New("administration").Funcs(template.FuncMap{"date": date, "iso": func(d dbtypes.Date) string {
+var administrativeTemplate = template.Must(template.New("administration").Funcs(template.FuncMap{"date": date, "trialAge": AgeAt, "iso": func(d dbtypes.Date) string {
 	if !d.Valid {
 		return ""
 	}

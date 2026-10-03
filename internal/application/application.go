@@ -99,6 +99,7 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *sql.DB, sender
 	access.SetRegistrationCounter(verifications.New(reviews, queries))
 	csrf := websecurity.NewCSRF(runtime.SecureCookies)
 	office := administration.New(db, permissions, m, runtime.Location)
+	access.SetTrialCounter(office)
 	officeHandler := handlers.NewAdministrativeHandler(cfg.SiteName, office, permissions)
 	publicClub := organization.New(db)
 	mux := router.NewWithPublic(cfg, queries, access, csrf, handlers.NewPublicHandler(publicClub, runtime.Location, cfg.Rules.Description, trials.NewPublic(db, runtime.Location), submissionLimiter, sender, runtime.SMTP.From), http.HandlerFunc(officeHandler.People))

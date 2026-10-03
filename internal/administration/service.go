@@ -109,7 +109,7 @@ func (s *Service) Dashboard(ctx context.Context) (Home, error) {
 	}
 	today := s.Today()
 	var err error
-	d.Counts, err = s.q.AdministrativeCounts(ctx, today)
+	d.Counts, err = s.Counts(ctx)
 	if err != nil {
 		return d, err
 	}
@@ -144,6 +144,35 @@ func (s *Service) Dashboard(ctx context.Context) (Home, error) {
 	d.Memberships, err = s.memberships.List(ctx)
 	return d, err
 }
+
+type countsContextKey struct{}
+
+// WithCounts shares navigation's snapshot with the dashboard during one request.
+func WithCounts(ctx context.Context, counts dbsqlc.AdministrativeCountsRow) context.Context {
+	return context.WithValue(ctx, countsContextKey{}, counts)
+}
+
+// Counts reuses the dashboard query; callers must already be able to read trials.
+func (s *Service) Counts(ctx context.Context) (dbsqlc.AdministrativeCountsRow, error) {
+	if _, err := s.require(ctx, authorization.PersonsRead); err != nil {
+		return dbsqlc.AdministrativeCountsRow{}, err
+	}
+	if counts, ok := ctx.Value(countsContextKey{}).(dbsqlc.AdministrativeCountsRow); ok {
+		return counts, nil
+	}
+	return s.q.AdministrativeCounts(ctx, s.Today())
+}
+
+func (s *Service) RepeatTrialPersons(ctx context.Context, search string, page int32) ([]dbsqlc.RepeatTrialPersonsRow, error) {
+	if _, err := s.require(ctx, authorization.PersonsRead); err != nil {
+		return nil, err
+	}
+	if page < 0 || page > 10000 || len(search) > 254 {
+		return nil, ErrInvalid
+	}
+	return s.q.RepeatTrialPersons(ctx, dbsqlc.RepeatTrialPersonsParams{Search: strings.TrimSpace(search), PageOffset: page * 50})
+}
+
 func (s *Service) People(ctx context.Context, search string, page int32, filter string) ([]dbsqlc.SearchAdministrativePersonsRow, error) {
 	if _, err := s.require(ctx, authorization.PersonsRead); err != nil {
 		return nil, err

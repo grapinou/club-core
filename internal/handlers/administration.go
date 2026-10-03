@@ -39,7 +39,7 @@ func NewAdministrativeHandler(site string, s *administration.Service, p Permissi
 func (h *AdministrativeHandler) base(r *http.Request, mode string) views.AdministrativeView {
 	id, _ := auth.UserID(r.Context())
 	write, _ := h.p.HasPermission(r.Context(), id, authorization.MembershipsApprove)
-	title := map[string]string{"home": "Mon tableau de bord", "people": "Annuaire", "person": "Coordonnées et parcours", "trials": "Essais", "trial": "Dossier d’essai", "trial-form": "Programmer un essai", "trial-person": "Programmer un essai", "membership-new": "Demander une adhésion", "membership-person": "Créer une adhésion", "membership-groups": "Groupes de l’adhésion", "membership-notes": "Notes de l’adhésion"}[mode]
+	title := map[string]string{"home": "Mon tableau de bord", "people": "Annuaire", "person": "Coordonnées et parcours", "trials": "Essais", "trial": "Dossier d’essai", "trial-form": "Programmer un essai", "trial-person": "Programmer un essai", "trial-repeat": "Refaire un essai", "membership-new": "Demander une adhésion", "membership-person": "Créer une adhésion", "membership-groups": "Groupes de l’adhésion", "membership-notes": "Notes de l’adhésion"}[mode]
 	return views.AdministrativeView{SecurityData: pageSecurity(r), SiteName: h.site, Title: title + " - " + h.site, Mode: mode, Today: h.s.Today(), Form: url.Values{}, CanManageMemberships: write}
 }
 func (h *AdministrativeHandler) render(w http.ResponseWriter, r *http.Request, v views.AdministrativeView, err error) {
@@ -183,7 +183,7 @@ func (h *AdministrativeHandler) Register(mux *http.ServeMux, a *Access, csrf *we
 	reg("POST /persons/{id}/notes", authorization.PersonsWrite, h.person)
 	reg("GET /trials", authorization.PersonsRead, h.listTrials)
 	reg("GET /trials/new", authorization.PersonsWrite, h.trialPerson)
-	reg("POST /trials/new", authorization.PersonsWrite, h.trialPerson)
+	reg("GET /trials/new/repeat", authorization.PersonsWrite, h.repeatTrialPerson)
 	reg("GET /trials/{id}", authorization.PersonsRead, h.trial)
 	for _, action := range []string{"reschedule", "status", "notes"} {
 		reg("POST /trials/{id}/"+action, authorization.PersonsWrite, h.trial)
@@ -627,19 +627,36 @@ func (h *AdministrativeHandler) membershipNotes(w http.ResponseWriter, r *http.R
 	h.render(w, r, v, e)
 }
 
-// trialPerson keeps scheduling in Essais while reusing the Person search.
+// trialPerson orchestrates the existing Person and scheduling flows.
 func (h *AdministrativeHandler) trialPerson(w http.ResponseWriter, r *http.Request) {
-	v := h.base(r, "trial-person")
-	if r.Method == "POST" {
-		v.Search = strings.TrimSpace(r.PostForm.Get("search"))
-	}
+	h.render(w, r, h.base(r, "trial-person"), nil)
+}
+
+func (h *AdministrativeHandler) repeatTrialPerson(w http.ResponseWriter, r *http.Request) {
+	v := h.base(r, "trial-repeat")
+	v.Search = strings.TrimSpace(r.URL.Query().Get("search"))
+	var page int32
 	var err error
-	if v.Search != "" {
-		v.People, err = h.s.People(r.Context(), v.Search, 0, "")
+	if raw := r.URL.Query().Get("page"); raw != "" {
+		n, e := strconv.ParseInt(raw, 10, 32)
+		if e != nil || n < 0 || n > 10000 {
+			err = administration.ErrInvalid
+		} else {
+			page = int32(n)
+		}
 	}
-	if len(v.People) > 50 {
-		v.People = v.People[:50]
-		v.More = true
+	if err == nil {
+		v.RepeatPeople, err = h.s.RepeatTrialPersons(r.Context(), v.Search, page)
+	}
+	link := func(p int32) string {
+		return "/trials/new/repeat?" + url.Values{"search": {v.Search}, "page": {fmt.Sprint(p)}}.Encode()
+	}
+	if len(v.RepeatPeople) > 50 {
+		v.RepeatPeople = v.RepeatPeople[:50]
+		v.NextURL = link(page + 1)
+	}
+	if page > 0 {
+		v.PreviousURL = link(page - 1)
 	}
 	h.render(w, r, v, err)
 }

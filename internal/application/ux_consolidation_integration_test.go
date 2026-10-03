@@ -100,7 +100,8 @@ func TestP41OfficeAttentionAndNextActions(t *testing.T) {
 		t.Fatal("CSRF protection lost")
 	}
 	trial := officeOK(t, b, officeTrial(past), "Marquer présent", "Résultat de l’essai")
-	if strings.Index(trial, "Marquer présent") > strings.Index(trial, "<h2>Séance") {
+	follow := pagePart(t, trial, `<section class="trial-follow-up"`, `</main>`)
+	if strings.Index(follow, "Marquer présent") > strings.Index(follow, "Notes de cet essai") {
 		t.Fatal("past trial result action buried")
 	}
 	officeOK(t, b, officeTrial(future), "Modifier ou reprogrammer", "Renseigner le résultat")

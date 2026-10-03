@@ -17,6 +17,7 @@ type SecurityData struct {
 	CanReadMemberships      bool
 	CanReviewRegistrations  bool
 	RegistrationReviewCount int64
+	TodayTrialCount         int64
 	CSRFToken               string
 }
 
