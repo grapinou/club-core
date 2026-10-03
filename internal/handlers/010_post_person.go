@@ -9,20 +9,20 @@ import (
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
 )
 
-func PostPersonHandler(queries database.PersonQueries) http.HandlerFunc {
+func PostPersonHandler(site string, queries database.PersonQueries) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
 		firstName := strings.TrimSpace(r.FormValue("FirstName"))
 		lastName := strings.TrimSpace(r.FormValue("LastName"))
 
 		if firstName == "" || lastName == "" {
-			http.Error(w, "Nom et prénom obligatoires", http.StatusBadRequest)
+			personFormError(w, r, site, "Nom et prénom obligatoires")
 			return
 		}
 
-		birthDate, err := pgTypeDate(r.FormValue("Birthdate"))
+		birthDate, err := frenchBirthDate(r.FormValue("Birthdate"), false)
 		if err != nil {
-			http.Error(w, "Date de naissance invalide", http.StatusBadRequest)
+			personFormError(w, r, site, "Date de naissance invalide : utilisez JJ/MM/AAAA.")
 			return
 		}
 

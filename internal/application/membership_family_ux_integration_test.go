@@ -248,7 +248,7 @@ func TestP442ProfileAndFamilyDashboard(t *testing.T) {
 	f := newFixture(t)
 	child, parent := f.guardianPair()
 	user, b := f.personalBrowser(parent, "parent")
-	form := url.Values{"first_name": {"Marie"}, "last_name": {"Dupont"}, "phone_number": {"0612345678"}, "address": {"12 rue de Paris"}, "email": {"forged@example.test"}, "birth_date": {"2015-01-01"}, "person_id": {fmt.Sprint(f.person)}}
+	form := url.Values{"first_name": {"Marie"}, "last_name": {"Dupont"}, "phone_number": {"0612345678"}, "address": {"12 rue de Paris"}, "email": {"forged@example.test"}, "birth_date": {"01/01/2015"}, "person_id": {fmt.Sprint(f.person)}}
 	f.accountPost(b, "/me/account/profile", form, 303)
 	if f.count(`SELECT count(*) FROM persons WHERE id=?1 AND first_name='Claire' AND last_name='Famille' AND phone_number='33612345678' AND address='12 rue de Paris' AND email='claire@example.test' AND birth_date='1980-01-01'`, parent) != 1 {
 		t.Fatal("profile scope/secure fields")

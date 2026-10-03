@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/grapinou/club-core/internal/authorization"
+	"github.com/grapinou/club-core/internal/civildate"
 	"github.com/grapinou/club-core/internal/identitycorrections"
 	"github.com/grapinou/club-core/internal/views"
 	"github.com/grapinou/club-core/internal/websecurity"
@@ -40,12 +41,21 @@ func RegisterIdentityCorrections(mux *http.ServeMux, site string, s *identitycor
 		}
 		v := views.IdentityCorrectionView{Mode: "personal", FirstName: a.FirstName, LastName: a.LastName, Pending: a.IdentityCorrectionPending, Errors: map[string]string{}}
 		if a.BirthDate.Valid {
-			v.BirthDate = a.BirthDate.Time.Format("2006-01-02")
+			v.BirthDate = civildate.FormatFrench(a.BirthDate.Time)
 		}
 		status := 200
 		if r.Method == http.MethodPost {
 			v.FirstName, v.LastName, v.BirthDate = r.PostForm.Get("first_name"), r.PostForm.Get("last_name"), r.PostForm.Get("birth_date")
-			err = s.Request(r.Context(), v.FirstName, v.LastName, v.BirthDate)
+			birth, parseErr := frenchBirthDate(v.BirthDate, true)
+			if parseErr != nil {
+				err = identitycorrections.Fields{"birth_date": "Saisissez une date de naissance valide au format JJ/MM/AAAA."}
+			} else {
+				iso := ""
+				if birth.Valid {
+					iso = birth.Time.Format("2006-01-02")
+				}
+				err = s.Request(r.Context(), v.FirstName, v.LastName, iso)
+			}
 			if err == nil {
 				http.Redirect(w, r, "/me/account/identity?sent=1", 303)
 				return

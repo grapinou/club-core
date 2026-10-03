@@ -157,13 +157,13 @@ func TestP444ProgressiveTrialForm(t *testing.T) {
 			t.Fatal("initial form", want)
 		}
 	}
-	form := url.Values{"csrf_token": {hiddenValue(t, body, "csrf_token")}, "activity": {fmt.Sprint(f.activity)}, "slot": {fmt.Sprint(slot)}, "date": {"2026-10-02"}, "first_name": {"Alice"}, "last_name": {"Recette"}, "birth_date": {"1990-01-01"}, "equipment_needed": {"yes"}, "equipment_details": {"1,72 m"}, "step": {"contacts"}}
+	form := url.Values{"csrf_token": {hiddenValue(t, body, "csrf_token")}, "activity": {fmt.Sprint(f.activity)}, "slot": {fmt.Sprint(slot)}, "date": {"2026-10-02"}, "first_name": {"Alice"}, "last_name": {"Recette"}, "birth_date": {"01/01/1990"}, "equipment_needed": {"yes"}, "equipment_details": {"1,72 m"}, "step": {"contacts"}}
 	continued := b.call("POST", "/essai", form)
 	if continued.Code != 200 || continued.Header().Get("Cache-Control") != "no-store" || f.count("SELECT count(*) FROM trial_registrations") != 0 {
 		t.Fatal("continue state", continued.Code)
 	}
 	body = continued.Body.String()
-	for _, want := range []string{`id="coordonnees"`, `value="Alice"`, `value="Recette"`, `value="1990-01-01"`, `value="1,72 m"`, `value="2026-10-02" selected`, `name="email"`, `name="phone"`} {
+	for _, want := range []string{`id="coordonnees"`, `value="Alice"`, `value="Recette"`, `value="01/01/1990"`, `value="1,72 m"`, `value="2026-10-02" selected`, `name="email"`, `name="phone"`} {
 		if !strings.Contains(body, want) {
 			t.Fatal("continue preservation", want)
 		}
@@ -181,7 +181,7 @@ func TestP444ProgressiveTrialForm(t *testing.T) {
 	form.Set("email", "alice@example.test")
 	form.Set("phone", "0612345678")
 	// Changing birth requires guardian coordinates, ignoring the obsolete adult path.
-	form.Set("birth_date", "2015-01-01")
+	form.Set("birth_date", "01/01/2015")
 	switched := b.call("POST", "/essai", form)
 	if switched.Code != 422 || !strings.Contains(switched.Body.String(), `name="guardian_email"`) || f.count("SELECT count(*) FROM persons WHERE first_name='Alice'") != 0 {
 		t.Fatal("minor switch saved wrong contacts")
@@ -205,7 +205,7 @@ func TestP444ProgressiveTrialForm(t *testing.T) {
 	}
 	// Reverse the path: guardian values must not substitute adult coordinates.
 	form.Set("first_name", "Bruno")
-	form.Set("birth_date", "1990-01-01")
+	form.Set("birth_date", "01/01/1990")
 	form.Del("email")
 	form.Del("phone")
 	form.Set("equipment_needed", "no")

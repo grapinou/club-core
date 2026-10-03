@@ -1,14 +1,16 @@
 package handlers
 
 import (
+	"bytes"
 	"net/http"
 	"strings"
 
 	"github.com/grapinou/club-core/internal/database"
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/views"
 )
 
-func PostUpdatePersonHandler(queries database.PersonQueries) http.HandlerFunc {
+func PostUpdatePersonHandler(site string, queries database.PersonQueries) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
 		id, err := parseID(r.PathValue("id"))
@@ -17,17 +19,29 @@ func PostUpdatePersonHandler(queries database.PersonQueries) http.HandlerFunc {
 			return
 		}
 
+		invalid := func(message string) {
+			data := views.PersonUpdateFormPageData{SecurityData: pageSecurity(r), SiteName: site, Title: "Modifier une personne - " + site, Error: message, Person: views.PersonUpdateFormData{ID: id, FirstName: r.FormValue("FirstName"), LastName: r.FormValue("LastName"), BirthDate: r.FormValue("Birthdate"), PhoneNumber: r.FormValue("PhoneNumber"), Email: r.FormValue("Email"), Address: r.FormValue("Address")}}
+			var body bytes.Buffer
+			if err := views.RenderPersonUpdateForm(&body, data); err != nil {
+				http.Error(w, "Erreur interne du serveur", 500)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write(body.Bytes())
+		}
+
 		firstName := strings.TrimSpace(r.FormValue("FirstName"))
 		lastName := strings.TrimSpace(r.FormValue("LastName"))
 
 		if firstName == "" || lastName == "" {
-			http.Error(w, "Nom et prénom obligatoires", http.StatusBadRequest)
+			invalid("Nom et prénom obligatoires")
 			return
 		}
 
-		birthDate, err := pgTypeDate(r.FormValue("Birthdate"))
+		birthDate, err := frenchBirthDate(r.FormValue("Birthdate"), false)
 		if err != nil {
-			http.Error(w, "Date de naissance invalide", http.StatusBadRequest)
+			invalid("Date de naissance invalide : utilisez JJ/MM/AAAA.")
 			return
 		}
 

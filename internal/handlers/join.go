@@ -9,10 +9,10 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/grapinou/club-core/internal/auth"
 	"github.com/grapinou/club-core/internal/authorization"
+	"github.com/grapinou/club-core/internal/civildate"
 	"github.com/grapinou/club-core/internal/database/dbtypes"
 	"github.com/grapinou/club-core/internal/emergencycontacts"
 	"github.com/grapinou/club-core/internal/identityresolution"
@@ -122,8 +122,10 @@ func joinInput(form url.Values) (registrationapplications.Input, registrationapp
 	}
 	in.Emergency = emergencycontacts.Input{FirstName: form.Get("emergency_first_name"), LastName: form.Get("emergency_last_name"), Phone: form.Get("emergency_phone_number"), Relationship: form.Get("emergency_relationship"), Email: form.Get("emergency_email")}
 	in.Identity = identityresolution.SubmissionInput{FirstName: strings.TrimSpace(form.Get("first_name")), LastName: strings.TrimSpace(form.Get("last_name")), Email: text("email"), PhoneNumber: text("phone_number"), Address: text("address")}
-	if birth, err := time.Parse("2006-01-02", form.Get("birth_date")); err == nil {
+	if birth, err := civildate.ParseFrench(form.Get("birth_date")); err == nil {
 		in.Identity.BirthDate = dbtypes.Date{Time: birth, Valid: true}
+	} else {
+		fields["birth_date"] = "Saisissez une date de naissance valide au format JJ/MM/AAAA."
 	}
 	in.SeasonID, _ = parseID(form.Get("season_id"))
 	in.MembershipTypeID, _ = parseID(form.Get("membership_type_id"))
@@ -174,7 +176,7 @@ func (h *JoinHandler) post(w http.ResponseWriter, r *http.Request) {
 		}
 		guardian, _ := joinInput(guardianForm)
 		if guardianForm.Get("birth_date") != "" && !guardian.Identity.BirthDate.Valid {
-			fields["guardian_birth_date"] = "Indiquez une date valide ou laissez ce champ vide."
+			fields["guardian_birth_date"] = "Saisissez une date au format JJ/MM/AAAA ou laissez ce champ vide."
 		}
 		for _, key := range []string{"relationship_type", "emergency_contact"} {
 			if len(r.PostForm[key]) != 1 {
@@ -225,7 +227,9 @@ func (h *JoinHandler) post(w http.ResponseWriter, r *http.Request) {
 	var validation registrationapplications.ValidationErrors
 	if errors.As(err, &validation) {
 		for k, v := range validation {
-			fields[k] = v
+			if _, exists := fields[k]; !exists {
+				fields[k] = v
+			}
 		}
 	} else if err != nil {
 		http.Error(w, "La demande ne peut pas être enregistrée pour le moment. Réessayez plus tard.", 503)
@@ -290,7 +294,7 @@ func (h *JoinHandler) familyValues(r *http.Request, values url.Values) error {
 		values.Set(prefix+"last_name", p.LastName)
 		values.Set(prefix+"birth_date", "")
 		if p.BirthDate.Valid {
-			values.Set(prefix+"birth_date", p.BirthDate.Time.Format("2006-01-02"))
+			values.Set(prefix+"birth_date", civildate.FormatFrench(p.BirthDate.Time))
 		}
 		values.Set(prefix+"email", p.Email.String)
 		values.Set(prefix+"phone_number", p.PhoneNumber.String)

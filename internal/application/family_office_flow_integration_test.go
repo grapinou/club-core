@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/grapinou/club-core/internal/authorization"
+	"github.com/grapinou/club-core/internal/civildate"
 	"github.com/grapinou/club-core/internal/handlers"
 	"github.com/grapinou/club-core/internal/websecurity"
 )
@@ -97,7 +98,9 @@ func TestP42FamilyEntryAndSessionIdentity(t *testing.T) {
 	}
 	// An exact existing child match remains an administrative decision, even when
 	// the requesting guardian has a different, valid family space.
-	other := f.id(`INSERT INTO persons(first_name,last_name,birth_date) VALUES('Arthur','Famille',?1) RETURNING id`, v.Get("birth_date"))
+	birth, err := civildate.ParseFrench(v.Get("birth_date"))
+	f.must(err)
+	other := f.id(`INSERT INTO persons(first_name,last_name,birth_date) VALUES('Arthur','Famille',?1) RETURNING id`, birth.Format("2006-01-02"))
 	v = f.familyForm(b, "/me/children/new")
 	if r = b.call("POST", "/me/children/new", v); r.Code != 303 {
 		t.Fatal(r.Code, r.Body.String())

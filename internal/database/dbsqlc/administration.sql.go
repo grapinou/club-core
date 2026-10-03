@@ -327,19 +327,24 @@ func (q *Queries) AdministrativeSeasons(ctx context.Context) ([]AdministrativeSe
 }
 
 const administrativeSlots = `-- name: AdministrativeSlots :many
-SELECT gs.id,g.name AS group_name,s.name AS season_name,gs.weekday,CAST(substr(gs.start_time,1,5) AS TEXT) AS start_time,
+SELECT gs.id,gs.group_id,gs.season_id,s.is_active AS season_active,s.ends_at AS season_ends_at,gs.valid_until,g.name AS group_name,s.name AS season_name,gs.weekday,CAST(substr(gs.start_time,1,5) AS TEXT) AS start_time,
  CAST(substr(gs.end_time,1,5) AS TEXT) AS end_time,coalesce((SELECT l.name FROM locations l WHERE l.id=gs.location_id),gs.location,'') AS location
 FROM group_slots gs JOIN groups g ON g.id=gs.group_id JOIN seasons s ON s.id=gs.season_id WHERE gs.is_active AND g.is_active ORDER BY g.name,s.starts_at DESC,gs.weekday,gs.start_time
 `
 
 type AdministrativeSlotsRow struct {
-	ID         int32
-	GroupName  string
-	SeasonName string
-	Weekday    int16
-	StartTime  string
-	EndTime    string
-	Location   string
+	ID           int32
+	GroupID      int32
+	SeasonID     int32
+	SeasonActive bool
+	SeasonEndsAt dbtypes.Date
+	ValidUntil   dbtypes.Date
+	GroupName    string
+	SeasonName   string
+	Weekday      int16
+	StartTime    string
+	EndTime      string
+	Location     string
 }
 
 func (q *Queries) AdministrativeSlots(ctx context.Context) ([]AdministrativeSlotsRow, error) {
@@ -353,6 +358,11 @@ func (q *Queries) AdministrativeSlots(ctx context.Context) ([]AdministrativeSlot
 		var i AdministrativeSlotsRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.GroupID,
+			&i.SeasonID,
+			&i.SeasonActive,
+			&i.SeasonEndsAt,
+			&i.ValidUntil,
 			&i.GroupName,
 			&i.SeasonName,
 			&i.Weekday,
@@ -683,7 +693,7 @@ func (q *Queries) RecentAdministrativePersons(ctx context.Context) ([]RecentAdmi
 }
 
 const repeatTrialPersons = `-- name: RepeatTrialPersons :many
-SELECT p.id,p.first_name,p.last_name,t.trial_date AS last_trial_date
+SELECT p.id,p.first_name,p.last_name,t.id AS last_trial_id,t.trial_date AS last_trial_date
 FROM persons p
 JOIN trial_registrations t ON t.id=(SELECT latest.id FROM trial_registrations latest
  WHERE latest.person_id=p.id ORDER BY latest.trial_date DESC,latest.id DESC LIMIT 1)
@@ -702,6 +712,7 @@ type RepeatTrialPersonsRow struct {
 	ID            int32
 	FirstName     string
 	LastName      string
+	LastTrialID   int32
 	LastTrialDate dbtypes.Date
 }
 
@@ -718,6 +729,7 @@ func (q *Queries) RepeatTrialPersons(ctx context.Context, arg RepeatTrialPersons
 			&i.ID,
 			&i.FirstName,
 			&i.LastName,
+			&i.LastTrialID,
 			&i.LastTrialDate,
 		); err != nil {
 			return nil, err

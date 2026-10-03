@@ -81,7 +81,7 @@ func TestUpdatePersonFormHandler(t *testing.T) {
 		t.Errorf("la réponse ne contient pas le nom Des Bois")
 	}
 
-	if !strings.Contains(body, "1990-05-12") {
+	if !strings.Contains(body, "12/05/1990") {
 		t.Errorf("la réponse ne contient pas la date de naissance")
 	}
 

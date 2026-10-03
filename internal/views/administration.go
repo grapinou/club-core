@@ -215,3 +215,29 @@ func (v AdministrativeView) ProposedMembershipGroup(activity, group int32) bool 
 	groups := v.ActivityGroups(activity)
 	return !v.HasCurrentActivityGroup(activity) && len(groups) == 1 && groups[0].ID == group
 }
+
+// PrefillRepeatTrial copies only still-selectable session context. The new
+// date, notes, status and revision belong to the newly scheduled trial.
+func (v *AdministrativeView) PrefillRepeatTrial(source dbsqlc.AdministrativeTrialsRow) {
+	for _, activity := range v.Choices.Activities {
+		if activity.ID != source.ActivityID {
+			continue
+		}
+		v.Form.Set("activity_id", strconv.Itoa(int(activity.ID)))
+		for _, group := range v.Choices.Groups {
+			if !source.GroupID.Valid || group.ID != source.GroupID.Int32 || group.ActivityID != activity.ID {
+				continue
+			}
+			v.Form.Set("group_id", strconv.Itoa(int(group.ID)))
+			for _, slot := range v.Choices.Slots {
+				if !source.GroupSlotID.Valid || slot.ID != source.GroupSlotID.Int32 || slot.GroupID != group.ID || !slot.SeasonActive || slot.SeasonEndsAt.Time.Before(v.Today.Time) || (slot.ValidUntil.Valid && slot.ValidUntil.Time.Before(v.Today.Time)) {
+					continue
+				}
+				v.Form.Set("slot_id", strconv.Itoa(int(slot.ID)))
+				break
+			}
+			break
+		}
+		break
+	}
+}

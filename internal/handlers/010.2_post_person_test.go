@@ -17,7 +17,7 @@ func TestPostPersonHandler(t *testing.T) {
 	expectedFirstName := "Robin"
 	lastName := "Des Bois  "
 	expectedLastName := "Des Bois"
-	birthdate := "1990-05-12"
+	birthdate := "12/05/1990"
 	phoneNumber := "00 01 02 03 04"
 	email := "robin.desbois@example.com"
 	address := "forêt de Sherwood"
@@ -38,7 +38,7 @@ func TestPostPersonHandler(t *testing.T) {
 
 	queries := &recordingPersonQueries{}
 
-	PostPersonHandler(queries)(response, request)
+	PostPersonHandler("Club Core", queries)(response, request)
 
 	if response.Code != http.StatusSeeOther {
 		t.Errorf(
@@ -82,10 +82,10 @@ func TestPostPersonHandler(t *testing.T) {
 		t.Error("la date de naissance devrait être valide")
 	}
 
-	if queries.CreatePersonParams.BirthDate.Time.Format("2006-01-02") != birthdate {
+	if queries.CreatePersonParams.BirthDate.Time.Format("02/01/2006") != birthdate {
 		t.Errorf(
 			"date obtenue : %q, attendue : %q",
-			queries.CreatePersonParams.BirthDate.Time.Format("2006-01-02"),
+			queries.CreatePersonParams.BirthDate.Time.Format("02/01/2006"),
 			birthdate,
 		)
 	}
@@ -133,7 +133,7 @@ func TestPostPersonHandlerMissingName(t *testing.T) {
 
 	firstName := "Robin  "
 	lastName := " "
-	birthdate := "1990-05-12"
+	birthdate := "12/05/1990"
 
 	form.Set("FirstName", firstName)
 	form.Set("LastName", lastName)
@@ -148,7 +148,7 @@ func TestPostPersonHandlerMissingName(t *testing.T) {
 
 	queries := &recordingPersonQueries{}
 
-	PostPersonHandler(queries)(response, request)
+	PostPersonHandler("Club Core", queries)(response, request)
 
 	if response.Code != http.StatusBadRequest {
 		t.Errorf(
@@ -171,7 +171,7 @@ func TestPostPersonHandlerInvalidBirthDate(t *testing.T) {
 
 	firstName := "Robin  "
 	lastName := "Des Bois "
-	birthdate := "01/02/1903"
+	birthdate := "31/02/1903"
 
 	form.Set("FirstName", firstName)
 	form.Set("LastName", lastName)
@@ -186,7 +186,7 @@ func TestPostPersonHandlerInvalidBirthDate(t *testing.T) {
 
 	queries := &recordingPersonQueries{}
 
-	PostPersonHandler(queries)(response, request)
+	PostPersonHandler("Club Core", queries)(response, request)
 
 	if response.Code != http.StatusBadRequest {
 		t.Errorf(
@@ -206,7 +206,7 @@ func TestPostPersonHandlerDatabaseError(t *testing.T) {
 
 	firstName := "   Robin    "
 	lastName := "Des Bois  "
-	birthdate := "1990-05-12"
+	birthdate := "12/05/1990"
 	phoneNumber := "0001020304"
 	email := "robin.desbois@example.com"
 	address := "forêt de Sherwood"
@@ -229,7 +229,7 @@ func TestPostPersonHandlerDatabaseError(t *testing.T) {
 		CreatePersonError: errors.New("database error"),
 	}
 
-	PostPersonHandler(queries)(response, request)
+	PostPersonHandler("Club Core", queries)(response, request)
 
 	if response.Code != http.StatusInternalServerError {
 		t.Errorf(

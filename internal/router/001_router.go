@@ -48,9 +48,9 @@ func newRouter(cfg config.Config, queries database.Queries, access *handlers.Acc
 	}
 	mux.Handle("GET /persons", access.RequirePermission(authorization.PersonsRead, csrf.Protect(personList)))
 	mux.Handle("GET /persons/new", access.RequirePermission(authorization.PersonsWrite, csrf.Protect(access.RequireMembershipContinuation(handlers.PersonFormHandler(cfg)))))
-	mux.Handle("POST /persons", access.RequirePermission(authorization.PersonsWrite, csrf.Protect(access.RequireMembershipContinuation(handlers.PostPersonHandler(queries)))))
+	mux.Handle("POST /persons", access.RequirePermission(authorization.PersonsWrite, csrf.Protect(access.RequireMembershipContinuation(handlers.PostPersonHandler(cfg.SiteName, queries)))))
 	mux.Handle("GET /persons/{id}/edit", access.RequirePermission(authorization.PersonsWrite, csrf.Protect(handlers.UpdatePersonFormHandler(cfg, queries))))
-	mux.Handle("POST /persons/{id}/edit", access.RequirePermission(authorization.PersonsWrite, csrf.Protect(handlers.PostUpdatePersonHandler(queries))))
+	mux.Handle("POST /persons/{id}/edit", access.RequirePermission(authorization.PersonsWrite, csrf.Protect(handlers.PostUpdatePersonHandler(cfg.SiteName, queries))))
 	mux.Handle("POST /persons/{id}/archive", access.RequirePermission(authorization.PersonsWrite, csrf.Protect(handlers.PostArchivePersonHandler(queries))))
 	mux.Handle("GET /persons/archived", access.RequirePermission(authorization.PersonsRead, csrf.Protect(handlers.ArchivedPersonsListHandler(cfg, queries))))
 	mux.Handle("POST /persons/{id}/restore", access.RequirePermission(authorization.PersonsWrite, csrf.Protect(handlers.PostRestorePersonHandler(queries))))

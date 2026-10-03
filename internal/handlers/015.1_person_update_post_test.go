@@ -16,7 +16,7 @@ func TestPostUpdatePersonHandler(t *testing.T) {
 	expectedFirstName := "Robin"
 	lastName := "Des Bois  "
 	expectedLastName := "Des Bois"
-	birthdate := "1990-05-12"
+	birthdate := "12/05/1990"
 	phoneNumber := "00 01 02 03 04"
 	email := "robin.desbois@example.com"
 	address := "forêt de Sherwood"
@@ -39,7 +39,7 @@ func TestPostUpdatePersonHandler(t *testing.T) {
 
 	queries := &recordingPersonQueries{}
 
-	PostUpdatePersonHandler(queries)(response, request)
+	PostUpdatePersonHandler("Club Core", queries)(response, request)
 
 	if response.Code != http.StatusSeeOther {
 		t.Errorf(
@@ -90,10 +90,10 @@ func TestPostUpdatePersonHandler(t *testing.T) {
 		t.Error("la date de naissance devrait être valide")
 	}
 
-	if queries.UpdatePersonParams.BirthDate.Time.Format("2006-01-02") != birthdate {
+	if queries.UpdatePersonParams.BirthDate.Time.Format("02/01/2006") != birthdate {
 		t.Errorf(
 			"date obtenue : %q, attendue : %q",
-			queries.UpdatePersonParams.BirthDate.Time.Format("2006-01-02"),
+			queries.UpdatePersonParams.BirthDate.Time.Format("02/01/2006"),
 			birthdate,
 		)
 	}

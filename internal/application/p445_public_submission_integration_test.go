@@ -21,7 +21,7 @@ func TestP445TrialPreparationsAndPlainConfirmation(t *testing.T) {
 	handler := handlers.NewPublicHandler(organization.New(f.db), loc, "", trials.NewPublic(f.db, loc), handlers.NewRegistrationSubmissionLimiter(), f.mail, "club@example.test", handlers.WithPublicClock(func() time.Time { return now }))
 	b := newBrowser(websecurity.NewCSRF(false).Protect(handler))
 	path := fmt.Sprintf("/essai?activity=%d&slot=%d", f.activity, slot)
-	form := url.Values{"csrf_token": {b.csrf(t, path)}, "activity": {fmt.Sprint(f.activity)}, "slot": {fmt.Sprint(slot)}, "date": {"2026-10-02"}, "first_name": {"Alice"}, "last_name": {"Recette"}, "birth_date": {"2015-01-01"}, "equipment_needed": {"no"}, "guardian_first_name": {"Parent"}, "guardian_last_name": {"Recette"}, "guardian_email": {"parent@example.test"}, "guardian_phone": {"0612345678"}, "relationship": {"mother"}}
+	form := url.Values{"csrf_token": {b.csrf(t, path)}, "activity": {fmt.Sprint(f.activity)}, "slot": {fmt.Sprint(slot)}, "date": {"2026-10-02"}, "first_name": {"Alice"}, "last_name": {"Recette"}, "birth_date": {"01/01/2015"}, "equipment_needed": {"no"}, "guardian_first_name": {"Parent"}, "guardian_last_name": {"Recette"}, "guardian_email": {"parent@example.test"}, "guardian_phone": {"0612345678"}, "relationship": {"mother"}}
 	beforePeople := f.count("SELECT count(*) FROM persons")
 	for _, step := range [][]string{nil, {"unknown"}, {"contacts", "book"}, {"book", "contacts"}} {
 		bad := cloneForm(form)

@@ -35,7 +35,7 @@ func (f *fixture) joinForm(b *browser) url.Values {
 	if response.Code != 200 {
 		f.t.Fatalf("join GET %d", response.Code)
 	}
-	form := url.Values{"csrf_token": {hiddenValue(f.t, response.Body.String(), "csrf_token")}, "presentation": {hiddenValue(f.t, response.Body.String(), "presentation")}, "first_name": {"Alice"}, "last_name": {"Nouveau"}, "birth_date": {"1990-01-01"}, "email": {"alice@example.test"}, "phone_number": {"0612345678"}, "address": {"1 rue du Club"}, "season_id": {fmt.Sprint(f.season)}, "membership_type_id": {fmt.Sprint(f.kind)}, "activity_id": {fmt.Sprint(f.activity)}, "action": {"submit"}, "emergency_first_name": {"Marie"}, "emergency_last_name": {"Urgence"}, "emergency_phone_number": {"0601020304"}, "emergency_relationship": {"Amie"}}
+	form := url.Values{"csrf_token": {hiddenValue(f.t, response.Body.String(), "csrf_token")}, "presentation": {hiddenValue(f.t, response.Body.String(), "presentation")}, "first_name": {"Alice"}, "last_name": {"Nouveau"}, "birth_date": {"01/01/1990"}, "email": {"alice@example.test"}, "phone_number": {"0612345678"}, "address": {"1 rue du Club"}, "season_id": {fmt.Sprint(f.season)}, "membership_type_id": {fmt.Sprint(f.kind)}, "activity_id": {fmt.Sprint(f.activity)}, "action": {"submit"}, "emergency_first_name": {"Marie"}, "emergency_last_name": {"Urgence"}, "emergency_phone_number": {"0601020304"}, "emergency_relationship": {"Amie"}}
 	defs, err := dbsqlc.New(f.db).ListActiveConsentDefinitions(f.t.Context())
 	f.must(err)
 	for _, d := range defs {
@@ -165,9 +165,9 @@ func TestPublicJoinValidation(t *testing.T) {
 		{"last name", func(v url.Values) { v.Set("last_name", "") }},
 		{"long name", func(v url.Values) { v.Set("first_name", strings.Repeat("a", 201)) }},
 		{"missing birth", func(v url.Values) { v.Del("birth_date") }},
-		{"invalid birth", func(v url.Values) { v.Set("birth_date", "2020-02-30") }},
-		{"minor", func(v url.Values) { v.Set("birth_date", time.Now().AddDate(-10, 0, 0).Format("2006-01-02")) }},
-		{"future birth", func(v url.Values) { v.Set("birth_date", "2099-01-01") }},
+		{"invalid birth", func(v url.Values) { v.Set("birth_date", "30/02/2020") }},
+		{"minor", func(v url.Values) { v.Set("birth_date", time.Now().AddDate(-10, 0, 0).Format("02/01/2006")) }},
+		{"future birth", func(v url.Values) { v.Set("birth_date", "01/01/2099") }},
 		{"missing email", func(v url.Values) { v.Del("email") }},
 		{"invalid email", func(v url.Values) { v.Set("email", "Alice <alice@example.test>") }},
 		{"unknown season", func(v url.Values) { v.Set("season_id", "2147483647") }},

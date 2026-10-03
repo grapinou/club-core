@@ -83,7 +83,7 @@ SELECT id,name FROM seasons WHERE is_active ORDER BY starts_at DESC,id;
 -- name: AdministrativeMembershipTypes :many
 SELECT id,name FROM membership_types WHERE is_active ORDER BY name,id;
 -- name: AdministrativeSlots :many
-SELECT gs.id,g.name AS group_name,s.name AS season_name,gs.weekday,CAST(substr(gs.start_time,1,5) AS TEXT) AS start_time,
+SELECT gs.id,gs.group_id,gs.season_id,s.is_active AS season_active,s.ends_at AS season_ends_at,gs.valid_until,g.name AS group_name,s.name AS season_name,gs.weekday,CAST(substr(gs.start_time,1,5) AS TEXT) AS start_time,
  CAST(substr(gs.end_time,1,5) AS TEXT) AS end_time,coalesce((SELECT l.name FROM locations l WHERE l.id=gs.location_id),gs.location,'') AS location
 FROM group_slots gs JOIN groups g ON g.id=gs.group_id JOIN seasons s ON s.id=gs.season_id WHERE gs.is_active AND g.is_active ORDER BY g.name,s.starts_at DESC,gs.weekday,gs.start_time;
 
@@ -118,7 +118,7 @@ ORDER BY t.trial_date DESC,t.id DESC;
 SELECT * FROM seasons WHERE id=sqlc.arg(id);
 
 -- name: RepeatTrialPersons :many
-SELECT p.id,p.first_name,p.last_name,t.trial_date AS last_trial_date
+SELECT p.id,p.first_name,p.last_name,t.id AS last_trial_id,t.trial_date AS last_trial_date
 FROM persons p
 JOIN trial_registrations t ON t.id=(SELECT latest.id FROM trial_registrations latest
  WHERE latest.person_id=p.id ORDER BY latest.trial_date DESC,latest.id DESC LIMIT 1)

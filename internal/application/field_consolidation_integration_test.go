@@ -56,7 +56,7 @@ func TestP432PublicWindowAndProgressiveForm(t *testing.T) {
 	}
 	offers, err := svc.Offerings(t.Context(), time.Now())
 	f.must(err)
-	form := url.Values{"csrf_token": {hiddenValue(t, body, "csrf_token")}, "activity": {fmt.Sprint(f.activity)}, "slot": {fmt.Sprint(slot)}, "date": {offers[0].Dates[0]}, "first_name": {"Enfant"}, "last_name": {"Essai"}, "birth_date": {"2015-01-01"}, "equipment_needed": {"yes"}, "equipment_details": {"140 cm"}, "step": {"contacts"}}
+	form := url.Values{"csrf_token": {hiddenValue(t, body, "csrf_token")}, "activity": {fmt.Sprint(f.activity)}, "slot": {fmt.Sprint(slot)}, "date": {offers[0].Dates[0]}, "first_name": {"Enfant"}, "last_name": {"Essai"}, "birth_date": {"01/01/2015"}, "equipment_needed": {"yes"}, "equipment_details": {"140 cm"}, "step": {"contacts"}}
 	before := f.count("SELECT count(*) FROM persons")
 	r := b.call("POST", "/essai", form)
 	if r.Code != 200 || f.count("SELECT count(*) FROM persons") != before {
@@ -70,7 +70,7 @@ func TestP432PublicWindowAndProgressiveForm(t *testing.T) {
 		}
 	}
 
-	form.Set("birth_date", "1990-01-01")
+	form.Set("birth_date", "01/01/1990")
 	adultStep := b.call("POST", "/essai", form)
 	if adultStep.Code != 200 || strings.Contains(adultStep.Body.String(), "name=\"guardian_email\"") {
 		t.Fatal("birth correction did not switch to adult")
@@ -81,7 +81,7 @@ func TestP432PublicWindowAndProgressiveForm(t *testing.T) {
 			t.Fatal("adult required contact", field)
 		}
 	}
-	form.Set("birth_date", "2015-01-01")
+	form.Set("birth_date", "01/01/2015")
 	form.Set("step", "book")
 	form.Set("guardian_first_name", "Parent")
 	form.Set("guardian_last_name", "Essai")

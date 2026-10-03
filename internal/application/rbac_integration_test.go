@@ -79,7 +79,7 @@ func TestPersonsRoutePermissionMatrix(t *testing.T) {
 			token := b.csrf(t, "/login")
 			for _, path := range []string{"/persons", fmt.Sprintf("/persons/%d/edit", f.person), fmt.Sprintf("/persons/%d/archive", f.person), fmt.Sprintf("/persons/%d/restore", f.person)} {
 				for _, validCSRF := range []bool{false, true} {
-					form := map[string][]string{"FirstName": {role + "Changed"}, "LastName": {"Target"}, "Birthdate": {"1990-01-01"}, "csrf_token": {"invalid"}}
+					form := map[string][]string{"FirstName": {role + "Changed"}, "LastName": {"Target"}, "Birthdate": {"01/01/1990"}, "csrf_token": {"invalid"}}
 					if validCSRF {
 						form["csrf_token"] = []string{token}
 					}

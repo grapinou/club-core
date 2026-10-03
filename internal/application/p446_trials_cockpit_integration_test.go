@@ -161,7 +161,7 @@ func TestP446NewPersonContinuesToExistingTrialForm(t *testing.T) {
 	f := newFixture(t)
 	b := p43Secretary(f)
 	officeOK(t, b, "/persons/new?after=trial", `name="after" value="trial"`)
-	form := url.Values{"csrf_token": {b.csrf(t, "/persons/new?after=trial")}, "FirstName": {"  Nouvelle  "}, "LastName": {"  Venue  "}, "Birthdate": {"1990-10-10"}, "Email": {"nouvelle@example.test"}, "after": {"trial"}}
+	form := url.Values{"csrf_token": {b.csrf(t, "/persons/new?after=trial")}, "FirstName": {"  Nouvelle  "}, "LastName": {"  Venue  "}, "Birthdate": {"10/10/1990"}, "Email": {"nouvelle@example.test"}, "after": {"trial"}}
 	r := b.call("POST", "/persons", form)
 	if r.Code != 303 {
 		t.Fatal("person creation", r.Code, r.Body.String())

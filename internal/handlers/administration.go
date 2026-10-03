@@ -388,6 +388,22 @@ func (h *AdministrativeHandler) schedule(w http.ResponseWriter, r *http.Request)
 		v.Person.TrialQuotas, e = h.s.PersonTrialQuotas(r.Context(), id)
 	}
 	v.Form.Set("trial_date", h.s.Today().Time.Format("2006-01-02"))
+	if e == nil && r.URL.Query().Has("from_trial") {
+		values := r.URL.Query()["from_trial"]
+		sourceID, parseErr := strconv.ParseInt(r.URL.Query().Get("from_trial"), 10, 32)
+		if parseErr != nil || sourceID <= 0 || len(values) != 1 {
+			e = administration.ErrInvalid
+		} else {
+			var source dbsqlc.AdministrativeTrialsRow
+			source, e = h.s.Trial(r.Context(), int32(sourceID))
+			if e == nil && source.PersonID != id {
+				e = sql.ErrNoRows
+			}
+			if e == nil && r.Method == "GET" {
+				v.PrefillRepeatTrial(source)
+			}
+		}
+	}
 	if e == nil && r.Method == "POST" {
 		v.Form = r.PostForm
 		var p dbsqlc.RescheduleTrialParams

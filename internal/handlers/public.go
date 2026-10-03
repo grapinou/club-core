@@ -216,12 +216,13 @@ func (h *PublicHandler) trialPage(r *http.Request, data *views.PublicPage, club 
 			data.Errors[field] = "Ce champ est nécessaire."
 		}
 	}
-	birth, birthErr := time.Parse("2006-01-02", b.BirthDate)
+	birth, birthErr := civildate.ParseFrench(b.BirthDate)
 	civilToday, _ := trials.PublicWindow(now, h.location)
 	if birthErr != nil || birth.After(civilToday) || birth.Before(civilToday.AddDate(-120, 0, 0)) {
-		data.Errors["birth_date"] = "Indiquez une date de naissance valide."
+		data.Errors["birth_date"] = "Saisissez une date de naissance valide au format JJ/MM/AAAA."
 	} else {
 		today := now.In(h.location)
+		b.BirthDate = birth.Format("2006-01-02")
 		b.Minor = civildate.IsMinor(birth, today)
 		data.BookingMinor = b.Minor
 		data.ContactStep = true

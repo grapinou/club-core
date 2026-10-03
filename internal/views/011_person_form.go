@@ -4,6 +4,7 @@ import (
 	"embed"
 	"html/template"
 	"io"
+	"net/url"
 )
 
 //go:embed templates/layouts/base.html
@@ -16,7 +17,11 @@ type PersonFormData struct {
 	SecurityData
 	SiteName string
 	Title    string
+	Error    string
+	Values   url.Values
 }
+
+func (v PersonFormData) V(key string) string { return v.Values.Get(key) }
 
 var personFormTemplate = template.Must(
 	template.ParseFS(

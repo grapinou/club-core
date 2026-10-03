@@ -100,7 +100,7 @@ func TestSelfServiceProfileAndHTTPBoundary(t *testing.T) {
 	foreign := f.id(`INSERT INTO persons(first_name,last_name,phone_number,address) VALUES('Autre','Personne','0123456789','Intacte') RETURNING id`)
 	form := url.Values{"phone_number": {" +33 (0)6 12 34 56 78 "}, "address": {"  12 rue du Club\nParis  "}, "person_id": {fmt.Sprint(foreign)}, "user_id": {fmt.Sprint(f.approver)}, "first_name": {"INJECTED"}, "username": {"INJECTED"}}
 	form.Set("last_name", "INJECTED")
-	form.Set("birth_date", "2015-01-01")
+	form.Set("birth_date", "01/01/2015")
 	// Use the exact existing normalization convention (French 06... -> 336...).
 	form.Set("phone_number", " 06 12 34 56 78 ")
 	f.accountPost(b, paths[0], form, 303)

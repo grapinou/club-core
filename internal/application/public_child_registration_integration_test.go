@@ -28,7 +28,7 @@ func (f *fixture) childForm(b *browser) url.Values {
 	if page.Code != 200 {
 		f.t.Fatal(page.Code, page.Body.String())
 	}
-	v := url.Values{"csrf_token": {hiddenValue(f.t, page.Body.String(), "csrf_token")}, "presentation": {hiddenValue(f.t, page.Body.String(), "presentation")}, "guardian_first_name": {"Claire"}, "guardian_last_name": {"Famille"}, "guardian_email": {"claire@example.test"}, "guardian_birth_date": {"1980-01-01"}, "first_name": {"Arthur"}, "last_name": {"Famille"}, "birth_date": {time.Now().AddDate(-12, 0, 0).Format("2006-01-02")}, "relationship_type": {"mother"}, "emergency_contact": {"yes"}, "season_id": {fmt.Sprint(f.season)}, "membership_type_id": {fmt.Sprint(f.kind)}, "activity_id": {fmt.Sprint(f.activity)}, "action": {"submit"}}
+	v := url.Values{"csrf_token": {hiddenValue(f.t, page.Body.String(), "csrf_token")}, "presentation": {hiddenValue(f.t, page.Body.String(), "presentation")}, "guardian_first_name": {"Claire"}, "guardian_last_name": {"Famille"}, "guardian_email": {"claire@example.test"}, "guardian_birth_date": {"01/01/1980"}, "first_name": {"Arthur"}, "last_name": {"Famille"}, "birth_date": {time.Now().AddDate(-12, 0, 0).Format("02/01/2006")}, "relationship_type": {"mother"}, "emergency_contact": {"yes"}, "season_id": {fmt.Sprint(f.season)}, "membership_type_id": {fmt.Sprint(f.kind)}, "activity_id": {fmt.Sprint(f.activity)}, "action": {"submit"}}
 	defs, err := dbsqlc.New(f.db).ListActiveConsentDefinitions(f.t.Context())
 	f.must(err)
 	for _, d := range defs {
@@ -152,10 +152,10 @@ func TestPublicChildValidation(t *testing.T) {
 		{"bad guardian email", func(v url.Values) { v.Set("guardian_email", "bad") }, 422},
 		{"bad child email", func(v url.Values) { v.Set("email", "bad") }, 422},
 		{"missing birth", func(v url.Values) { v.Del("birth_date") }, 422},
-		{"future", func(v url.Values) { v.Set("birth_date", time.Now().AddDate(1, 0, 0).Format("2006-01-02")) }, 422},
+		{"future", func(v url.Values) { v.Set("birth_date", time.Now().AddDate(1, 0, 0).Format("02/01/2006")) }, 422},
 		// Stay clear of the eighteenth birthday: the fixture validates in UTC,
 		// while a developer may run this test near local midnight.
-		{"adult", func(v url.Values) { v.Set("birth_date", time.Now().AddDate(-19, 0, 0).Format("2006-01-02")) }, 422},
+		{"adult", func(v url.Values) { v.Set("birth_date", time.Now().AddDate(-19, 0, 0).Format("02/01/2006")) }, 422},
 		{"relationship", func(v url.Values) { v.Set("relationship_type", "invented") }, 422},
 		{"emergency", func(v url.Values) { v.Del("emergency_contact") }, 422},
 		{"activity", func(v url.Values) { v.Del("activity_id") }, 422},
@@ -180,7 +180,7 @@ func TestPublicChildValidation(t *testing.T) {
 	}
 	for _, age := range []int{14, 15, 17} {
 		v := cloneForm(base)
-		v.Set("birth_date", time.Now().AddDate(-age, 0, 0).Format("2006-01-02"))
+		v.Set("birth_date", time.Now().AddDate(-age, 0, 0).Format("02/01/2006"))
 		v.Set("action", "review")
 		b.ip = fmt.Sprintf("198.51.100.%d:1", age)
 		r := b.call("POST", "/join/child", v)
@@ -196,7 +196,7 @@ func TestPublicChildKnownFamilyAndDuplicate(t *testing.T) {
 	f.activeUser(parent, "known-parent")
 	b := newBrowser(f.app.Handler)
 	v := f.childForm(b)
-	v.Set("birth_date", "2011-09-12")
+	v.Set("birth_date", "12/09/2011")
 	v.Set("relationship_type", "father")
 	id := f.childSubmit(b, v)
 	ctx := f.authenticatedContext(f.approver)

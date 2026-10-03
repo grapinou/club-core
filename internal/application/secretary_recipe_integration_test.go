@@ -176,7 +176,7 @@ func TestP431NavigationAndCreation(t *testing.T) {
 	personForm := recipeForm(t, officeOK(t, b, personPath), "/persons")
 	personForm.Set("FirstName", "Visite")
 	personForm.Set("LastName", "Bureau")
-	personForm.Set("Birthdate", "1990-01-02")
+	personForm.Set("Birthdate", "02/01/1990")
 	bad := url.Values{"after": {"membership"}, "FirstName": {"Sans"}, "LastName": {"CSRF"}}
 	if b.call("POST", "/persons", bad).Code != 403 {
 		t.Fatal("person CSRF")

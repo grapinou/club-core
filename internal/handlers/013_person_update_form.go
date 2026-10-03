@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 
+	"github.com/grapinou/club-core/internal/civildate"
 	"github.com/grapinou/club-core/internal/config"
 	"github.com/grapinou/club-core/internal/database"
 	"github.com/grapinou/club-core/internal/views"
@@ -47,10 +48,13 @@ func UpdatePersonFormHandler(cfg config.Config, queries database.PersonQueries) 
 			ID:          rawPersonData.ID,
 			FirstName:   rawPersonData.FirstName,
 			LastName:    rawPersonData.LastName,
-			BirthDate:   rawPersonData.BirthDate.Time.Format("2006-01-02"),
 			PhoneNumber: phoneNumber,
 			Email:       email,
 			Address:     address,
+		}
+
+		if rawPersonData.BirthDate.Valid {
+			person.BirthDate = civildate.FormatFrench(rawPersonData.BirthDate.Time)
 		}
 
 		data := views.PersonUpdateFormPageData{SecurityData: pageSecurity(r),

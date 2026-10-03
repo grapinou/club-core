@@ -2,6 +2,7 @@
 
 <h1>Modifier une personne :</h1>
 
+{{if .Error}}<p class="alert alert-danger" role="alert">{{.Error}}</p>{{end}}
 <form class="section-panel" action="/persons/{{ .Person.ID }}/edit" method="post">
     <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
 
@@ -38,13 +39,16 @@
             Date de naissance
         </label>
         <input
-            type="date"
+            type="text" inputmode="numeric" placeholder="JJ/MM/AAAA" maxlength="10"
             class="form-control"
             id="birthdate"
             name="Birthdate"
+            autocomplete="bday"
+            aria-describedby="birthdate-hint"
             value="{{ .Person.BirthDate }}"
             required
         >
+        <p id="birthdate-hint" class="form-text">Format : JJ/MM/AAAA, par exemple 17/04/2012.</p>
     </div>
 
     <div class="mb-3">

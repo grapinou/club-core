@@ -3,6 +3,7 @@
 <h1>Ajouter une personne :</h1>
 {{if .AfterMembership}}<p>Après la création de cette fiche, vous pourrez préparer son adhésion.</p><a href="/memberships/new">Revenir à la recherche</a>{{end}}
 
+{{if .Error}}<p class="alert alert-danger" role="alert">{{.Error}}</p>{{end}}
 <form class="section-panel" action="/persons" method="post">
     {{if .AfterTrial}}<input type="hidden" name="after" value="trial">{{end}}{{if .AfterMembership}}<input type="hidden" name="after" value="membership">{{end}}
     <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
@@ -16,6 +17,7 @@
             class="form-control"
             id="firstName"
             name="FirstName"
+            value="{{.V "FirstName"}}"
             required
         >
     </div>
@@ -29,6 +31,7 @@
             class="form-control"
             id="lastName"
             name="LastName"
+            value="{{.V "LastName"}}"
             required
         >
     </div>
@@ -38,12 +41,16 @@
             Date de naissance
         </label>
         <input
-            type="date"
+            type="text" inputmode="numeric" placeholder="JJ/MM/AAAA" maxlength="10"
             class="form-control"
             id="birthdate"
             name="Birthdate"
+            value="{{.V "Birthdate"}}"
+            autocomplete="bday"
+            aria-describedby="birthdate-hint"
             required
         >
+        <p id="birthdate-hint" class="form-text">Format : JJ/MM/AAAA, par exemple 17/04/2012.</p>
     </div>
 
     <div class="mb-3">
@@ -55,6 +62,7 @@
             class="form-control"
             id="phoneNumber"
             name="PhoneNumber"
+            value="{{.V "PhoneNumber"}}"
         >
     </div>
 
@@ -67,6 +75,7 @@
             class="form-control"
             id="email"
             name="Email"
+            value="{{.V "Email"}}"
         >
     </div>
 
@@ -79,6 +88,7 @@
             class="form-control"
             id="address"
             name="Address"
+            value="{{.V "Address"}}"
         >
     </div>
 

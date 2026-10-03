@@ -13,7 +13,7 @@ import (
 )
 
 func identityProposal() url.Values {
-	return url.Values{"first_name": {"  Camille  "}, "last_name": {"  Dùpont  "}, "birth_date": {"1991-02-28"}}
+	return url.Values{"first_name": {"  Camille  "}, "last_name": {"  Dùpont  "}, "birth_date": {"28/02/1991"}}
 }
 func correctionPath(id int32) string { return fmt.Sprintf("/identity-corrections/%d", id) }
 func (f *fixture) correctionID() int32 {
@@ -67,7 +67,7 @@ func TestP443IdentityRequestReviewAndIsolation(t *testing.T) {
 			t.Fatal("anonymous identity", method, r.Code)
 		}
 	}
-	body := f.personalOK(b, path, `value="Rémi"`, `value="Dupont"`, `value="1990-01-01"`)
+	body := f.personalOK(b, path, `value="Rémi"`, `value="Dupont"`, `value="01/01/1990"`)
 	if strings.Contains(body, `name="username"`) {
 		t.Fatal("editable username")
 	}
@@ -164,7 +164,7 @@ func TestP443IdentityValidationConcurrencyAndRollback(t *testing.T) {
 	path := "/me/account/identity"
 	for _, change := range []url.Values{
 		{"first_name": {""}}, {"last_name": {strings.Repeat("é", 201)}}, {"first_name": {"bad\x00name"}}, {"first_name": {string([]byte{0xff})}},
-		{"birth_date": {"2026-02-30"}}, {"birth_date": {"9999-12-31"}}, {"birth_date": {"0000-01-01"}},
+		{"birth_date": {"30/02/2026"}}, {"birth_date": {"31/12/9999"}}, {"birth_date": {"01/01/0000"}},
 	} {
 		form := identityProposal()
 		for k, v := range change {
@@ -316,7 +316,7 @@ func TestP443BirthCorrectionPreservesEffectiveGuardianAccess(t *testing.T) {
 	_, err := f.app.GuardianAccess.Grant(adminctx, child, parent)
 	f.must(err)
 	f.personalOK(guardian, personalChild(child))
-	f.accountPost(member, "/me/account/identity", url.Values{"first_name": {"Lina"}, "last_name": {"Famille"}, "birth_date": {"1990-01-01"}}, 303)
+	f.accountPost(member, "/me/account/identity", url.Values{"first_name": {"Lina"}, "last_name": {"Famille"}, "birth_date": {"01/01/1990"}}, 303)
 	id := f.id("SELECT id FROM identity_correction_requests WHERE person_id=?1 AND status='pending'", child)
 	f.personalOK(guardian, personalChild(child)) // Pending date cannot change access.
 	f.must(f.app.IdentityCorrections.Review(adminctx, id, "approved"))

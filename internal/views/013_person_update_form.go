@@ -24,6 +24,7 @@ type PersonUpdateFormPageData struct {
 	SecurityData
 	SiteName string
 	Title    string
+	Error    string
 	Person   PersonUpdateFormData
 }
 
