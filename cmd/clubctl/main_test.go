@@ -8,6 +8,35 @@ import (
 	"github.com/grapinou/club-core/internal/database"
 )
 
+func TestShowcaseCommandsGuardBeforeOpeningDatabase(t *testing.T) {
+	original := os.Args
+	t.Cleanup(func() { os.Args = original })
+	for _, command := range []string{"prepare-showcase-demo", "verify-showcase-demo", "check-demo-reset-path"} {
+		t.Run(command, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "clubcore_showcase_demo.db")
+			t.Setenv("DATABASE_PATH", path)
+			t.Setenv("CLUBCORE_DEMO_PASSWORD", "mon-mot-de-passe-de-test")
+			os.Args = []string{"clubctl", command}
+			if err := run(); err == nil {
+				t.Fatal("confirmation absent")
+			}
+			os.Args = []string{"clubctl", command, "--confirm-demo"}
+			t.Setenv("CLUBCORE_DEMO_PASSWORD", "short")
+			if err := run(); err == nil {
+				t.Fatal("invalid password")
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatal("guard opened database", err)
+			}
+			t.Setenv("DATABASE_PATH", filepath.Join(t.TempDir(), "clubcore.db"))
+			t.Setenv("CLUBCORE_DEMO_PASSWORD", "mon-mot-de-passe-de-test")
+			if err := run(); err == nil {
+				t.Fatal("real database accepted")
+			}
+		})
+	}
+}
+
 func TestPrepareBudokanDemoWithExistingEmptySQLite(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "clubcore_demo.db")
 	db, err := database.New(t.Context(), path)

@@ -37,7 +37,7 @@ func run() error {
 	switch os.Args[1] {
 	case "seed-budokan":
 		demoFlag = "--confirm-empty-demo"
-	case "prepare-budokan-demo", "upgrade-budokan-demo", "prepare-demo-office", "verify-demo":
+	case "prepare-budokan-demo", "upgrade-budokan-demo", "prepare-demo-office", "verify-demo", "prepare-showcase-demo", "verify-showcase-demo", "check-demo-reset-path":
 		demoFlag = "--confirm-demo"
 	}
 	if demoFlag != "" {
@@ -48,10 +48,13 @@ func run() error {
 			return err
 		}
 	}
-	if os.Args[1] == "prepare-demo-office" || os.Args[1] == "verify-demo" {
+	if os.Args[1] == "prepare-demo-office" || os.Args[1] == "verify-demo" || os.Args[1] == "prepare-showcase-demo" || os.Args[1] == "verify-showcase-demo" || os.Args[1] == "check-demo-reset-path" {
 		if !auth.ValidPassword(os.Getenv("CLUBCORE_DEMO_PASSWORD")) {
 			return fmt.Errorf("CLUBCORE_DEMO_PASSWORD requis : 12 à 72 octets")
 		}
+	}
+	if os.Args[1] == "check-demo-reset-path" {
+		return demodata.CheckDemoResetPath(databasePath)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -132,6 +135,12 @@ func run() error {
 	}
 	if os.Args[1] == "verify-demo" {
 		return demodata.VerifyDemo(ctx, db, os.Getenv("CLUBCORE_DEMO_PASSWORD"))
+	}
+	if os.Args[1] == "prepare-showcase-demo" {
+		return demodata.PrepareShowcase(ctx, db, os.Getenv("CLUBCORE_DEMO_PASSWORD"))
+	}
+	if os.Args[1] == "verify-showcase-demo" {
+		return demodata.VerifyShowcase(ctx, db, os.Getenv("CLUBCORE_DEMO_PASSWORD"))
 	}
 	if os.Args[1] == "grant-role" {
 		var output bytes.Buffer
