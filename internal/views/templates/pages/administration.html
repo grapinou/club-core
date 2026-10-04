@@ -75,15 +75,15 @@
 <div class="trial-context"><h2>Contexte</h2><section class="section-panel"><h2>Séance</h2><dl><dt>Date</dt><dd>{{date .Trial.TrialDate}}</dd><dt>Horaire</dt><dd>{{if .Trial.StartTime}}{{.Trial.StartTime}}–{{.Trial.EndTime}}{{else}}À préciser{{end}}</dd><dt>Activité</dt><dd>{{.Trial.ActivityName}}</dd>{{if .Trial.GroupName}}<dt>Groupe</dt><dd>{{.Trial.GroupName}}</dd>{{end}}{{if .Trial.PracticeLabel}}<dt>Pratique</dt><dd>{{.Trial.PracticeLabel}}</dd>{{end}}<dt>Lieu</dt><dd>{{if .Trial.Location}}{{.Trial.Location}}{{if .Trial.LocationAddress}}<br>{{.Trial.LocationAddress}}{{end}}{{else}}À préciser{{end}}</dd></dl></section>
 <section class="section-panel"><h2>Pratiquant</h2><p><a href="/persons/{{.Trial.PersonID}}">{{.Trial.FirstName}} {{.Trial.LastName}}</a>{{if .Trial.IsMinor}} · Mineur{{end}}</p><dl><dt>Date de naissance</dt><dd>{{date .Trial.BirthDate}}</dd><dt>Téléphone</dt><dd>{{if .Trial.PhoneNumber.Valid}}<a href="tel:{{.Trial.PhoneNumber.String}}">{{.Trial.PhoneNumber.String}}</a>{{else}}Non renseigné{{end}}</dd><dt>Email</dt><dd>{{if .Trial.Email.Valid}}<a href="mailto:{{.Trial.Email.String}}">{{.Trial.Email.String}}</a>{{else}}Non renseigné{{end}}</dd></dl></section>
 {{if .Trial.IsMinor}}<section class="section-panel"><h2>Responsable</h2>{{range .TrialGuardians}}<p><a href="/persons/{{.ID}}">{{.FirstName}} {{.LastName}}</a> · {{$.RelationLabel .RelationshipType}}{{if .Archived}} · Personne archivée{{end}}{{if .IsPrimaryContact}} · Contact principal{{end}}</p><dl><dt>Téléphone</dt><dd>{{if .PhoneNumber.Valid}}<a href="tel:{{.PhoneNumber.String}}">{{.PhoneNumber.String}}</a>{{else}}Non renseigné{{end}}</dd><dt>Email</dt><dd>{{if .Email.Valid}}<a href="mailto:{{.Email.String}}">{{.Email.String}}</a>{{else}}Non renseigné{{end}}</dd></dl>{{else}}<p>Aucun responsable enregistré.</p>{{end}}</section>{{end}}
-{{range .TrialQuota}}<section class="section-panel"><h2>Essais — {{.SeasonName}}</h2>
-{{template "quota-usage" .}}
-{{range $.TrialsForSeason .SeasonID}}{{template "person-trial" .}}{{else}}<p>Aucun essai enregistré.</p>{{end}}
-</section>{{end}}
 </div>
 <section class="trial-follow-up" aria-labelledby="trial-follow-up-title"><h2 id="trial-follow-up-title">Suivi de l’essai</h2>
 {{template "trial-result" .}}
 <section class="section-panel"><h2>Notes de cet essai</h2><p class="reading-text">{{if .Trial.Notes.Valid}}{{.Trial.Notes.String}}{{else}}Aucune note ou demande de matériel.{{end}}</p></section>
 {{if .CanWritePersons}}<details class="section-panel" {{if .Error}}open{{end}}><summary>Modifier les notes de cet essai</summary><form method="post" action="/trials/{{.Trial.ID}}/notes">{{template "trial-proof" .}}<label for="notes" class="form-label">Notes de la séance ou demande de matériel</label><textarea class="form-control mb-3" id="notes" name="notes" rows="4" maxlength="10000">{{.V "notes"}}</textarea><button class="btn btn-outline-primary">Enregistrer les notes</button></form></details><details id="reprogrammer" class="section-panel" {{if .Error}}open{{end}}><summary>Modifier ou reprogrammer la séance</summary><form method="post" action="/trials/{{.Trial.ID}}/reschedule">{{template "trial-proof" .}}{{template "schedule-fields" .}}<button class="btn btn-outline-primary">Reprogrammer</button></form></details>{{end}}
+{{range .TrialQuota}}<section class="section-panel"><h2>Essais — {{.SeasonName}}</h2>
+{{template "quota-usage" .}}
+{{range $.TrialsForSeason .SeasonID}}{{template "person-trial" .}}{{else}}<p>Aucun essai enregistré.</p>{{end}}
+</section>{{end}}
 </section></div>
 {{end}}
 {{if eq .Mode "membership-person"}}

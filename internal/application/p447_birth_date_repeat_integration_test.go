@@ -1,6 +1,7 @@
 package application
 
 import (
+	"encoding/xml"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -216,20 +217,73 @@ func TestP447TrialContextStructureAndSeparator(t *testing.T) {
 	child, parent := f.guardianPair()
 	id := f.id("INSERT INTO trial_registrations(person_id,activity_id,group_id,group_slot_id,trial_date,status) VALUES(?1,?2,?3,?4,'2026-10-03','registered') RETURNING id", child, f.activity, group, slot)
 	body := officeOK(t, b, officeTrial(id), `class="trial-detail-grid"`, `class="trial-context"`, `class="trial-follow-up"`, officePerson(parent))
-	personPanel := pagePart(t, body, `<h2>Pratiquant</h2>`, `</section>`)
-	if strings.Contains(personPanel, `class="section-panel"`) || strings.Contains(personPanel, "Essais —") || strings.Contains(personPanel, "Responsable") {
-		t.Fatal("nested quota/responsible")
-	}
-	context := pagePart(t, body, `<div class="trial-context">`, `<section class="trial-follow-up"`)
-	if strings.Index(context, "Responsable") > strings.Index(context, "Essais —") || !strings.Contains(context, "Essais —") {
-		t.Fatal("quota order")
-	}
-	if strings.Count(body, `class="trial-context"`) != 1 || strings.Count(body, `class="trial-follow-up"`) != 1 || !strings.Contains(body, `</div>`+"\n"+`<section class="trial-follow-up"`) {
-		t.Fatal("two primary children")
-	}
+	trialDetailLayout(t, body, true)
+	adult := f.id("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES(?1,?2,'2026-10-03','attended') RETURNING id", f.person, f.activity)
+	trialDetailLayout(t, officeOK(t, b, officeTrial(adult)), false)
 	week := officeOK(t, b, "/trials?week=2026-09-28")
 	if !regexp.MustCompile(`<time>18:30</time>, <span><a href="/trials/\d+">`).MatchString(week) {
 		t.Fatal("explicit separator missing")
+	}
+}
+
+func trialDetailLayout(t *testing.T, body string, minor bool) {
+	t.Helper()
+	start := strings.Index(body, `<div class="trial-detail-grid">`)
+	if start < 0 {
+		t.Fatal("missing trial grid")
+	}
+	decoder := xml.NewDecoder(strings.NewReader(body[start:]))
+	decoder.Strict = false
+	decoder.AutoClose = xml.HTMLAutoClose
+	decoder.Entity = xml.HTMLEntity
+	depth := 0
+	var columns []string
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			t.Fatal("invalid trial grid", err)
+		}
+		switch token := token.(type) {
+		case xml.StartElement:
+			if depth == 1 {
+				class := ""
+				for _, attr := range token.Attr {
+					if attr.Name.Local == "class" {
+						class = attr.Value
+					}
+				}
+				columns = append(columns, token.Name.Local+"."+class)
+			}
+			depth++
+		case xml.EndElement:
+			depth--
+		}
+		if depth == 0 {
+			break
+		}
+	}
+	if len(columns) != 2 || columns[0] != "div.trial-context" || columns[1] != "section.trial-follow-up" {
+		t.Fatalf("want exactly context and follow-up as grid children, got %v", columns)
+	}
+	left := pagePart(t, body, `<div class="trial-context">`, `<section class="trial-follow-up"`)
+	right := pagePart(t, body, `<section class="trial-follow-up"`, `</section></div>`)
+	if !strings.Contains(left, `<h2>Pratiquant</h2>`) || strings.Contains(left, "Essais —") || strings.Contains(left, "Suivi de l’essai") {
+		t.Fatal("practitioner or trial panels in wrong column")
+	}
+	if strings.Contains(left, `<h2>Responsable</h2>`) != minor || strings.Contains(right, `<h2>Responsable</h2>`) || strings.Contains(right, `<h2>Pratiquant</h2>`) {
+		t.Fatal("guardian/practitioner placement")
+	}
+	for _, title := range []string{"Suivi de l’essai", "Résultat de l’essai", "Notes de cet essai", "Essais —"} {
+		if !strings.Contains(right, title) {
+			t.Fatal("missing follow-up panel", title)
+		}
+	}
+	if strings.Index(right, "Essais —") < strings.Index(right, "Reprogrammer</button>") {
+		t.Fatal("history must follow current trial actions and notes")
+	}
+	personPanel := pagePart(t, left, `<h2>Pratiquant</h2>`, `</section>`)
+	if strings.Contains(personPanel, `class="section-panel"`) || strings.Contains(personPanel, "Responsable") {
+		t.Fatal("nested panel in practitioner")
 	}
 }
 

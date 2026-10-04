@@ -86,14 +86,7 @@ func TestP448TrialHistoryAndDirectoryOrder(t *testing.T) {
 			t.Fatal("history missing", text)
 		}
 	}
-	// Context and follow-up remain siblings; history is outside the practitioner panel.
-	if strings.Count(body, `class="trial-context"`) != 1 || strings.Count(body, `class="trial-follow-up"`) != 1 || !strings.Contains(body, "</div>\n<section class=\"trial-follow-up\"") {
-		t.Fatal("two-column structure changed")
-	}
-	personPanel := pagePart(t, body, `<h2>Pratiquant</h2>`, `</section>`)
-	if strings.Contains(personPanel, "Essais —") || strings.Contains(personPanel, `class="section-panel"`) {
-		t.Fatal("history nested in practitioner panel")
-	}
+	trialDetailLayout(t, body, false)
 	body = officeOK(t, b, officePerson(f.person))
 	p448TrialLinks(t, pagePart(t, body, `<section id="essais"`, `</section>`), want)
 	body = officeOK(t, b, officeTrial(previous), "Essais — 2025/2026")
