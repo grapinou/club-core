@@ -2,7 +2,6 @@
 SELECT
  (SELECT CAST(count(*) AS BIGINT) FROM trial_registrations ct WHERE ct.trial_date=sqlc.arg(today) AND ct.status='registered') AS today_trials,
  (SELECT CAST(count(*) AS BIGINT) FROM trial_registrations ct WHERE ct.trial_date>sqlc.arg(today) AND ct.status='registered') AS upcoming_trials,
- (SELECT CAST(count(*) AS BIGINT) FROM trial_registrations ct WHERE ct.trial_date<sqlc.arg(today) AND ct.status='registered') AS past_pending_trials,
  (SELECT CAST(count(*) AS BIGINT) FROM memberships WHERE status='pending') AS pending_memberships;
 
 -- name: SearchAdministrativePersons :many
@@ -51,6 +50,7 @@ SELECT t.id,t.person_id,p.first_name,p.last_name,p.birth_date,p.email,p.phone_nu
  coalesce(gs.practice_label,'') AS practice_label,
  coalesce((SELECT l.name FROM locations l WHERE l.id=gs.location_id),gs.location,'') AS location, CAST(coalesce((SELECT l.address FROM locations l WHERE l.id=gs.location_id),'') AS TEXT) AS location_address,
  t.trial_date,t.status,t.notes,t.revision,
+ CASE WHEN CAST(sqlc.arg(management_order) AS INTEGER)=1 THEN t.trial_date END AS management_date,
  (t.trial_date<sqlc.arg(today)) AS is_past,
  CASE WHEN t.trial_date>=sqlc.arg(today) THEN t.trial_date END AS upcoming_date,
  CASE WHEN t.trial_date<sqlc.arg(today) THEN t.trial_date END AS past_date, CAST(coalesce((SELECT m.id FROM memberships m JOIN seasons s ON s.id=m.season_id
@@ -66,9 +66,10 @@ AND (sqlc.narg(range_start) IS NULL OR t.trial_date>=sqlc.narg(range_start))
 AND (sqlc.narg(range_end) IS NULL OR t.trial_date<sqlc.narg(range_end))
 AND (sqlc.narg(on_date) IS NULL OR t.trial_date=sqlc.narg(on_date))
 AND (sqlc.narg(from_date) IS NULL OR (t.trial_date>=sqlc.narg(from_date) AND t.status='registered'))
-AND (sqlc.narg(before_date) IS NULL OR (t.trial_date<sqlc.narg(before_date) AND t.status='registered'))
-ORDER BY is_past,upcoming_date ASC,past_date DESC,
- gs.start_time NULLS LAST, p.last_name,p.first_name,t.id LIMIT 101;
+AND (CAST(sqlc.arg(search) AS TEXT)='' OR instr(unicode_lower(p.first_name||' '||p.last_name),unicode_lower(sqlc.arg(search)))>0)
+ORDER BY management_date DESC,
+ is_past,upcoming_date ASC,past_date DESC,
+ gs.start_time NULLS LAST, p.last_name,p.first_name,t.id LIMIT 101 OFFSET sqlc.arg(page_offset);
 
 -- name: AdministrativeMemberships :many
 SELECT m.id,m.status,m.season_id,m.source_trial_id,m.requested_at,m.approved_at,s.name AS season_name,t.name AS type_name,

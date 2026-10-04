@@ -48,26 +48,19 @@ const administrativeCounts = `-- name: AdministrativeCounts :one
 SELECT
  (SELECT CAST(count(*) AS BIGINT) FROM trial_registrations ct WHERE ct.trial_date=?1 AND ct.status='registered') AS today_trials,
  (SELECT CAST(count(*) AS BIGINT) FROM trial_registrations ct WHERE ct.trial_date>?1 AND ct.status='registered') AS upcoming_trials,
- (SELECT CAST(count(*) AS BIGINT) FROM trial_registrations ct WHERE ct.trial_date<?1 AND ct.status='registered') AS past_pending_trials,
  (SELECT CAST(count(*) AS BIGINT) FROM memberships WHERE status='pending') AS pending_memberships
 `
 
 type AdministrativeCountsRow struct {
 	TodayTrials        int64
 	UpcomingTrials     int64
-	PastPendingTrials  int64
 	PendingMemberships int64
 }
 
 func (q *Queries) AdministrativeCounts(ctx context.Context, today dbtypes.Date) (AdministrativeCountsRow, error) {
 	row := q.db.QueryRowContext(ctx, administrativeCounts, today)
 	var i AdministrativeCountsRow
-	err := row.Scan(
-		&i.TodayTrials,
-		&i.UpcomingTrials,
-		&i.PastPendingTrials,
-		&i.PendingMemberships,
-	)
+	err := row.Scan(&i.TodayTrials, &i.UpcomingTrials, &i.PendingMemberships)
 	return i, err
 }
 
@@ -390,35 +383,39 @@ SELECT t.id,t.person_id,p.first_name,p.last_name,p.birth_date,p.email,p.phone_nu
  coalesce(gs.practice_label,'') AS practice_label,
  coalesce((SELECT l.name FROM locations l WHERE l.id=gs.location_id),gs.location,'') AS location, CAST(coalesce((SELECT l.address FROM locations l WHERE l.id=gs.location_id),'') AS TEXT) AS location_address,
  t.trial_date,t.status,t.notes,t.revision,
- (t.trial_date<?1) AS is_past,
- CASE WHEN t.trial_date>=?1 THEN t.trial_date END AS upcoming_date,
- CASE WHEN t.trial_date<?1 THEN t.trial_date END AS past_date, CAST(coalesce((SELECT m.id FROM memberships m JOIN seasons s ON s.id=m.season_id
+ CASE WHEN CAST(?1 AS INTEGER)=1 THEN t.trial_date END AS management_date,
+ (t.trial_date<?2) AS is_past,
+ CASE WHEN t.trial_date>=?2 THEN t.trial_date END AS upcoming_date,
+ CASE WHEN t.trial_date<?2 THEN t.trial_date END AS past_date, CAST(coalesce((SELECT m.id FROM memberships m JOIN seasons s ON s.id=m.season_id
    WHERE m.source_trial_id=t.id OR (m.person_id=t.person_id AND
      (m.season_id=gs.season_id OR (gs.id IS NULL AND t.trial_date BETWEEN s.starts_at AND s.ends_at)))
    ORDER BY (m.source_trial_id=t.id) DESC NULLS LAST,m.id DESC LIMIT 1),0) AS INTEGER) AS membership_id,
  coalesce(gs.season_id,(SELECT s.id FROM seasons s WHERE s.is_active AND t.trial_date BETWEEN s.starts_at AND s.ends_at ORDER BY s.starts_at DESC,s.id LIMIT 1),0) AS suggested_season_id
 FROM trial_registrations t JOIN persons p ON p.id=t.person_id JOIN activities a ON a.id=t.activity_id
 LEFT JOIN groups g ON g.id=t.group_id LEFT JOIN group_slots gs ON gs.id=t.group_slot_id
-WHERE (CAST(?2 AS INTEGER)=0 OR t.person_id=?2)
-AND (CAST(?3 AS INTEGER)=0 OR t.id=?3)
-AND (?4 IS NULL OR t.trial_date>=?4)
-AND (?5 IS NULL OR t.trial_date<?5)
-AND (?6 IS NULL OR t.trial_date=?6)
-AND (?7 IS NULL OR (t.trial_date>=?7 AND t.status='registered'))
-AND (?8 IS NULL OR (t.trial_date<?8 AND t.status='registered'))
-ORDER BY is_past,upcoming_date ASC,past_date DESC,
- gs.start_time NULLS LAST, p.last_name,p.first_name,t.id LIMIT 101
+WHERE (CAST(?3 AS INTEGER)=0 OR t.person_id=?3)
+AND (CAST(?4 AS INTEGER)=0 OR t.id=?4)
+AND (?5 IS NULL OR t.trial_date>=?5)
+AND (?6 IS NULL OR t.trial_date<?6)
+AND (?7 IS NULL OR t.trial_date=?7)
+AND (?8 IS NULL OR (t.trial_date>=?8 AND t.status='registered'))
+AND (CAST(?9 AS TEXT)='' OR instr(unicode_lower(p.first_name||' '||p.last_name),unicode_lower(?9))>0)
+ORDER BY management_date DESC,
+ is_past,upcoming_date ASC,past_date DESC,
+ gs.start_time NULLS LAST, p.last_name,p.first_name,t.id LIMIT 101 OFFSET ?10
 `
 
 type AdministrativeTrialsParams struct {
-	Today      dbtypes.Date
-	PersonID   int32
-	TrialID    int32
-	RangeStart interface{}
-	RangeEnd   interface{}
-	OnDate     interface{}
-	FromDate   interface{}
-	BeforeDate interface{}
+	ManagementOrder int32
+	Today           dbtypes.Date
+	PersonID        int32
+	TrialID         int32
+	RangeStart      interface{}
+	RangeEnd        interface{}
+	OnDate          interface{}
+	FromDate        interface{}
+	Search          string
+	PageOffset      int32
 }
 
 type AdministrativeTrialsRow struct {
@@ -444,6 +441,7 @@ type AdministrativeTrialsRow struct {
 	Status            string
 	Notes             sql.NullString
 	Revision          int32
+	ManagementDate    interface{}
 	IsPast            interface{}
 	UpcomingDate      interface{}
 	PastDate          interface{}
@@ -453,6 +451,7 @@ type AdministrativeTrialsRow struct {
 
 func (q *Queries) AdministrativeTrials(ctx context.Context, arg AdministrativeTrialsParams) ([]AdministrativeTrialsRow, error) {
 	rows, err := q.db.QueryContext(ctx, administrativeTrials,
+		arg.ManagementOrder,
 		arg.Today,
 		arg.PersonID,
 		arg.TrialID,
@@ -460,7 +459,8 @@ func (q *Queries) AdministrativeTrials(ctx context.Context, arg AdministrativeTr
 		arg.RangeEnd,
 		arg.OnDate,
 		arg.FromDate,
-		arg.BeforeDate,
+		arg.Search,
+		arg.PageOffset,
 	)
 	if err != nil {
 		return nil, err
@@ -492,6 +492,7 @@ func (q *Queries) AdministrativeTrials(ctx context.Context, arg AdministrativeTr
 			&i.Status,
 			&i.Notes,
 			&i.Revision,
+			&i.ManagementDate,
 			&i.IsPast,
 			&i.UpcomingDate,
 			&i.PastDate,

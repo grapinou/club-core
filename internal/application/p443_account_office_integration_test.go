@@ -38,7 +38,7 @@ func TestP443NavigationAndImmediateDashboard(t *testing.T) {
 			t.Fatal("dashboard trial scope", unwanted)
 		}
 	}
-	officeOK(t, b, "/trials?pending=1", "PasseSansResultat")
+	officeOK(t, b, "/trials?all=1&search=PasseSansResultat", "PasseSansResultat")
 	for _, path := range []string{"/dashboard", "/me/account"} {
 		body = officeOK(t, b, path)
 		nav := pagePart(t, body, `<nav class="admin-nav"`, `</nav>`)

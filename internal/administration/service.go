@@ -279,18 +279,16 @@ func (s *Service) AddGuardianEmergency(ctx context.Context, child, guardian int3
 		return "emergency_contact_added", "person", child, err
 	})
 }
-func (s *Service) Trials(ctx context.Context, on, from dbtypes.Date) ([]dbsqlc.AdministrativeTrialsRow, error) {
+
+// SearchTrials keeps the operational query projection with a historical date order.
+func (s *Service) SearchTrials(ctx context.Context, on dbtypes.Date, search string, page int32) ([]dbsqlc.AdministrativeTrialsRow, error) {
 	if _, err := s.require(ctx, authorization.PersonsRead); err != nil {
 		return nil, err
 	}
-	return s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{OnDate: on, FromDate: from, Today: s.Today()})
-}
-func (s *Service) PastPendingTrials(ctx context.Context) ([]dbsqlc.AdministrativeTrialsRow, error) {
-	if _, err := s.require(ctx, authorization.PersonsRead); err != nil {
-		return nil, err
+	if page < 0 || page > 10000 || len(search) > 254 {
+		return nil, ErrInvalid
 	}
-	today := s.Today()
-	return s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{BeforeDate: today, Today: today})
+	return s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{OnDate: on, Search: strings.TrimSpace(search), Today: s.Today(), ManagementOrder: 1, PageOffset: page * 100})
 }
 func (s *Service) Trial(ctx context.Context, id int32) (dbsqlc.AdministrativeTrialsRow, error) {
 	if _, err := s.require(ctx, authorization.PersonsRead); err != nil {

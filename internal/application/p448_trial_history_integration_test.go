@@ -2,11 +2,14 @@ package application
 
 import (
 	"fmt"
+	"html"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"github.com/grapinou/club-core/internal/views"
 )
 
 func p448TrialLinks(t *testing.T, body string, want []int32) {
@@ -22,6 +25,29 @@ func p448TrialLinks(t *testing.T, body string, want []int32) {
 	}
 	if strings.Count(body, `href="/trials/`) != len(want) {
 		t.Fatal("unexpected trials in history")
+	}
+}
+
+func p448InformativeHistory(t *testing.T, f *fixture, body string, want []int32) {
+	t.Helper()
+	paragraphs := regexp.MustCompile(`<p>([0-9]{2}/[0-9]{2}/[0-9]{4}[^<]*)</p>`).FindAllStringSubmatch(body, -1)
+	if strings.Contains(body, "<a ") || len(paragraphs) != len(want) {
+		t.Fatal("history must be complete and informative")
+	}
+	rows, err := f.app.Administration.PersonTrials(f.authenticatedContext(f.approver), f.person)
+	f.must(err)
+	byID := map[int32]dbsqlc.ListPersonTrialsRow{}
+	for _, row := range rows {
+		byID[row.TrialID] = row
+	}
+	for i, id := range want {
+		row := byID[id]
+		text := html.UnescapeString(paragraphs[i][1])
+		for _, value := range []string{row.TrialDate.Time.Format("02/01/2006"), row.ActivityName, row.GroupName.String, (views.AdministrativeView{}).StatusLabel(row.Status)} {
+			if !strings.Contains(text, value) {
+				t.Fatalf("history row %d missing %q or out of order", i, value)
+			}
+		}
 	}
 }
 
@@ -80,7 +106,7 @@ func TestP448TrialHistoryAndDirectoryOrder(t *testing.T) {
 		t.Fatal("obsolete panel present")
 	}
 	history := pagePart(t, body, `<h2>Essais — 2026/2027</h2>`, `</section>`)
-	p448TrialLinks(t, history, want[:5])
+	p448InformativeHistory(t, f, history, want[:5])
 	for _, text := range []string{"03/03/2027", "03/10/2026", "Practice", "Groupe adultes", "Programmé", "Présent", "Annulée", "Absent"} {
 		if !strings.Contains(history, text) {
 			t.Fatal("history missing", text)
@@ -90,7 +116,7 @@ func TestP448TrialHistoryAndDirectoryOrder(t *testing.T) {
 	body = officeOK(t, b, officePerson(f.person))
 	p448TrialLinks(t, pagePart(t, body, `<section id="essais"`, `</section>`), want)
 	body = officeOK(t, b, officeTrial(previous), "Essais — 2025/2026")
-	p448TrialLinks(t, pagePart(t, body, `<h2>Essais — 2025/2026</h2>`, `</section>`), []int32{previous})
+	p448InformativeHistory(t, f, pagePart(t, body, `<h2>Essais — 2025/2026</h2>`, `</section>`), []int32{previous})
 }
 
 func TestP448HistoryIsCompleteBeyondCockpitLimit(t *testing.T) {
@@ -102,7 +128,7 @@ func TestP448HistoryIsCompleteBeyondCockpitLimit(t *testing.T) {
 	}
 	slices.Reverse(want)
 	body := officeOK(t, b, officeTrial(want[0]))
-	p448TrialLinks(t, pagePart(t, body, `<h2>Essais — 2026</h2>`, `</section>`), want)
+	p448InformativeHistory(t, f, pagePart(t, body, `<h2>Essais — 2026</h2>`, `</section>`), want)
 	body = officeOK(t, b, officePerson(f.person))
 	p448TrialLinks(t, pagePart(t, body, `<section id="essais"`, `</section>`), want)
 }
@@ -120,13 +146,13 @@ func TestP448IndeterminateSeasonHistory(t *testing.T) {
 			first := f.id("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES(?1,?2,'2026-09-01','attended') RETURNING id", f.person, f.activity)
 			last := f.id("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES(?1,?2,'2026-10-01','no_show') RETURNING id", f.person, f.activity)
 			body := officeOK(t, b, officeTrial(first), "Comptage à vérifier")
-			p448TrialLinks(t, pagePart(t, body, `<h2>Essais — Saison indéterminée</h2>`, `</section>`), []int32{last, first})
+			p448InformativeHistory(t, f, pagePart(t, body, `<h2>Essais — Saison indéterminée</h2>`, `</section>`), []int32{last, first})
 			// A precise slot remains assigned even when calendar seasons overlap.
 			if ambiguous {
 				group, slot := f.officeGroup()
 				precise := f.id("INSERT INTO trial_registrations(person_id,activity_id,group_id,group_slot_id,trial_date,status) VALUES(?1,?2,?3,?4,'2026-10-03','registered') RETURNING id", f.person, f.activity, group, slot)
 				body = officeOK(t, b, officeTrial(precise))
-				p448TrialLinks(t, pagePart(t, body, `<h2>Essais — 2026</h2>`, `</section>`), []int32{precise})
+				p448InformativeHistory(t, f, pagePart(t, body, `<h2>Essais — 2026</h2>`, `</section>`), []int32{precise})
 			}
 		})
 	}

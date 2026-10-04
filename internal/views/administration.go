@@ -35,6 +35,7 @@ type AdministrativeView struct {
 	Category                             string
 	Search, NextURL, PreviousURL         string
 	More, CanManageMemberships           bool
+	TrialManagement                      bool
 	Home                                 administration.Home
 	People                               []dbsqlc.SearchAdministrativePersonsRow
 	RepeatPeople                         []dbsqlc.RepeatTrialPersonsRow
@@ -46,6 +47,16 @@ type AdministrativeView struct {
 	Membership                           administration.Membership
 	Today                                dbtypes.Date
 	Form                                 url.Values
+}
+
+// PersonTrialEntry controls navigation without duplicating the history markup.
+type PersonTrialEntry struct {
+	dbsqlc.ListPersonTrialsRow
+	Linked bool
+}
+
+func (AdministrativeView) TrialHistoryEntry(row dbsqlc.ListPersonTrialsRow, linked bool) PersonTrialEntry {
+	return PersonTrialEntry{ListPersonTrialsRow: row, Linked: linked}
 }
 
 // TrialsForSeason preserves the query order and the quota season convention:

@@ -272,43 +272,56 @@ func (h *AdministrativeHandler) person(w http.ResponseWriter, r *http.Request) {
 func (h *AdministrativeHandler) listTrials(w http.ResponseWriter, r *http.Request) {
 	v := h.base(r, "trials")
 	v.Form = r.URL.Query()
+	v.Search = strings.TrimSpace(v.Form.Get("search"))
+	// Existing direct date links also open management, with its visible filters.
+	v.TrialManagement = v.Form.Get("all") == "1" || v.Form.Get("date") != "" || v.Search != ""
 	var e error
 	v.TrialPolicy, e = h.s.TrialPolicy(r.Context())
 	if e != nil {
 		h.render(w, r, v, e)
 		return
 	}
-	on, e := formDate(v.Form.Get("date"), true)
-	var weekStart time.Time
-	from := dbtypes.Date{}
-	if v.Form.Get("upcoming") == "1" {
-		from = h.s.Today()
-		from.Time = from.Time.AddDate(0, 0, 1)
-	}
-	if e == nil {
-		if v.Form.Get("pending") == "1" {
-			v.Trials, e = h.s.PastPendingTrials(r.Context())
-		} else if !on.Valid && !from.Valid && v.Form.Get("all") != "1" {
-			start := h.s.Today().Time
-			if raw := v.Form.Get("week"); raw != "" {
-				date, err := formDate(raw, false)
-				start, e = date.Time, err
+	if v.TrialManagement {
+		v.Title = "Gestion des essais - " + h.site
+		on, err := formDate(v.Form.Get("date"), true)
+		e = err
+		var page int32
+		if raw := v.Form.Get("page"); raw != "" {
+			n, err := strconv.ParseInt(raw, 10, 32)
+			if err != nil || n < 0 || n > 10000 {
+				e = administration.ErrInvalid
+			} else {
+				page = int32(n)
 			}
-			if e == nil {
-				start = start.AddDate(0, 0, -(int(start.Weekday())+6)%7)
-				v.Trials, e = h.s.TrialsInWeek(r.Context(), start)
-				weekStart = start
-			}
-		} else {
-			v.Trials, e = h.s.Trials(r.Context(), on, from)
 		}
-	}
-	if len(v.Trials) > 100 {
-		v.More = true
-		v.Trials = v.Trials[:100]
-	}
-	if !weekStart.IsZero() {
-		v.SetWeek(weekStart)
+		if e == nil {
+			v.Trials, e = h.s.SearchTrials(r.Context(), on, v.Search, page)
+		}
+		link := func(p int32) string {
+			return "/trials?" + url.Values{"all": {"1"}, "date": {v.Form.Get("date")}, "search": {v.Search}, "page": {fmt.Sprint(p)}}.Encode()
+		}
+		if len(v.Trials) > 100 {
+			v.Trials = v.Trials[:100]
+			v.NextURL = link(page + 1)
+		}
+		if page > 0 {
+			v.PreviousURL = link(page - 1)
+		}
+	} else {
+		start := h.s.Today().Time
+		if raw := v.Form.Get("week"); raw != "" {
+			date, err := formDate(raw, false)
+			start, e = date.Time, err
+		}
+		if e == nil {
+			start = start.AddDate(0, 0, -(int(start.Weekday())+6)%7)
+			v.Trials, e = h.s.TrialsInWeek(r.Context(), start)
+			if len(v.Trials) > 100 {
+				v.More = true
+				v.Trials = v.Trials[:100]
+			}
+			v.SetWeek(start)
+		}
 	}
 	h.render(w, r, v, e)
 }

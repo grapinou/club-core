@@ -89,14 +89,14 @@ func TestP43NavigationCategoriesAndPolicy(t *testing.T) {
 		t.Fatal("past season presented as current")
 	}
 	f.exec(`INSERT INTO organizations(name,is_active,max_trials_per_person_per_season) VALUES('Association',true,3)`)
-	body = officeOK(t, b, "/trials", "3 séances maximum par personne et par saison")
+	body = officeOK(t, b, "/trials", "Chaque personne peut effectuer jusqu’à 3 essais par saison.")
 	if strings.Contains(body, "Modifier la politique") {
 		t.Fatal("secretary configure")
 	}
 	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='president'`, f.approver)
 	officeOK(t, b, "/trials", "Président", "Secrétaire", "Modifier la politique")
 	f.exec(`UPDATE organizations SET max_trials_per_person_per_season=NULL`)
-	officeOK(t, b, "/trials", "Aucune limite configurée")
+	officeOK(t, b, "/trials", "Aucune limite d’essais n’est configurée.")
 	_, ordinary := f.personalBrowser(parent, "ordinary.p43")
 	body = f.personalOK(ordinary, "/dashboard", "Mon espace")
 	if strings.Contains(body, "Mon tableau de bord") {

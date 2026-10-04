@@ -110,7 +110,7 @@ func TestP432DashboardDirectoryAndPersonalContext(t *testing.T) {
 	if strings.Contains(body, "PlusDeux") || strings.Contains(body, "HierSansResultat") || strings.Contains(body, "href=\"/trials?pending=1\"") || strings.Count(body, "href=\"/dashboard\"") != 1 {
 		t.Fatal("dashboard scope/duplicate/personal link")
 	}
-	officeOK(t, b, "/trials?pending=1", "HierSansResultat")
+	officeOK(t, b, "/trials?all=1&search=HierSansResultat", "HierSansResultat")
 	body = officeOK(t, b, "/trials?week="+f.app.Administration.Today().Time.AddDate(0, 0, 2).Format("2006-01-02"), "Semaine précédente", "Lundi", "Dimanche")
 	if !strings.Contains(body, "PlusDeux") {
 		t.Fatal("week missing J+2")

@@ -269,9 +269,9 @@ func TestAdministrativeAttentionAndFamilyWorkflow(t *testing.T) {
 	if strings.Contains(home, officeTrial(pastTrial)) || !strings.Contains(home, officeTrial(todayTrial)) || !strings.Contains(home, officeTrial(futureTrial)) {
 		t.Fatal("dashboard trial navigation")
 	}
-	pending := officeOK(t, b, "/trials?pending=1", "Lina Parcours", "Résultat à renseigner")
-	if strings.Contains(pending, "Rémi Dupont") {
-		t.Fatal("pending list includes upcoming trial")
+	filtered := officeOK(t, b, "/trials?all=1&date="+past, "Lina Parcours", "Résultat à renseigner")
+	if strings.Contains(filtered, "Rémi Dupont") {
+		t.Fatal("date search includes upcoming trial")
 	}
 	officeOK(t, b, "/trials?all=1", "Lina Parcours", "Rémi Dupont", "Résultat à renseigner", "Programmé")
 	childDetail := officeOK(t, b, officeTrial(pastTrial), "Lina Parcours", "Camille Parcours", "camille@example.test", "0601020304", "Contact principal", "Matériel demandé : taille M", "Séance découverte")
@@ -300,13 +300,13 @@ func TestAdministrativeAttentionAndFamilyWorkflow(t *testing.T) {
 	if f.count("SELECT count(*) FROM trial_registrations WHERE status='registered'") != 0 {
 		t.Fatal("trial outcomes not persisted")
 	}
-	for _, path := range []string{"/admin", "/trials?pending=1", officeTrial(pastTrial), officePerson(child)} {
+	for _, path := range []string{"/admin", "/trials?all=1", officeTrial(pastTrial), officePerson(child)} {
 		if response := newBrowser(f.app.Handler).call("GET", path, nil); response.Code != 303 {
 			t.Fatal("anonymous office access", path, response.Code)
 		}
 	}
 	_, member := f.personalBrowser(f.person, "member.p21")
-	for _, path := range []string{"/admin", "/trials?pending=1", officeTrial(pastTrial), officePerson(child)} {
+	for _, path := range []string{"/admin", "/trials?all=1", officeTrial(pastTrial), officePerson(child)} {
 		if response := member.call("GET", path, nil); response.Code != 403 {
 			t.Fatal("member office access", path, response.Code)
 		}
