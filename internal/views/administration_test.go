@@ -1,9 +1,11 @@
 package views
 
 import (
-	"github.com/grapinou/club-core/internal/database/dbsqlc"
+	"database/sql"
 	"strings"
 	"testing"
+
+	"github.com/grapinou/club-core/internal/database/dbsqlc"
 )
 
 func TestTrialResultReadableWithoutWritePermission(t *testing.T) {
@@ -57,6 +59,78 @@ func TestTrialMembershipActionInHeader(t *testing.T) {
 				}
 			} else if strings.Contains(html, "Préparer une demande d’adhésion") || strings.Contains(html, "Voir le dossier d’adhésion") {
 				t.Fatal("ineligible action rendered")
+			}
+		})
+	}
+}
+
+func TestTrialListHeaderActionsRespectWritePermission(t *testing.T) {
+	for _, canWrite := range []bool{false, true} {
+		var body strings.Builder
+		v := AdministrativeView{Mode: "trials", SecurityData: SecurityData{CanReadPersons: true, CanWritePersons: canWrite}}
+		if err := RenderAdministrative(&body, v); err != nil {
+			t.Fatal(err)
+		}
+		html := body.String()
+		start := strings.Index(html, `<div class="page-header-actions">`)
+		if start < 0 {
+			t.Fatal("header actions missing")
+		}
+		end := strings.Index(html[start:], `</div>`)
+		actions := html[start : start+end]
+		if strings.Contains(actions, `href="/trials/new"`) != canWrite || !strings.Contains(actions, `class="btn btn-primary" href="/trials?all=1"`) {
+			t.Fatal("header action permission or management button")
+		}
+	}
+}
+
+func TestCompactTrialResultsPreserveMembershipActions(t *testing.T) {
+	for _, tt := range []struct {
+		name, status, action string
+		canRead, canManage   bool
+		membership           int32
+	}{
+		{"prepare", "attended", `/persons/8/memberships/new?trial=42`, true, true, 0},
+		{"open", "attended", `/memberships/19`, true, true, 19},
+		{"read existing", "registered", `/memberships/19`, true, false, 19},
+		{"no membership access", "attended", "", false, false, 19},
+		{"no prepare permission", "attended", "", true, false, 0},
+		{"registered", "registered", "", true, true, 0},
+		{"cancelled", "cancelled", "", true, true, 0},
+		{"no show", "no_show", "", true, true, 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var body strings.Builder
+			v := AdministrativeView{Mode: "trials", TrialManagement: true, CanManageMemberships: tt.canManage,
+				SecurityData: SecurityData{CanReadPersons: true, CanReadMemberships: tt.canRead},
+				Trials:       []dbsqlc.AdministrativeTrialsRow{{ID: 42, PersonID: 8, FirstName: "Léa", LastName: "Dupont", ActivityName: "JJB", GroupName: "Adultes", Status: tt.status, MembershipID: tt.membership, Notes: sql.NullString{Valid: true, String: "Matériel"}}}}
+			if err := RenderAdministrative(&body, v); err != nil {
+				t.Fatal(err)
+			}
+			html := body.String()
+			start := strings.Index(html, `<article class="trial-management-row">`)
+			if start < 0 {
+				t.Fatal("compact result missing")
+			}
+			end := strings.Index(html[start:], `</article>`)
+			row := html[start : start+end]
+			for _, text := range []string{`href="/trials/42">Léa Dupont</a>`, "JJB", "Adultes", v.StatusLabel(tt.status), "Note ou matériel à consulter"} {
+				if !strings.Contains(row, text) {
+					t.Fatal("result information missing", text)
+				}
+			}
+			if strings.Index(row, "Léa Dupont") > strings.Index(row, "JJB") || strings.Index(row, "JJB") > strings.Index(row, v.StatusLabel(tt.status)) {
+				t.Fatal("person, activity and status hierarchy")
+			}
+			if tt.action != "" {
+				if !strings.Contains(row, `class="small" href="`+tt.action+`"`) {
+					t.Fatal("secondary membership action missing")
+				}
+			} else if strings.Contains(row, "Ouvrir l’adhésion") || strings.Contains(row, "Préparer l’adhésion") {
+				t.Fatal("ineligible membership action rendered")
+			}
+			if strings.Contains(row, `class="btn`) || strings.Count(row, `href="/trials/42"`) != 1 {
+				t.Fatal("result should use one main link and no competing buttons")
 			}
 		})
 	}

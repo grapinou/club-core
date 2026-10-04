@@ -41,12 +41,21 @@ func TestP4410MainTrialWeekAndPolicy(t *testing.T) {
 		{nil, "Aucune limite d’essais n’est configurée."},
 	} {
 		f.exec("UPDATE organizations SET max_trials_per_person_per_season=?1", tt.limit)
-		body := officeOK(t, b, "/trials", "Programmer un essai", tt.text, "Gestion des essais", "Semaine courante / aujourd’hui", "Lundi", "Dimanche")
+		body := officeOK(t, b, "/trials", "Programmer un essai", tt.text, "Gestion des essais", "Lundi", "Dimanche")
 		header := pagePart(t, body, `<header class="page-header">`, `</header>`)
 		if !strings.Contains(header, tt.text) || strings.Contains(header, "<details") || strings.Index(header, "Programmer un essai") > strings.Index(header, tt.text) {
 			t.Fatal("policy must be directly below scheduling action")
 		}
-		for _, absent := range []string{"Rechercher une date et consulter la politique des essais", "Passés sans résultat", "Tous les essais", "pending=1", `name="date"`, `name="search"`} {
+		actions := pagePart(t, header, `<div class="page-header-actions">`, `</div>`)
+		for _, action := range []string{`class="btn btn-primary" href="/trials/new"`, `class="btn btn-primary" href="/trials?all=1"`} {
+			if !strings.Contains(actions, action) {
+				t.Fatal("primary action absent from shared header block", action)
+			}
+		}
+		if strings.Contains(header, `href="/trials"`) || strings.Index(header, "Gestion des essais") > strings.Index(header, tt.text) {
+			t.Fatal("redundant navigation or policy above actions")
+		}
+		for _, absent := range []string{"Rechercher une date et consulter la politique des essais", "Passés sans résultat", "Tous les essais", "pending=1", "Semaine courante / aujourd’hui", `name="date"`, `name="search"`} {
 			if strings.Contains(body, absent) {
 				t.Fatal("obsolete or management-only interface", absent)
 			}
@@ -89,7 +98,14 @@ func TestP4410TrialManagementFiltersAndOrder(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			path := "/trials?" + url.Values{"all": {"1"}, "date": {tt.date}, "search": {tt.search}}.Encode()
-			body := officeOK(t, b, path, "Gestion des essais", `name="all" value="1"`, "Prénom ou nom", "Rechercher", "Réinitialiser les filtres")
+			body := officeOK(t, b, path, "Gestion des essais", "Retour au semainier", `class="filter-grid mb-3"`, `name="all" value="1"`, "Prénom ou nom", "Rechercher", "Réinitialiser les filtres")
+			results := pagePart(t, body, `<section class="section-panel trial-management-list"`, `</section>`)
+			if strings.Count(body, `class="section-panel trial-management-list"`) != 1 || strings.Contains(results, `class="section-panel"`) || strings.Count(results, `class="trial-management-row"`) != len(tt.want) {
+				t.Fatal("results must use one compact panel with a row per trial")
+			}
+			if strings.Contains(body, "Semaine courante / aujourd’hui") || !strings.Contains(body, `href="/trials">Retour au semainier</a>`) {
+				t.Fatal("management return navigation")
+			}
 			if got := managementTrialIDs(t, body); !slices.Equal(got, tt.want) {
 				t.Fatalf("results %v want %v", got, tt.want)
 			}
