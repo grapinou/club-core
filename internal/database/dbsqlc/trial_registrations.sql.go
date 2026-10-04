@@ -119,14 +119,17 @@ SELECT t.id AS trial_id, t.trial_date, t.status, t.notes,
        p.id AS person_id, p.first_name, p.last_name, p.birth_date, p.phone_number,
        a.id AS activity_id, a.name AS activity_name,
        t.group_id, g.name AS group_name, t.group_slot_id,
-       gs.weekday, gs.start_time, gs.end_time, COALESCE((SELECT l.name FROM locations l WHERE l.id=gs.location_id),gs.location) AS location
+       gs.weekday, gs.start_time, gs.end_time, COALESCE((SELECT l.name FROM locations l WHERE l.id=gs.location_id),gs.location) AS location,
+       CAST((SELECT json_group_array(s.id) FROM seasons s
+             WHERE (t.group_slot_id IS NOT NULL AND s.id=gs.season_id)
+                OR (t.group_slot_id IS NULL AND t.trial_date BETWEEN s.starts_at AND s.ends_at)) AS JSON_TEXT_IDS) AS season_ids
 FROM trial_registrations t
 JOIN persons p ON p.id = t.person_id
 JOIN activities a ON a.id = t.activity_id
 LEFT JOIN groups g ON g.id = t.group_id
 LEFT JOIN group_slots gs ON gs.id = t.group_slot_id
 WHERE t.person_id = ?1
-ORDER BY t.trial_date, gs.start_time NULLS LAST, p.last_name, p.first_name, t.id
+ORDER BY t.trial_date DESC, gs.start_time DESC NULLS LAST, t.id DESC
 `
 
 type ListPersonTrialsRow struct {
@@ -148,6 +151,7 @@ type ListPersonTrialsRow struct {
 	StartTime    dbtypes.Time
 	EndTime      dbtypes.Time
 	Location     sql.NullString
+	SeasonIds    dbtypes.IDs
 }
 
 func (q *Queries) ListPersonTrials(ctx context.Context, personID int32) ([]ListPersonTrialsRow, error) {
@@ -178,6 +182,7 @@ func (q *Queries) ListPersonTrials(ctx context.Context, personID int32) ([]ListP
 			&i.StartTime,
 			&i.EndTime,
 			&i.Location,
+			&i.SeasonIds,
 		); err != nil {
 			return nil, err
 		}

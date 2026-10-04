@@ -44,7 +44,6 @@ func (h *AdministrativeHandler) RegisterFamilyDossier(mux *http.ServeMux, access
 			if err != nil {
 				v := h.base(r, "person")
 				v.Person, _ = h.s.Person(r.Context(), child)
-				v.Trials = v.Person.Trials
 				h.render(w, r, v, err)
 				return
 			}

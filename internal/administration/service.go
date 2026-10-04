@@ -196,7 +196,7 @@ type Person struct {
 	Account            []dbsqlc.AdministrativePersonAccountRow
 	Info               dbsqlc.AdministrativePersonRow
 	Relations          []dbsqlc.AdministrativeRelationsRow
-	Trials             []dbsqlc.AdministrativeTrialsRow
+	Trials             []dbsqlc.ListPersonTrialsRow
 	Memberships        []dbsqlc.AdministrativeMembershipsRow
 }
 
@@ -229,7 +229,7 @@ func (s *Service) Person(ctx context.Context, id int32) (Person, error) {
 	if err != nil {
 		return p, err
 	}
-	p.Trials, err = s.q.AdministrativeTrials(ctx, dbsqlc.AdministrativeTrialsParams{PersonID: id, Today: s.Today()})
+	p.Trials, err = s.PersonTrials(ctx, id)
 	if err != nil {
 		return p, err
 	}
@@ -238,6 +238,15 @@ func (s *Service) Person(ctx context.Context, id int32) (Person, error) {
 	}
 	p.Memberships, err = s.q.AdministrativeMemberships(ctx, dbsqlc.AdministrativeMembershipsParams{PersonID: id, Today: s.Today()})
 	return p, err
+}
+
+// PersonTrials is the complete history shared by the directory and trial detail.
+// ListPersonTrials defines its explicit date/time/ID descending order.
+func (s *Service) PersonTrials(ctx context.Context, personID int32) ([]dbsqlc.ListPersonTrialsRow, error) {
+	if _, err := s.require(ctx, authorization.PersonsRead); err != nil {
+		return nil, err
+	}
+	return s.q.ListPersonTrials(ctx, personID)
 }
 
 func (s *Service) TrialQuota(ctx context.Context, id int32) ([]trials.QuotaUsage, error) {

@@ -146,7 +146,7 @@ func TestP446TrialDetailAndCompactWeek(t *testing.T) {
 	officePost(t, b, officeTrial(id)+"/reschedule", url.Values{"revision": {"1"}, "trial_date": {"2026-10-07"}, "activity_id": {fmt.Sprint(f.activity)}, "group_id": {fmt.Sprint(group)}, "slot_id": {fmt.Sprint(slot)}}, 303)
 	officeOK(t, b, officeTrial(id), "07/10/2026")
 	officePost(t, b, officeTrial(id)+"/status", url.Values{"revision": {"2"}, "status": {"attended"}}, 303)
-	officeOK(t, b, officeTrial(id), "Présent", "Après l’essai", officePerson(child)+"/memberships/new?trial="+fmt.Sprint(id))
+	officeOK(t, b, officeTrial(id), "Présent", "Préparer une demande d’adhésion", officePerson(child)+"/memberships/new?trial="+fmt.Sprint(id))
 	adult := f.id("INSERT INTO trial_registrations(person_id,activity_id,trial_date,status) VALUES(?1,?2,'2026-09-16','attended') RETURNING id", f.person, f.activity)
 	body = officeOK(t, b, officeTrial(adult), "Préparer une demande d’adhésion")
 	if strings.Contains(body, "<h2>Responsable</h2>") {

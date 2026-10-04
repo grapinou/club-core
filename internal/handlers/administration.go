@@ -258,7 +258,6 @@ func (h *AdministrativeHandler) person(w http.ResponseWriter, r *http.Request) {
 	if e == nil {
 		v.Person, e = h.s.Person(r.Context(), id)
 	}
-	v.Trials = v.Person.Trials
 	v.Form.Set("notes", v.Person.Info.Notes.String)
 	if e == nil && r.Method == "POST" {
 		v.Form = r.PostForm
@@ -335,6 +334,9 @@ func (h *AdministrativeHandler) trial(w http.ResponseWriter, r *http.Request) {
 	}
 	if e == nil {
 		v.TrialQuota, e = h.s.TrialQuota(r.Context(), id)
+	}
+	if e == nil {
+		v.TrialHistory, e = h.s.PersonTrials(r.Context(), v.Trial.PersonID)
 	}
 	if e == nil {
 		var relations []dbsqlc.AdministrativeRelationsRow

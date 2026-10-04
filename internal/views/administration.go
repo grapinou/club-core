@@ -29,6 +29,7 @@ type AdministrativeView struct {
 	TrialPolicy                               sql.NullInt32
 	PendingMemberships, ActivationMemberships []MembershipRowView
 	TrialQuota                                []trials.QuotaUsage
+	TrialHistory                              []dbsqlc.ListPersonTrialsRow
 	SecurityData
 	SiteName, Title, Mode, Error, Notice string
 	Category                             string
@@ -45,6 +46,19 @@ type AdministrativeView struct {
 	Membership                           administration.Membership
 	Today                                dbtypes.Date
 	Form                                 url.Values
+}
+
+// TrialsForSeason preserves the query order and the quota season convention:
+// a slot fixes the season; unassigned or ambiguous trials stay indeterminate.
+func (v AdministrativeView) TrialsForSeason(seasonID int32) []dbsqlc.ListPersonTrialsRow {
+	var rows []dbsqlc.ListPersonTrialsRow
+	for _, row := range v.TrialHistory {
+		if (seasonID == 0 && len(row.SeasonIds) != 1) ||
+			(len(row.SeasonIds) == 1 && row.SeasonIds[0] == seasonID) {
+			rows = append(rows, row)
+		}
+	}
+	return rows
 }
 
 func (v *AdministrativeView) SetMembershipAttention(entries []memberships.ListEntry, loc *time.Location) {
@@ -82,7 +96,7 @@ func (v AdministrativeView) Past(d dbtypes.Date) bool {
 
 //go:embed templates/layouts/base.html templates/pages/administration.html
 var administrativeFiles embed.FS
-var administrativeTemplate = template.Must(template.New("administration").Funcs(template.FuncMap{"date": date, "trialAge": AgeAt, "iso": func(d dbtypes.Date) string {
+var administrativeTemplate = template.Must(template.New("administration").Funcs(template.FuncMap{"date": date, "trialStatus": AdministrativeView{}.StatusLabel, "trialAge": AgeAt, "iso": func(d dbtypes.Date) string {
 	if !d.Valid {
 		return ""
 	}
