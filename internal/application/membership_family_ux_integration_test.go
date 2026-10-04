@@ -267,17 +267,17 @@ func TestP442ProfileAndFamilyDashboard(t *testing.T) {
 	_, err := f.app.GuardianAccess.Grant(ctx, child, parent)
 	f.must(err)
 	f.exec(`INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES(?1,?2,?3,'pending')`, child, f.season, f.kind)
-	body = f.personalOK(b, "/dashboard", "Demandes en cours", "<h2>Mes enfants</h2>", "Gérer les contacts d’urgence")
-	if strings.Contains(body, "<h2>Mon adhésion</h2>") || strings.Contains(body, "Mes adhésions") {
+	body = f.personalOK(b, "/dashboard", "À suivre", "<h2>Ma famille</h2>", "Gérer mes contacts d’urgence")
+	if strings.Contains(body, `href="/me/memberships/`) || strings.Contains(body, "Historique de mes adhésions") {
 		t.Fatal("parent without membership empty block")
 	}
-	if strings.Index(body, "<h2>Demandes en cours") > strings.Index(body, "<h2>Mes enfants") {
+	if strings.Index(body, "<h2>À suivre") > strings.Index(body, "<h2>Ma famille") {
 		t.Fatal("pending order")
 	}
 	f.exec(`INSERT INTO memberships(person_id,season_id,membership_type_id,status) VALUES(?1,?2,?3,'active')`, parent, f.season, f.kind)
 	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='secretary'`, user)
-	body = f.personalOK(b, "/dashboard", "<h2>Mon adhésion</h2>", "<h2>Mes enfants</h2>")
-	if strings.Index(body, "<h2>Mon adhésion") > strings.Index(body, "<h2>Mes enfants") {
+	body = f.personalOK(b, "/dashboard", "<h2>Mon dossier</h2>", "<h2>Ma famille</h2>")
+	if strings.Index(body, "<h2>Mon dossier") > strings.Index(body, "<h2>Ma famille") {
 		t.Fatal("personal/family order")
 	}
 }

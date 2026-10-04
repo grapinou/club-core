@@ -1,8 +1,8 @@
 {{define "content"}}<div class="content-readable">
-<p><a href="{{.Back}}">Retour à la fiche</a></p><header class="page-header"><h1>Contacts d’urgence</h1><p>{{.Name}}</p></header>
+<p><a href="{{.Back}}">{{if eq .Back "/dashboard"}}Retour à mon espace{{else}}Retour à la fiche{{end}}</a></p><header class="page-header"><h1>Contacts d’urgence</h1><p class="reading-text">{{.Name}}</p></header>
 <p class="form-text">Les champs marqués * sont obligatoires.</p>
 {{if .Error}}<p class="alert alert-danger" role="alert">{{.Error}}</p>{{end}}
-{{range .Contacts}}{{$id:=.EmergencyContactID}}<article class="section-panel"><h2>{{.FirstName}} {{.LastName}}</h2><p>Priorité {{.Priority}} · {{$.RelationLabel .RelationshipLabel.String}}</p><p>{{.PhoneNumber.String}}{{if .Email.Valid}} · {{.Email.String}}{{end}}</p>
+{{range .Contacts}}{{$id:=.EmergencyContactID}}<article class="section-panel"><h2 class="reading-text">{{.FirstName}} {{.LastName}}</h2><p class="reading-text">Priorité {{.Priority}} · {{$.RelationLabel .RelationshipLabel.String}}</p><p class="reading-text">{{.PhoneNumber.String}}{{if .Email.Valid}} · {{.Email.String}}{{end}}</p>
 <details {{if and $.Error (eq $.FailedID $id)}}open{{end}}><summary>Modifier ce contact</summary>
 {{if not .CanEditCoordinates}}<p>Les coordonnées de cette personne sont partagées avec d’autres dossiers. Pour les corriger, contactez le club ou utilisez ses propres informations de compte.</p>{{end}}
 <form method="post" action="{{$.Path}}"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="contact_id" value="{{$id}}">

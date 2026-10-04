@@ -185,3 +185,12 @@ html {scroll-behavior:smooth}
 .account-section-heading h2 { margin-bottom: 0; }
 .account-name { font-size: 1.2rem; font-weight: 600; margin-bottom: .35rem; }
 .account-functions { margin-bottom: 0; }
+
+/* Compact summaries share a panel without nesting cards. */
+.summary-row { padding-block: .8rem; min-width: 0; overflow-wrap: anywhere; }
+.summary-row + .summary-row { border-top: 1px solid var(--club-border); }
+.summary-row h3, .summary-row p { margin-bottom: .35rem; }
+.summary-row .section-heading { flex-wrap: wrap; align-items: center; gap: .35rem 1rem; }
+.summary-row .section-heading h3 { margin-bottom: 0; }
+.summary-row .actions { margin-top: .65rem; }
+.summary-row:last-child { padding-bottom: 0; }

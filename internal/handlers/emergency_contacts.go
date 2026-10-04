@@ -19,7 +19,7 @@ func RegisterEmergencyContacts(mux *http.ServeMux, site string, s *emergencycont
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Cache-Control", "no-store")
 			scope := emergencycontacts.Scope{Office: office}
-			back := "/me/account"
+			back := "/dashboard"
 			var err error
 			if office {
 				scope.Child, err = adminID(r, "id")

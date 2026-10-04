@@ -68,6 +68,7 @@ type Dashboard struct {
 	CanManageEmergency bool
 	PendingRequests    []FamilyRequest
 	Name               string
+	FirstName          string
 	Memberships        []Summary
 	Children           []ChildSummary
 }
@@ -92,7 +93,8 @@ type Group struct {
 	Slots          []Slot
 }
 type Membership struct {
-	CanDecide bool
+	ChildFirstName string
+	CanDecide      bool
 	Summary
 	RequestedAt, JoinedAt      string
 	Complete, MissingEmergency bool
@@ -165,7 +167,7 @@ func (s *Service) GetDashboard(ctx context.Context) (Dashboard, error) {
 	if err != nil {
 		return Dashboard{}, err
 	}
-	d := Dashboard{CanManageEmergency: s.canManageOwnEmergency(a.BirthDate), Name: a.FirstName + " " + a.LastName, Memberships: byPerson[a.PersonID]}
+	d := Dashboard{CanManageEmergency: s.canManageOwnEmergency(a.BirthDate), Name: a.FirstName + " " + a.LastName, FirstName: a.FirstName, Memberships: byPerson[a.PersonID]}
 	actor, _ := auth.UserID(ctx)
 	managed := make([]int32, 0, len(children))
 	for _, c := range children {
@@ -256,7 +258,17 @@ func (s *Service) GetManagedChildMembership(ctx context.Context, child, id int32
 	if err != nil {
 		return Membership{}, err
 	}
-	return s.membership(ctx, id, child, a.PersonID)
+	m, err := s.membership(ctx, id, child, a.PersonID)
+	if err != nil {
+		return Membership{}, err
+	}
+	// Reuse the authorized child projection solely for the contextual return label.
+	p, err := s.q.GetPersonalChild(ctx, dbsqlc.GetPersonalChildParams{ChildPersonID: child, ViewerPersonID: a.PersonID})
+	if err != nil {
+		return Membership{}, unavailable(err)
+	}
+	m.ChildFirstName = p.FirstName
+	return m, nil
 }
 
 // private: ownership is checked in SQL before any dependent facts are read.

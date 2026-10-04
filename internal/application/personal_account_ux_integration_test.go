@@ -39,7 +39,7 @@ func TestPersonalAccountUXNavigationAndLogout(t *testing.T) {
 			t.Fatal("empty logout CSRF")
 		}
 	}
-	body := f.personalOK(b, "/dashboard", `href="/me/account">Mon compte`, "Contacts d’urgence")
+	body := f.personalOK(b, "/dashboard", `href="/me/account">Gérer mon compte`, "Mon dossier", `href="/me/emergency"`)
 	content := pagePart(t, body, `<main id="main-content"`, `</main>`)
 	for _, unwanted := range []string{"Contacter le club", "/logout", "/me/account/profile", "<form", "Ouvrir l’administration"} {
 		if strings.Contains(content, unwanted) {
@@ -95,8 +95,12 @@ func TestPersonalAccountUXHeaderAndEditing(t *testing.T) {
 		t.Fatal("duplicate functions")
 	}
 	identity := pagePart(t, content, "<h2>Identité", "</section>")
-	if !strings.Contains(identity, `href="/me/account/identity"`) || !strings.Contains(identity, "vérifiées par le club") || !strings.Contains(identity, "nom d’utilisateur reste fixe") {
+	if !strings.Contains(identity, `href="/me/account/identity"`) || !strings.Contains(identity, "vérifiées par le club") || strings.Contains(identity, "member") || strings.Contains(identity, "Nom d’utilisateur") {
 		t.Fatal("identity correction explanation")
+	}
+	security := pagePart(t, content, "<h2>Connexion et sécurité", "</section>")
+	if !strings.Contains(security, "Identifiant") || !strings.Contains(security, "member") || !strings.Contains(security, "n’est pas modifiable") {
+		t.Fatal("fixed username location")
 	}
 	coordinates := pagePart(t, content, "<h2>Coordonnées", "</section>")
 	if !strings.Contains(coordinates, `href="/me/account/profile"`) || !strings.Contains(coordinates, ">Éditer</a>") || strings.Contains(coordinates, `href="/me/account/email"`) || strings.Contains(coordinates, "Modifier mes coordonnées") {
@@ -116,8 +120,8 @@ func TestPersonalDashboardEmergencyPrivacy(t *testing.T) {
 	f.exec(`INSERT INTO person_emergency_contacts(person_id,contact_person_id,priority) VALUES(?1,?2,1)`, child, parent)
 	check := func(wantChild bool) string {
 		t.Helper()
-		body := f.personalOK(b, "/dashboard?person_id=999", "Contact personnel Autorisé", "0611223344", `href="/me/emergency"`)
-		for _, secret := range []string{"PRIVATE_OWNER", "PRIVATE_CONTACT", "PRIVATE_PHONE", "private@example.test"} {
+		body := f.personalOK(b, "/dashboard?person_id=999", "Contact d’urgence : renseigné", `href="/me/emergency"`)
+		for _, secret := range []string{"PRIVATE_OWNER", "PRIVATE_CONTACT", "PRIVATE_PHONE", "private@example.test", "Contact personnel Autorisé", "0611223344", "Contact enfant Autorisé", "0622334455"} {
 			if strings.Contains(body, secret) {
 				t.Fatal("unrelated emergency leak", secret)
 			}
@@ -132,19 +136,19 @@ func TestPersonalDashboardEmergencyPrivacy(t *testing.T) {
 	_, err := f.app.GuardianAccess.Grant(ctx, child, parent)
 	f.must(err)
 	body := check(true)
-	if !strings.Contains(body, "Claire Famille") || !strings.Contains(body, personalChild(child)+"/emergency") {
-		t.Fatal("authorized child emergency consultation/management lost")
+	if !strings.Contains(body, personalChild(child)) || strings.Contains(body, personalChild(child)+"/emergency") {
+		t.Fatal("child dashboard should lead to its dossier")
 	}
+	f.personalOK(b, personalChild(child), "Claire Famille", personalChild(child)+"/emergency")
 	f.personalOK(b, personalChild(child)+"/emergency", "Claire Famille")
 	f.exec(`DELETE FROM person_emergency_contacts WHERE person_id=?1`, child)
-	if !strings.Contains(check(true), "Aucun contact d’urgence enregistré") {
+	if !strings.Contains(check(true), "Aucun contact d’urgence renseigné") {
 		t.Fatal("missing emergency status")
 	}
 	childContact := f.id(`INSERT INTO persons(first_name,last_name,phone_number) VALUES('Contact enfant','Autorisé','0622334455') RETURNING id`)
 	f.exec(`INSERT INTO person_emergency_contacts(person_id,contact_person_id,priority) VALUES(?1,?2,1)`, child, childContact)
-	if !strings.Contains(check(true), "Contact enfant Autorisé") {
-		t.Fatal("authorized child contact hidden")
-	}
+	check(true)
+	f.personalOK(b, personalChild(child), "Contact enfant Autorisé", "0622334455")
 	_, minor := f.personalBrowser(child, "minor")
 	minorBody := f.personalOK(minor, "/dashboard")
 	if strings.Contains(minorBody, "Contact enfant Autorisé") || strings.Contains(minorBody, `href="/me/emergency"`) {

@@ -159,7 +159,7 @@ func TestP43FamilyAccessAndPendingRequests(t *testing.T) {
 		t.Fatal(r.Code, r.Body.String())
 	}
 	sub := f.id(`SELECT max(submission_id) FROM registration_applications`)
-	body := f.personalOK(family, "/dashboard", "Nouvel enfant P43", "Demandes en cours", "en cours de traitement", "Le club examine vos demandes")
+	body := f.personalOK(family, "/dashboard", "Nouvel enfant P43", "À suivre", "En cours", "Demande reçue le")
 	for _, term := range []string{"candidate", "strong match", "weak match", "guardian claim", "identity unresolved", "needs_review", "person_id", "submission_id"} {
 		if strings.Contains(body, term) {
 			t.Fatal("matching leaked", term)
@@ -172,7 +172,7 @@ func TestP43FamilyAccessAndPendingRequests(t *testing.T) {
 	p43NoTechnicalLabels(t, officeOK(t, b, reviewPath(sub)))
 	f.must(f.app.RegistrationApplications.ConfirmGuardian(ctx, sub))
 	body = f.personalOK(family, "/dashboard", "Nouvel enfant P43")
-	if !strings.Contains(body, "Demandes en cours") || !strings.Contains(body, "Voir le dossier") {
+	if !strings.Contains(body, "À suivre") || !strings.Contains(body, "Voir le dossier") {
 		t.Fatal("membership pending must remain visible until approval")
 	}
 }

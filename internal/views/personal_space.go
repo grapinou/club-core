@@ -4,6 +4,9 @@ import (
 	"embed"
 	"html/template"
 	"io"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/grapinou/club-core/internal/personalspace"
 )
@@ -15,6 +18,15 @@ type PersonalMembershipView struct {
 	personalspace.Membership
 	ChildID int32
 }
+
+func (v PersonalMembershipView) ChildReturnLabel() string {
+	first, _ := utf8.DecodeRuneInString(v.ChildFirstName)
+	if strings.ContainsRune("aàâäeéèêëiîïoôöuùûüyÿ", unicode.ToLower(first)) {
+		return "Retour au dossier d’" + v.ChildFirstName
+	}
+	return "Retour au dossier de " + v.ChildFirstName
+}
+
 type PersonalPage struct {
 	SecurityData
 	SiteName, Title string

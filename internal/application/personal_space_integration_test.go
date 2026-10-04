@@ -67,8 +67,9 @@ func TestPersonalAccountOwnershipAndHistory(t *testing.T) {
 	f := newFixture(t)
 	f.exec(`UPDATE persons SET notes='SECRET_PERSON_NOTE',phone_number='0601020304' WHERE id=?1`, f.person)
 	user, b := f.personalBrowser(f.person, "member")
-	if strings.Contains(f.personalOK(b, "/dashboard"), "<h2>Mon adhésion</h2>") {
-		t.Fatal("empty personal membership block")
+	empty := f.personalOK(b, "/dashboard", "Mon dossier", "Aucune adhésion enregistrée.")
+	if strings.Contains(empty, `href="/me/memberships/`) {
+		t.Fatal("membership link without membership")
 	}
 	f.exec(`INSERT INTO user_roles(user_id,role_id) SELECT ?1,id FROM roles WHERE name='secretary'`, user)
 	f.personalOK(b, "/me/account", "Fonctions au club", "Secrétariat")
@@ -90,7 +91,7 @@ func TestPersonalAccountOwnershipAndHistory(t *testing.T) {
 			t.Fatal("anonymous", p, r.Code)
 		}
 	}
-	f.personalOK(b, "/me/account?person_id=999", "Rémi", "Dupont", "member", "remi@example.test", "0601020304", "Actif")
+	f.personalOK(b, "/me/account?person_id=999", "Rémi", "Dupont", "member", "remi@example.test", "0601020304", "Identifiant")
 	f.personalOK(b, "/dashboard", "Saison passée", personalMembership(history), personalMembership(m.ID), "Mon compte")
 	f.personalOK(b, personalMembership(m.ID), "En attente", "Practice", "Dossier complet", "Aucun consentement n’est enregistré", "Aucun groupe n’est actuellement associé")
 	f.personalOK(b, personalMembership(history), "Saison passée", "Terminée")
@@ -156,7 +157,7 @@ func TestPersonalFamilyAuthorizationPrivacyAndSnapshots(t *testing.T) {
 		t.Fatal("XSS")
 	}
 	f.exec(`INSERT INTO person_emergency_contacts(person_id,contact_person_id,priority) VALUES(?1,?2,1)`, child, other)
-	body = f.personalOK(b, personalChild(child), "Contact d’urgence enregistré", "SECRET_OTHER_CONTACT")
+	body = f.personalOK(b, personalChild(child), "Contacts d’urgence", "SECRET_OTHER_CONTACT")
 	if strings.Contains(body, "SECRET_OTHER_CONTACT@example.test") {
 		t.Fatal("emergency summary discloses unnecessary email")
 	}

@@ -1,17 +1,18 @@
 {{define "content"}}<div class="content-readable">
-<header class="page-header"><h1>Mon espace</h1><p>Bonjour {{.Name}}. Retrouvez les informations qui vous concernent.</p></header>
-{{if .PendingRequests}}<section class="section-panel" id="demandes-familiales"><h2>Demandes en cours</h2><p>Le club examine vos demandes.</p>{{range .PendingRequests}}<article><h3>{{.Name}}</h3><p>Demande reçue le {{.ReceivedAt}} — en cours de traitement</p>{{if .URL}}<a href="{{.URL}}">Voir le dossier</a>{{end}}</article>{{end}}</section>{{end}}
-{{if .Memberships}}<section class="section-panel"><h2>Mon adhésion</h2>
-{{with index .Memberships 0}}{{template "own-membership" .}}{{end}}
-{{if gt (len .Memberships) 1}}<details><summary>Historique de mes adhésions</summary>{{range $i,$m:=.Memberships}}{{if $i}}{{template "own-membership" $m}}{{end}}{{end}}</details>{{end}}</section>{{end}}
-{{if .Children}}<section class="section-panel"><h2>Mes enfants</h2><p><a class="btn btn-sm btn-outline-primary" href="/me/children/new">Ajouter un enfant</a></p>
-{{range .Children}}{{$childID:=.ID}}<article class="section-panel"><h3><a href="/me/children/{{.ID}}">{{.Name}}</a></h3>
-{{range .Actions}}<p>{{.Season}} · <a href="{{.URL}}">{{.Label}}</a></p>{{end}}
-{{with .Memberships}}{{with index . 0}}<p>{{.SeasonName}} · <span class="badge {{DisplayClass .Status}}">{{DisplayLabel .Status}}</span> · {{.MembershipTypeName}}</p><p>{{range $i,$a:=.Activities}}{{if $i}} · {{end}}{{$a}}{{end}}</p><p>Groupes : {{range $i,$g:=.Groups}}{{if $i}} · {{end}}{{$g}}{{else}}Aucun groupe affecté{{end}}</p><p><a href="/me/children/{{$childID}}/memberships/{{.ID}}#consentements">Consulter les consentements et l’adhésion</a></p>{{end}}{{else}}<p>Aucune adhésion enregistrée.</p>{{end}}
-<h4 class="h6">Contacts d’urgence</h4>{{range .EmergencyContacts}}<p>{{.FirstName}} {{.LastName}} · {{$.RelationLabel .RelationshipLabel.String}}{{if .PhoneNumber.Valid}} · {{.PhoneNumber.String}}{{end}}</p>{{else}}<p>Aucun contact d’urgence enregistré.</p>{{end}}<a href="/me/children/{{.ID}}/emergency">Gérer les contacts d’urgence</a></article>{{end}}</section>{{end}}
-<section class="section-panel"><h2>Compte</h2><p>Vos informations et la sécurité de votre compte.</p><a href="/me/account">Mon compte</a></section>
-{{if .CanManageEmergency}}<section class="section-panel"><h2>Contacts d’urgence</h2>
-{{range .EmergencyContacts}}<p>{{.FirstName}} {{.LastName}} · {{$.RelationLabel .RelationshipLabel.String}}{{if .PhoneNumber.Valid}} · {{.PhoneNumber.String}}{{end}}</p>{{else}}<p>Aucun contact d’urgence enregistré.</p>{{end}}
-<a href="/me/emergency">Gérer mes contacts d’urgence</a></section>{{end}}
+<header class="page-header"><h1>Mon espace</h1><p>Bonjour {{.FirstName}}.<br>Retrouvez ici votre dossier et ceux de votre famille.</p></header>
+{{if .PendingRequests}}<section class="section-panel" id="demandes-familiales"><h2>À suivre</h2>{{range .PendingRequests}}<article class="summary-row"><h3>{{.Name}}</h3><p>Demande reçue le {{.ReceivedAt}} · En cours</p>{{if .URL}}<a href="{{.URL}}">Voir le dossier</a>{{end}}</article>{{end}}</section>{{end}}
+<section class="section-panel" id="mon-dossier"><h2>Mon dossier</h2>
+{{with .Memberships}}{{with index . 0}}{{template "own-membership" .}}{{end}}{{else}}<p>Aucune adhésion enregistrée.</p>{{end}}
+{{if .CanManageEmergency}}<div class="summary-row">{{template "emergency-summary" (len .EmergencyContacts)}}<a href="/me/emergency">Gérer mes contacts d’urgence</a></div>{{end}}
+{{if gt (len .Memberships) 1}}<details><summary>Historique de mes adhésions</summary>{{range $i,$m:=.Memberships}}{{if $i}}{{template "own-membership" $m}}{{end}}{{end}}</details>{{end}}</section>
+{{if .Children}}<section class="section-panel" id="ma-famille"><div class="section-heading account-section-heading"><h2>Ma famille</h2><a class="btn btn-sm btn-outline-primary" href="/me/children/new">Ajouter un enfant</a></div>
+{{range .Children}}<article class="summary-row"><h3>{{.Name}}</h3>
+{{with .Memberships}}{{with index . 0}}<p>{{.SeasonName}} · {{.MembershipTypeName}} · <span class="badge {{DisplayClass .Status}}">{{DisplayLabel .Status}}</span></p>
+<p>{{range $i,$a:=.Activities}}{{if $i}} · {{end}}{{$a}}{{end}}</p><p>{{range $i,$g:=.Groups}}{{if $i}} · {{end}}{{$g}}{{else}}Aucun groupe affecté{{end}}</p>{{end}}{{else}}<p>Aucune adhésion enregistrée.</p>{{end}}
+{{template "emergency-summary" (len .EmergencyContacts)}}
+<div class="actions"><a href="/me/children/{{.ID}}">Voir son dossier</a>{{range $.ChildActions .}}<a href="{{.URL}}">{{.Label}} · {{.Season}}</a>{{end}}</div>
+</article>{{end}}</section>{{end}}
+<section class="section-panel"><h2>Mon compte</h2><p>Identité, coordonnées et sécurité.</p><a href="/me/account">Gérer mon compte</a></section>
 </div>{{end}}
-{{define "own-membership"}}<article class="mb-3"><h3>{{.SeasonName}} <span class="badge {{DisplayClass .Status}}">{{DisplayLabel .Status}}</span></h3><p>{{.MembershipTypeName}}</p><p>{{range $i,$a:=.Activities}}{{if $i}} · {{end}}{{$a}}{{end}}</p><p>Groupes : {{range $i,$g:=.Groups}}{{if $i}} · {{end}}{{$g}}{{else}}Aucun groupe affecté{{end}}</p><a href="/me/memberships/{{.ID}}">Consulter mon adhésion</a></article>{{end}}
+{{define "own-membership"}}<article class="summary-row"><div class="section-heading"><h3>{{.SeasonName}}</h3><span class="badge {{DisplayClass .Status}}">{{DisplayLabel .Status}}</span></div><p>{{.MembershipTypeName}}</p><p>{{range $i,$a:=.Activities}}{{if $i}} · {{end}}{{$a}}{{end}}</p><p>{{range $i,$g:=.Groups}}{{if $i}} · {{end}}{{$g}}{{else}}Aucun groupe affecté{{end}}</p><a href="/me/memberships/{{.ID}}">Voir mon adhésion</a></article>{{end}}
+{{define "emergency-summary"}}<p>{{if eq . 0}}Aucun contact d’urgence renseigné{{else if eq . 1}}Contact d’urgence : renseigné{{else}}Contacts d’urgence : {{.}} renseignés{{end}}</p>{{end}}
