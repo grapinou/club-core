@@ -80,3 +80,34 @@ func TestSessionLifecycle(t *testing.T) {
 		t.Fatal("forged session")
 	}
 }
+
+func TestRevokeAccountIncludesUnboundSessions(t *testing.T) {
+	s := NewSessions(true)
+	var requests []*http.Request
+	for _, tc := range []struct {
+		id    int32
+		bound bool
+	}{{42, false}, {42, true}, {43, false}} {
+		r := httptest.NewRequest("GET", "https://club.example.test/", nil)
+		w := httptest.NewRecorder()
+		var err error
+		if tc.bound {
+			err = s.CreateAuthenticated(w, r, tc.id, [32]byte{1})
+		} else {
+			err = s.Create(w, r, tc.id)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.AddCookie(w.Result().Cookies()[0])
+		requests = append(requests, r)
+	}
+	s.RevokeAccount(42)
+	for i, r := range requests {
+		_, ok := s.UserID(r)
+		if ok != (i == 2) {
+			t.Fatal("account revocation", i, ok)
+		}
+	}
+	s.RevokeAccount(42)
+}

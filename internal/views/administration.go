@@ -36,6 +36,7 @@ type AdministrativeView struct {
 	Search, NextURL, PreviousURL         string
 	More, CanManageMemberships           bool
 	TrialManagement                      bool
+	CanResetPassword                     bool
 	Home                                 administration.Home
 	People                               []dbsqlc.SearchAdministrativePersonsRow
 	RepeatPeople                         []dbsqlc.RepeatTrialPersonsRow

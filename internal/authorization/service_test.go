@@ -67,3 +67,13 @@ func TestNoCacheAndDatabaseFailure(t *testing.T) {
 		t.Fatal(r.calls)
 	}
 }
+
+func TestPasswordResetPermission(t *testing.T) {
+	for _, role := range []string{"president", "secretary", "treasurer", "coach", "member", ""} {
+		s := New(&reader{roles: []dbsqlc.Role{{Name: role}}})
+		ok, err := s.HasPermission(t.Context(), 1, PasswordReset)
+		if err != nil || ok != (role == "president" || role == "secretary") {
+			t.Fatal(role, ok, err)
+		}
+	}
+}

@@ -23,6 +23,18 @@ type Sessions struct {
 	now     func() time.Time
 }
 
+// RevokeAccount removes every local session, including legacy sessions without
+// a credential fingerprint. Password-bound late logins are checked by Middleware.
+func (s *Sessions) RevokeAccount(userID int32) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for token, entry := range s.entries {
+		if entry.userID == userID {
+			delete(s.entries, token)
+		}
+	}
+}
+
 func NewSessions(secure bool) *Sessions {
 	return &Sessions{entries: make(map[[32]byte]session), secure: secure, now: time.Now}
 }

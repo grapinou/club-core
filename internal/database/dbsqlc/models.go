@@ -450,6 +450,17 @@ type UserEmailChangeRequest struct {
 	CreatedAt          dbtypes.Timestamp
 }
 
+type UserPasswordResetRequest struct {
+	ID                int32
+	UserID            int32
+	RequestedByUserID sql.NullInt32
+	TokenHash         []byte
+	CreatedAt         dbtypes.Timestamp
+	ExpiresAt         dbtypes.Timestamp
+	UsedAt            dbtypes.Timestamp
+	InvalidatedAt     dbtypes.Timestamp
+}
+
 type UserRole struct {
 	UserID int32
 	RoleID int32

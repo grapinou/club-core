@@ -17,6 +17,7 @@ const (
 	MembershipsRead     Permission = "memberships.read"
 	MembershipsApprove  Permission = "memberships.approve"
 	ActivationResend    Permission = "activation.resend"
+	PasswordReset       Permission = "password.reset"
 	RegistrationsReview Permission = "registrations.review"
 	RolesRead           Permission = "roles.read"
 	RolesManage         Permission = "roles.manage"
@@ -25,8 +26,8 @@ const (
 
 var ErrForbidden = errors.New("permission denied")
 var policy = map[string][]Permission{
-	"president": {PersonsRead, PersonsWrite, MembershipsRead, MembershipsApprove, ActivationResend, RegistrationsReview, RolesRead, RolesManage, ClubConfigure},
-	"secretary": {PersonsRead, PersonsWrite, MembershipsRead, MembershipsApprove, ActivationResend, RegistrationsReview},
+	"president": {PersonsRead, PersonsWrite, MembershipsRead, MembershipsApprove, ActivationResend, PasswordReset, RegistrationsReview, RolesRead, RolesManage, ClubConfigure},
+	"secretary": {PersonsRead, PersonsWrite, MembershipsRead, MembershipsApprove, ActivationResend, PasswordReset, RegistrationsReview},
 	"treasurer": {},
 	"coach":     {},
 }

@@ -270,7 +270,10 @@ func (s *SelfService) ChangePassword(ctx context.Context, current, password, con
 	if err = q.UpdateSelfServicePassword(ctx, dbsqlc.UpdateSelfServicePasswordParams{ID: u.ID, PasswordHash: sql.NullString{String: string(hash), Valid: true}}); err != nil {
 		return zero, err
 	}
-	// A pending channel replacement must not survive a password security change.
+	// Recovery links and pending channel replacements cannot survive a password change.
+	if err = q.InvalidatePasswordResets(ctx, u.ID); err != nil {
+		return zero, err
+	}
 	if err = q.InvalidateEmailChanges(ctx, u.ID); err != nil {
 		return zero, err
 	}

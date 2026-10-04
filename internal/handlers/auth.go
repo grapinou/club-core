@@ -77,6 +77,9 @@ func (h *AuthHandler) getLogin(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("activated") == "1" {
 		message = "Votre compte est activé. Vous pouvez maintenant vous connecter."
 	}
+	if r.URL.Query().Get("password_reset") == "1" {
+		message = "Votre mot de passe a été modifié. Vous pouvez maintenant vous connecter."
+	}
 	if r.URL.Query().Get("error") == "1" {
 		message = "Identifiant ou mot de passe incorrect."
 	}

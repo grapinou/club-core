@@ -26,6 +26,7 @@ import (
 	"github.com/grapinou/club-core/internal/minorsafety"
 	"github.com/grapinou/club-core/internal/organization"
 	"github.com/grapinou/club-core/internal/outbox"
+	"github.com/grapinou/club-core/internal/passwordreset"
 	"github.com/grapinou/club-core/internal/personalspace"
 	"github.com/grapinou/club-core/internal/registrationapplications"
 	"github.com/grapinou/club-core/internal/router"
@@ -39,6 +40,7 @@ type Application struct {
 	Organization             *organization.Service
 	Administration           *administration.Service
 	SelfService              *accounts.SelfService
+	PasswordReset            *passwordreset.Service
 	IdentityCorrections      *identitycorrections.Service
 	GuardianAccess           *guardianaccess.Service
 	MinorSafety              *minorsafety.Service
@@ -126,6 +128,12 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *sql.DB, sender
 	}
 	selfService := accounts.NewSelfService(db, sender, runtime.SMTP.From, ttl)
 	handlers.RegisterSelfServiceAccount(mux, cfg.SiteName, selfService, personal, sessions, csrf)
+	resetTTL := runtime.PasswordResetTTL
+	if resetTTL == 0 {
+		resetTTL = config.DefaultPasswordResetTTL
+	}
+	reset := passwordreset.New(db, sender, sessions, runtime.SMTP.From, runtime.BaseURL, resetTTL)
+	handlers.NewPasswordResetHandler(cfg.SiteName, reset).Register(mux, access, csrf)
 	handlers.NewMembershipHandler(cfg.SiteName, runtime.Location, m, accountService, queries, permissions).Register(mux, access, csrf)
 	corrections := identitycorrections.New(db, runtime.Location)
 	handlers.RegisterIdentityCorrections(mux, cfg.SiteName, corrections, runtime.Location, access, csrf)
@@ -137,6 +145,7 @@ func NewWithMailer(cfg config.Config, runtime config.Runtime, db *sql.DB, sender
 		Organization:             publicClub,
 		Administration:           office,
 		SelfService:              selfService,
+		PasswordReset:            reset,
 		IdentityCorrections:      corrections,
 		GuardianAccess:           guardians,
 		MinorSafety:              minorsafety.New(db, runtime.Location),

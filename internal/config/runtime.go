@@ -14,8 +14,10 @@ import (
 
 const DefaultRegistrationVerificationTTL = time.Hour
 const DefaultEmailChangeTTL = time.Hour
+const DefaultPasswordResetTTL = 30 * time.Minute
 
 type Runtime struct {
+	PasswordResetTTL            time.Duration
 	EmailChangeTTL              time.Duration
 	RegistrationVerificationTTL time.Duration
 	BaseURL                     string
@@ -62,6 +64,13 @@ func loadRuntime(env func(string) string) (Runtime, error) {
 		c.EmailChangeTTL, err = time.ParseDuration(raw)
 		if err != nil || c.EmailChangeTTL <= 0 {
 			return c, errors.New("invalid EMAIL_CHANGE_TTL")
+		}
+	}
+	c.PasswordResetTTL = DefaultPasswordResetTTL
+	if raw := env("PASSWORD_RESET_TTL"); raw != "" {
+		c.PasswordResetTTL, err = time.ParseDuration(raw)
+		if err != nil || c.PasswordResetTTL <= 0 {
+			return c, errors.New("invalid PASSWORD_RESET_TTL")
 		}
 	}
 	c.RegistrationVerificationTTL = DefaultRegistrationVerificationTTL

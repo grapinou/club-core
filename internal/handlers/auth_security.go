@@ -32,6 +32,11 @@ func NewRegistrationSubmissionLimiter() *AttemptLimiter {
 	return &AttemptLimiter{ips: map[string]attemptWindow{}, now: time.Now, perIP: 5, globalLimit: 60}
 }
 
+// Recovery has its own budget; exhausting it cannot block login or activation.
+func NewPasswordRecoveryLimiter() *AttemptLimiter {
+	return &AttemptLimiter{ips: map[string]attemptWindow{}, now: time.Now, perIP: 5, globalLimit: 60}
+}
+
 // AllowRequest deliberately trusts only the direct peer, never forwarded headers.
 func (l *AttemptLimiter) AllowRequest(r *http.Request) bool { return l.Allow(r.RemoteAddr) }
 func (l *AttemptLimiter) Allow(remote string) bool {

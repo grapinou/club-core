@@ -39,11 +39,28 @@ func NewAdministrativeHandler(site string, s *administration.Service, p Permissi
 func (h *AdministrativeHandler) base(r *http.Request, mode string) views.AdministrativeView {
 	id, _ := auth.UserID(r.Context())
 	write, _ := h.p.HasPermission(r.Context(), id, authorization.MembershipsApprove)
+	reset, _ := h.p.HasPermission(r.Context(), id, authorization.PasswordReset)
 	title := map[string]string{"home": "Mon tableau de bord", "people": "Annuaire", "person": "Coordonnées et parcours", "trials": "Essais", "trial": "Dossier d’essai", "trial-form": "Programmer un essai", "trial-person": "Programmer un essai", "trial-repeat": "Refaire un essai", "membership-new": "Demander une adhésion", "membership-person": "Créer une adhésion", "membership-groups": "Groupes de l’adhésion", "membership-notes": "Notes de l’adhésion"}[mode]
-	return views.AdministrativeView{SecurityData: pageSecurity(r), SiteName: h.site, Title: title + " - " + h.site, Mode: mode, Today: h.s.Today(), Form: url.Values{}, CanManageMemberships: write}
+	return views.AdministrativeView{SecurityData: pageSecurity(r), SiteName: h.site, Title: title + " - " + h.site, Mode: mode, Today: h.s.Today(), Form: url.Values{}, CanManageMemberships: write, CanResetPassword: reset}
 }
 func (h *AdministrativeHandler) render(w http.ResponseWriter, r *http.Request, v views.AdministrativeView, err error) {
 	status := 200
+	if v.Mode == "person" && v.CanResetPassword && err == nil {
+		switch r.URL.Query().Get("password_reset") {
+		case "sent":
+			v.Notice = "Le lien de réinitialisation a été envoyé."
+		case "no_channel":
+			v.Error = "Aucun email utilisable n’est disponible pour envoyer le lien de réinitialisation. Vérifiez les coordonnées de la personne ou de ses responsables."
+		case "send_failed":
+			v.Error = "L’email n’a pas pu être envoyé. Le lien de réinitialisation n’est pas utilisable ; réessayez plus tard."
+		case "limited":
+			v.Error = "Le nombre maximal de demandes pour ce compte a été atteint. Réessayez dans une heure."
+		case "ineligible":
+			v.Error = "Ce compte ne peut pas recevoir de réinitialisation. Un compte à activer doit suivre le parcours d’activation."
+		case "unavailable":
+			v.Error = "La réinitialisation est temporairement indisponible."
+		}
+	}
 	if err != nil {
 		var dbErr *sqlite.Error
 		var quota *trials.QuotaExceededError
